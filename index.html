@@ -197,6 +197,7 @@
   .usrow.editing{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
   .usempty{font-size:12.5px;color:var(--faint)}
   .io-area{width:100%;min-height:80px;font-family:"IBM Plex Mono",monospace;font-size:11px;border:1px solid var(--hair);border-radius:8px;background:var(--surface-2);color:var(--ink);padding:8px;margin-top:8px;resize:vertical}
+  select{font:inherit;font-size:12px;padding:5px 7px;border:1px solid var(--hair);border-radius:6px;background:var(--surface);color:var(--ink);width:100%}
 
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(8px);background:var(--ink);color:var(--ground);font-size:13px;padding:9px 16px;border-radius:999px;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:20}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -336,6 +337,54 @@
           <button class="btn primary" id="f-save">Save snapshot</button>
         </div>
         <div class="frm-note" id="f-note"></div>
+      </div>
+
+      <div class="addcard">
+        <h3>Register transaction</h3>
+        <p class="hint">Buy or sell a holding. Currency conversion to EUR is applied at transaction time. A snapshot is automatically created from your last recorded state + this transaction.</p>
+        <div class="dt-row">
+          <input type="date" id="tx-date" aria-label="Date">
+          <input type="time" id="tx-time" value="12:00" aria-label="Time">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+          <div style="display:flex;flex-direction:column">
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Ticker</label>
+            <input type="text" id="tx-ticker" placeholder="e.g. TSLA" style="font-size:12px">
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Qty</label>
+            <input type="number" id="tx-qty" placeholder="10" step="0.01" style="font-size:12px">
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Amount</label>
+            <input type="number" id="tx-amount" placeholder="1000" step="0.01" style="font-size:12px">
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Currency</label>
+            <select id="tx-currency" style="font-size:12px">
+              <option value="EUR">EUR</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+        </div>
+        <div id="tx-rate-row" hidden style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div style="display:flex;flex-direction:column">
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Exchange rate (1 USD = ? EUR)</label>
+            <input type="number" id="tx-rate" placeholder="0.92" step="0.001" style="font-size:12px">
+          </div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="tx-type-buy" aria-pressed="true" style="flex:1">Buy</button>
+          <button class="btn" id="tx-type-sell" aria-pressed="false" style="flex:1">Sell</button>
+          <button class="btn primary" id="tx-save" style="flex:1">Register</button>
+        </div>
+        <div class="frm-note" id="tx-note"></div>
+      </div>
+
+      <div class="addcard">
+        <h3>Your transactions <span id="tx-count" style="color:var(--faint);font-weight:400"></span></h3>
+        <p class="hint">Automatically synced to server. Each transaction creates a derived snapshot.</p>
+        <div class="uslist" id="tx-list"></div>
       </div>
 
       <div class="addcard">
@@ -1223,9 +1272,123 @@
     userEntries=[]; saveUser(); rebuild(); ioArea.hidden=true; toast("Cleared");
   });
 
+  /* ================= transactions ================= */
+  var transactions=[], txType="buy";
+
+  function loadTransactions(){
+    fetch("/api/transactions").then(function(r){return r.json();}).then(function(d){
+      transactions=d.transactions||[];
+      renderTransactionList();
+    }).catch(function(e){ console.error("Failed to load transactions:",e); });
+  }
+
+  function renderTransactionList(){
+    var list=document.getElementById("tx-list"), cnt=document.getElementById("tx-count");
+    cnt.textContent=transactions.length?"("+transactions.length+")":"";
+    if(!transactions.length){ list.innerHTML='<div class="usempty">None yet. Register one above.</div>'; return; }
+    list.innerHTML="";
+    transactions.slice().sort(function(a,b){return b.ts-a.ts;}).forEach(function(tx){
+      var amtStr=tx.currency==="USD"?tx.amount+" USD → ":"€";
+      var row=document.createElement("div"); row.className="usrow";
+      row.innerHTML='<span class="ud">'+stampLabel(tx.ts)+'</span><span class="um">'+tx.ticker+'</span><span class="um">'+tx.quantity+' qty</span><span class="um">'+amtStr+'€'+nfEur2.format(tx.amountEUR)+'</span>'+
+        '<button class="ux" title="Delete" aria-label="Delete transaction">×</button>';
+      row.querySelector(".ux").addEventListener("click",function(){
+        fetch("/api/transactions/"+tx.id,{method:"DELETE"}).then(function(){
+          transactions=transactions.filter(function(t){return t.id!==tx.id;});
+          rebuild(); renderTransactionList();
+          toast("Transaction removed");
+        });
+      });
+      list.appendChild(row);
+    });
+  }
+
+  document.getElementById("tx-currency").addEventListener("change",function(e){
+    document.getElementById("tx-rate-row").hidden=(e.target.value==="EUR");
+  });
+
+  document.getElementById("tx-type-buy").addEventListener("click",function(){
+    txType="buy";
+    document.getElementById("tx-type-buy").setAttribute("aria-pressed","true");
+    document.getElementById("tx-type-sell").setAttribute("aria-pressed","false");
+  });
+
+  document.getElementById("tx-type-sell").addEventListener("click",function(){
+    txType="sell";
+    document.getElementById("tx-type-sell").setAttribute("aria-pressed","true");
+    document.getElementById("tx-type-buy").setAttribute("aria-pressed","false");
+  });
+
+  document.getElementById("tx-save").addEventListener("click",function(){
+    var nt=document.getElementById("tx-note"); nt.className="frm-note";
+    var dv=document.getElementById("tx-date").value, tv=document.getElementById("tx-time").value||"12:00";
+    if(!dv){ nt.textContent="Pick a date."; return; }
+    var ts=new Date(dv+"T"+tv).getTime();
+    if(isNaN(ts)){ nt.textContent="Invalid date/time."; return; }
+
+    var ticker=(document.getElementById("tx-ticker").value||"").toUpperCase().trim();
+    var qty=parseFloat(document.getElementById("tx-qty").value);
+    var amount=parseFloat(document.getElementById("tx-amount").value);
+    var currency=document.getElementById("tx-currency").value;
+
+    if(!ticker){ nt.textContent="Enter a ticker."; return; }
+    if(!(qty>0)){ nt.textContent="Quantity must be > 0."; return; }
+    if(!(amount>0)){ nt.textContent="Amount must be > 0."; return; }
+
+    var amountEUR=amount;
+    if(currency==="USD"){
+      var rate=parseFloat(document.getElementById("tx-rate").value);
+      if(!(rate>0)){ nt.textContent="Enter exchange rate."; return; }
+      amountEUR=Math.round(amount*rate*100)/100;
+    }
+
+    var lastSnap=entries[entries.length-1];
+    var lastPos={};
+    if(lastSnap){
+      lastSnap.pos.forEach(function(p){ lastPos[p.name]={qty:p.qty||0, amount:p.amount||0}; });
+    }
+
+    var buyingSelling=txType==="buy"?1:-1;
+    var newQty=(lastPos[ticker]?lastPos[ticker].qty:0)+(qty*buyingSelling);
+    var newAmount=(lastPos[ticker]?lastPos[ticker].amount:0)+(amountEUR*buyingSelling);
+
+    var pos=[];
+    for(var k in lastPos){
+      if(k===ticker) continue;
+      if(lastPos[k].amount>0) pos.push({name:k, qty:lastPos[k].qty, amount:lastPos[k].amount, rent:null});
+    }
+    if(newAmount>0.01){
+      pos.push({name:ticker, qty:newQty, amount:newAmount, rent:null});
+    }
+
+    var derivedSnap={id:"tx-"+ts+"-"+Math.random().toString(36).slice(2,6), ts:ts, src:"transaction", pos:pos};
+    userEntries.push(derivedSnap);
+    saveUser();
+
+    var txRecord={ts:ts, ticker:ticker, quantity:qty, amount:amount, currency:currency, amountEUR:amountEUR, type:txType};
+    fetch("/api/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(txRecord)}).then(function(r){
+      return r.json();
+    }).then(function(d){
+      transactions.push(d.transaction);
+      rebuild();
+      renderTransactionList();
+      nt.textContent=""; nt.className="frm-note ok";
+      nt.textContent=txType.charAt(0).toUpperCase()+txType.slice(1)+" "+qty+" "+ticker+" for €"+nfEur2.format(amountEUR);
+      document.getElementById("tx-ticker").value="";
+      document.getElementById("tx-qty").value="";
+      document.getElementById("tx-amount").value="";
+      document.getElementById("tx-rate").value="";
+      toast(txType.charAt(0).toUpperCase()+txType.slice(1)+" "+qty+" "+ticker);
+    }).catch(function(e){
+      nt.className="frm-note err";
+      nt.textContent="Server error: "+e.message;
+    });
+  });
+
   /* ================= go ================= */
   rebuild();
   resetForm();
+  loadTransactions();
 })();
 </script>
 </body>
