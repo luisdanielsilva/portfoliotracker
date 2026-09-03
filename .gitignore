@@ -10,8 +10,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Database backups
+# Database backups and legacy files
 *.backup
+data.json
 data.json.backup
 
 # Logs
