@@ -1365,13 +1365,13 @@
     var derivedSnap={id:"tx-"+ts+"-"+Math.random().toString(36).slice(2,6), ts:ts, src:"transaction", pos:pos};
     userEntries.push(derivedSnap);
     saveUser();
+    rebuild();
 
     var txRecord={ts:ts, ticker:ticker, quantity:qty, amount:amount, currency:currency, amountEUR:amountEUR, type:txType};
     fetch("/portfoliotracker/api/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(txRecord)}).then(function(r){
       return r.json();
     }).then(function(d){
       transactions.push(d.transaction);
-      rebuild();
       renderTransactionList();
       nt.textContent=""; nt.className="frm-note ok";
       nt.textContent=txType.charAt(0).toUpperCase()+txType.slice(1)+" "+qty+" "+ticker+" for €"+nfEur2.format(amountEUR);
