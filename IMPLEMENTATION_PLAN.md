@@ -1,8 +1,9 @@
 # Portfolio Tracker — Detailed Implementation Plan
 
-**Date:** September 3, 2026  
+**Date:** September 4, 2026  
 **Duration:** ~4 weeks (6 phases)  
-**Approach:** Evolve existing codebase; keep HTML/Node.js frontend; add MySQL backend; deploy directly to VPS
+**Approach:** Evolve existing codebase; keep HTML/Node.js frontend; add SQLite backend; deploy directly to VPS  
+**Database:** SQLite (file-based, no server needed)
 
 ---
 
@@ -18,12 +19,13 @@
 
 ### Target Architecture
 - Keep HTML/CSS/JS frontend unchanged initially (it's complex; don't risk breaking it)
-- Backend: swap file I/O for MySQL queries
+- Backend: swap file I/O for SQLite queries (file-based, no server installation needed)
 - Add compute layer for snapshots (on-the-fly from transactions + prices)
 - Price fetching: standalone Node.js script, scheduled via systemd timer or cron
 - Alerts: stored in DB, evaluated during price fetch, email delivery
 - Multi-user: add user table, auth context (start simple: JWT or API keys)
 - Multi-currency: store transaction currency, convert to EUR at save time (or keep both)
+- SQLite advantages: no DB server, lightweight, perfect for MVP, entire DB is one file (data.db)
 
 ### Key Architectural Decisions
 1. **No snapshots table**: Snapshots are computed views (current state + transaction history)
@@ -39,17 +41,17 @@
 ### PHASE 1: Database Foundation & Migration (Days 1–4)
 
 **Objectives:**
-- Install MySQL; create schema
-- Migrate transactions from data.json to DB
-- Swap server.js file I/O for SQL queries
+- Initialize SQLite database with schema
+- Migrate transactions from data.json to SQLite
+- Swap server.js file I/O for SQLite queries
 - Validate data integrity
 
 **Mini-tasks:**
 
-1. **Install MySQL & create database** (0.5 day)
-   - `sudo apt-get install mysql-server` on VPS
-   - Create `portfoliotracker_db`, verify connectivity from Node.js
-   - User: `portfoliotracker` (password stored in .env)
+1. **Install SQLite & initialize database** (0.5 day)
+   - Install `better-sqlite3` npm package (synchronous SQLite driver)
+   - Create `data.db` file in project root
+   - Schema auto-initialized on first server start
 
 2. **Design schema** (0.5 day)
    - `users` table (id, email, api_key, created_at)
@@ -555,28 +557,24 @@ app.get('/api/transactions', async (req, res) => {
 
 ### Phase 1:
 ```bash
-# On VPS:
-sudo apt-get update && sudo apt-get install mysql-server
+# SQLite setup is automatic — no server installation needed!
 
-# Create DB and user:
-mysql -u root -p <<EOF
-CREATE DATABASE portfoliotracker_db;
-CREATE USER 'portfoliotracker'@'localhost' IDENTIFIED BY 'strong_password';
-GRANT ALL PRIVILEGES ON portfoliotracker_db.* TO 'portfoliotracker'@'localhost';
-FLUSH PRIVILEGES;
-EOF
+# Install dependencies:
+npm install better-sqlite3
 
-# On local machine:
-npm install mysql2
-# Add .env with DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
-# Commit .env.example (no secrets)
-git add server.js package.json migrate.js .env.example
-git commit -m "Add MySQL backend"
+# Create .env with SQLite path:
+echo "DB_PATH=./data.db" >> .env
+
+# The schema is auto-initialized on first server start
+
+# Commit code changes:
+git add server.js package.json migrate.js schema.sqlite.sql .env.example
+git commit -m "Add SQLite backend"
 
 # Deploy:
 ./deploy.sh
 
-# Run migration:
+# Optional: run migration to populate from data.json:
 node migrate.js
 ```
 

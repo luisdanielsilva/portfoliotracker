@@ -1,25 +1,19 @@
 #!/usr/bin/env node
 /**
- * migrate.js — migrate transactions from data.json to MySQL
+ * migrate.js — migrate transactions from data.json to SQLite
  * Usage: node migrate.js
  */
 
 const fs = require('fs');
 const path = require('path');
-const mysql = require('mysql2/promise');
+const Database = require('better-sqlite3');
 
 const DATA_FILE = path.join(__dirname, 'data.json');
+const DB_FILE = path.join(__dirname, 'data.db');
 const BACKUP_FILE = path.join(__dirname, 'data.json.backup');
 
-const DB_CONFIG = {
-  host: process.env.DB_HOST || '127.0.0.1',
-  user: process.env.DB_USER || 'portfoliotracker',
-  password: process.env.DB_PASSWORD || 'portfolio_secure_pwd_2026',
-  database: process.env.DB_NAME || 'portfoliotracker_db',
-};
-
 async function migrate() {
-  console.log('📦 Starting migration: data.json → MySQL\n');
+  console.log('📦 Starting migration: data.json → SQLite\n');
 
   // Step 1: Read data.json
   console.log('Step 1: Reading data.json...');
@@ -49,42 +43,58 @@ async function migrate() {
     console.log('ℹ Backup already exists, skipping\n');
   }
 
-  // Step 3: Connect to MySQL
-  console.log('Step 3: Connecting to MySQL...');
-  let conn;
+  // Step 3: Connect to SQLite
+  console.log('Step 3: Initializing SQLite database...');
+  let db;
   try {
-    const pool = mysql.createPool(DB_CONFIG);
-    conn = await pool.getConnection();
-    console.log('✓ Connected to MySQL\n');
+    db = new Database(DB_FILE);
+    db.pragma('foreign_keys = ON');
+
+    // Initialize schema
+    const schema = fs.readFileSync(path.join(__dirname, 'schema.sqlite.sql'), 'utf-8');
+    db.exec(schema);
+
+    console.log('✓ SQLite database ready\n');
   } catch (err) {
-    console.error('❌ Failed to connect to MySQL:', err.message);
-    console.error('   Check your .env file and MySQL credentials');
+    console.error('❌ Failed to initialize SQLite:', err.message);
     process.exit(1);
   }
 
-  // Step 4: Insert transactions
-  console.log('Step 4: Inserting transactions...');
+  // Step 4: Insert default user if not exists
+  console.log('Step 4: Ensuring default user exists...');
+  const userStmt = db.prepare('SELECT id FROM users WHERE id = 1');
+  if (!userStmt.get()) {
+    const insertUser = db.prepare(
+      'INSERT INTO users (id, email, api_key) VALUES (?, ?, ?)'
+    );
+    insertUser.run(1, 'default@portfoliotracker.local', 'sk_default_phase1_test');
+    console.log('✓ Default user created\n');
+  } else {
+    console.log('✓ Default user already exists\n');
+  }
+
+  // Step 5: Insert transactions
+  console.log('Step 5: Inserting transactions...');
+  const insertStmt = db.prepare(`
+    INSERT INTO transactions
+    (user_id, ticker, quantity, amount_eur, currency, exchange_rate, tx_type, ts)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
   let inserted = 0;
   let errors = 0;
 
   for (const tx of transactions) {
     try {
-      // Map old format to new schema
-      const result = await conn.execute(
-        `INSERT INTO transactions
-         (user_id, ticker, quantity, amount_eur, currency, exchange_rate, tx_type, ts, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?/1000))`,
-        [
-          1, // user_id = default user
-          tx.ticker || 'UNKNOWN',
-          tx.quantity || 0,
-          tx.amountEUR || tx.amount || 0,
-          tx.currency || 'EUR',
-          tx.exchangeRate || 1.0,
-          tx.type || 'buy',
-          tx.ts || Date.now(),
-          tx.ts || Date.now(),
-        ]
+      insertStmt.run(
+        1, // user_id = default user
+        tx.ticker || 'UNKNOWN',
+        tx.quantity || 0,
+        tx.amountEUR || tx.amount || 0,
+        tx.currency || 'EUR',
+        tx.exchangeRate || 1.0,
+        tx.type || 'buy',
+        tx.ts || Date.now()
       );
       inserted++;
     } catch (err) {
@@ -100,12 +110,14 @@ async function migrate() {
     console.log();
   }
 
-  // Step 5: Verify
-  console.log('Step 5: Verifying migration...');
+  // Step 6: Verify
+  console.log('Step 6: Verifying migration...');
   try {
-    const [rows] = await conn.execute('SELECT COUNT(*) as count FROM transactions WHERE user_id = 1');
-    const dbCount = rows[0].count;
-    console.log(`  MySQL count: ${dbCount}`);
+    const countStmt = db.prepare('SELECT COUNT(*) as count FROM transactions WHERE user_id = 1');
+    const result = countStmt.get();
+    const dbCount = result.count;
+
+    console.log(`  SQLite count: ${dbCount}`);
     console.log(`  data.json count: ${transactions.length}`);
 
     if (dbCount === transactions.length) {
@@ -115,31 +127,36 @@ async function migrate() {
     }
 
     // Show sample
-    const [sample] = await conn.execute(
+    const sampleStmt = db.prepare(
       'SELECT id, ticker, quantity, amount_eur, tx_type, created_at FROM transactions WHERE user_id = 1 LIMIT 3'
     );
-    console.log('Sample transactions:');
-    sample.forEach((tx, i) => {
-      console.log(
-        `  ${i + 1}. ${tx.ticker} x${tx.quantity} @ €${tx.amount_eur} (${tx.tx_type}) - ${tx.id}`
-      );
-    });
-    console.log();
+    const sample = sampleStmt.all();
+
+    if (sample.length > 0) {
+      console.log('Sample transactions:');
+      sample.forEach((tx, i) => {
+        console.log(
+          `  ${i + 1}. ${tx.ticker} x${tx.quantity} @ €${tx.amount_eur} (${tx.tx_type}) - ID:${tx.id}`
+        );
+      });
+      console.log();
+    }
   } catch (err) {
     console.error('❌ Verification failed:', err.message);
   }
 
   // Done
+  db.close();
+
   console.log('═══════════════════════════════════════════');
   console.log('✅ Migration complete!');
   console.log('═══════════════════════════════════════════\n');
   console.log('Next steps:');
-  console.log('1. Update server.js to use MySQL (already done)');
-  console.log('2. npm install mysql2');
-  console.log('3. Create .env with DB credentials');
+  console.log('1. Update package.json with sqlite3 dependency (done)');
+  console.log('2. npm install');
+  console.log('3. Update .env with DB_PATH setting');
   console.log('4. Restart server: npm start\n');
 
-  conn.release();
   process.exit(0);
 }
 
