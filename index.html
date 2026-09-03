@@ -1276,7 +1276,7 @@
   var transactions=[], txType="buy";
 
   function loadTransactions(){
-    fetch("/api/transactions").then(function(r){return r.json();}).then(function(d){
+    fetch("/portfoliotracker/api/transactions").then(function(r){return r.json();}).then(function(d){
       transactions=d.transactions||[];
       renderTransactionList();
     }).catch(function(e){ console.error("Failed to load transactions:",e); });
@@ -1293,7 +1293,7 @@
       row.innerHTML='<span class="ud">'+stampLabel(tx.ts)+'</span><span class="um">'+tx.ticker+'</span><span class="um">'+tx.quantity+' qty</span><span class="um">'+amtStr+'€'+nfEur2.format(tx.amountEUR)+'</span>'+
         '<button class="ux" title="Delete" aria-label="Delete transaction">×</button>';
       row.querySelector(".ux").addEventListener("click",function(){
-        fetch("/api/transactions/"+tx.id,{method:"DELETE"}).then(function(){
+        fetch("/portfoliotracker/api/transactions/"+tx.id,{method:"DELETE"}).then(function(){
           transactions=transactions.filter(function(t){return t.id!==tx.id;});
           rebuild(); renderTransactionList();
           toast("Transaction removed");
@@ -1307,13 +1307,14 @@
     document.getElementById("tx-rate-row").hidden=(e.target.value==="EUR");
   });
 
-  document.getElementById("tx-type-buy").addEventListener("click",function(){
+  var buyBtn=document.getElementById("tx-type-buy");
+  var sellBtn=document.getElementById("tx-type-sell");
+  if(buyBtn) buyBtn.addEventListener("click",function(){
     txType="buy";
     document.getElementById("tx-type-buy").setAttribute("aria-pressed","true");
     document.getElementById("tx-type-sell").setAttribute("aria-pressed","false");
   });
-
-  document.getElementById("tx-type-sell").addEventListener("click",function(){
+  if(sellBtn) sellBtn.addEventListener("click",function(){
     txType="sell";
     document.getElementById("tx-type-sell").setAttribute("aria-pressed","true");
     document.getElementById("tx-type-buy").setAttribute("aria-pressed","false");
@@ -1366,7 +1367,7 @@
     saveUser();
 
     var txRecord={ts:ts, ticker:ticker, quantity:qty, amount:amount, currency:currency, amountEUR:amountEUR, type:txType};
-    fetch("/api/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(txRecord)}).then(function(r){
+    fetch("/portfoliotracker/api/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(txRecord)}).then(function(r){
       return r.json();
     }).then(function(d){
       transactions.push(d.transaction);
