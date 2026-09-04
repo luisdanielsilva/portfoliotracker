@@ -234,6 +234,7 @@
       <button id="tab-growth" role="tab" aria-selected="false">Growth</button>
       <button id="tab-ind" role="tab" aria-selected="false">Indicators</button>
       <button id="tab-add" role="tab" aria-selected="false">Add data</button>
+      <button id="tab-alerts" role="tab" aria-selected="false">Price Alerts</button>
     </div>
   </header>
 
@@ -397,6 +398,44 @@
           <button type="button" class="btn" id="io-clear">Clear all</button>
         </div>
         <textarea class="io-area" id="io-area" hidden spellcheck="false"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== VIEW 6: PRICE ALERTS ===== -->
+  <section id="view-alerts" hidden>
+    <div class="panel">
+      <div class="addcard">
+        <h3>Create price alert</h3>
+        <p class="hint">Get notified when a stock reaches a specific price.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px">
+          <div style="display:flex;flex-direction:column">
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Ticker</label>
+            <input type="text" id="al-ticker" placeholder="e.g. TSLA" style="font-size:12px;text-transform:uppercase">
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Rule</label>
+            <select id="al-rule" style="font-size:12px">
+              <option value="price_above">Price above</option>
+              <option value="price_below">Price below</option>
+              <option value="change_pct">% change</option>
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Threshold (€)</label>
+            <input type="number" id="al-threshold" placeholder="500" step="0.01" style="font-size:12px">
+          </div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn primary" id="al-create" style="flex:1">Create Alert</button>
+        </div>
+        <div class="frm-note" id="al-note"></div>
+      </div>
+
+      <div class="addcard">
+        <h3>Your alerts <span id="al-count" style="color:var(--faint);font-weight:400"></span></h3>
+        <p class="hint">Active alerts are evaluated every time prices are fetched (daily at 09:00 UTC). Throttled to 1 email per alert per 24h.</p>
+        <div id="al-list" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
     </div>
   </section>
@@ -1385,6 +1424,123 @@
       nt.textContent="Server error: "+e.message;
     });
   });
+
+  /* ================= alerts ================= */
+  var alerts=[];
+
+  function loadAlerts(){
+    fetch('/api/alerts').then(r=>r.json()).then(data=>{
+      alerts=data.alerts||[];
+      renderAlerts();
+    }).catch(err=>console.error('Failed to load alerts:',err));
+  }
+
+  function renderAlerts(){
+    var list=document.getElementById("al-list");
+    var count=document.getElementById("al-count");
+    if(!list) return;
+
+    count.textContent="("+alerts.length+")";
+
+    if(alerts.length===0){
+      list.innerHTML='<p style="color:var(--faint);font-size:13px">No alerts yet. Create one to get started.</p>';
+      return;
+    }
+
+    list.innerHTML=alerts.map(a=>{
+      var ruleText=a.ruleType==="price_above"?"above":a.ruleType==="price_below"?"below":"changed";
+      var lastTriggered=a.lastTriggeredAt?new Date(a.lastTriggeredAt).toLocaleDateString():"never";
+      return `
+        <div style="background:var(--surface-2);border:1px solid var(--hair);border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <div style="font-weight:600;color:var(--ink)">${a.ticker}</div>
+            <div style="font-size:12px;color:var(--muted)">Price ${ruleText} €${a.threshold.toFixed(2)} • Last: ${lastTriggered}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="mini" data-action="toggle" data-id="${a.id}" ${a.enabled?"":"aria-pressed=false"}>${a.enabled?"On":"Off"}</button>
+            <button class="mini" data-action="delete" data-id="${a.id}">Delete</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    list.querySelectorAll('[data-action="toggle"]').forEach(btn=>{
+      btn.addEventListener("click",e=>{
+        var id=parseInt(e.target.dataset.id);
+        var a=alerts.find(x=>x.id===id);
+        if(a) updateAlert(id,!a.enabled,null);
+      });
+    });
+
+    list.querySelectorAll('[data-action="delete"]').forEach(btn=>{
+      btn.addEventListener("click",e=>{
+        var id=parseInt(e.target.dataset.id);
+        if(confirm("Delete this alert?")) deleteAlert(id);
+      });
+    });
+  }
+
+  function createAlert(){
+    var nt=document.getElementById("al-note"); nt.className="frm-note";
+    var ticker=(document.getElementById("al-ticker").value||"").toUpperCase().trim();
+    var rule=document.getElementById("al-rule").value;
+    var threshold=parseFloat(document.getElementById("al-threshold").value);
+
+    if(!ticker){ nt.textContent="Enter a ticker."; return; }
+    if(!(threshold>0)){ nt.textContent="Threshold must be > 0."; return; }
+
+    fetch('/api/alerts',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ticker,ruleType:rule,threshold})
+    }).then(r=>r.json()).then(data=>{
+      if(data.error){ nt.textContent=data.error; return; }
+      alerts.push(data.alert);
+      renderAlerts();
+      document.getElementById("al-ticker").value="";
+      document.getElementById("al-threshold").value="";
+      nt.className="frm-note success";
+      nt.textContent="Alert created!";
+      setTimeout(()=>{nt.textContent=""},3000);
+    }).catch(err=>{
+      nt.textContent="Failed to create alert";
+      console.error(err);
+    });
+  }
+
+  function updateAlert(id,enabled,threshold){
+    var body={};
+    if(enabled!==null) body.enabled=enabled;
+    if(threshold!==null) body.threshold=threshold;
+
+    fetch('/api/alerts/'+id,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    }).then(r=>r.json()).then(data=>{
+      if(data.error){ console.error(data.error); return; }
+      var idx=alerts.findIndex(x=>x.id===id);
+      if(idx>=0) alerts[idx]=data.alert;
+      renderAlerts();
+    }).catch(err=>console.error('Failed to update alert:',err));
+  }
+
+  function deleteAlert(id){
+    fetch('/api/alerts/'+id,{
+      method:'DELETE'
+    }).then(r=>r.json()).then(data=>{
+      if(data.error){ console.error(data.error); return; }
+      alerts=alerts.filter(x=>x.id!==id);
+      renderAlerts();
+    }).catch(err=>console.error('Failed to delete alert:',err));
+  }
+
+  if(document.getElementById("al-create")){
+    document.getElementById("al-create").addEventListener("click",createAlert);
+    document.getElementById("tab-alerts").addEventListener("click",function(){
+      loadAlerts();
+    });
+  }
 
   /* ================= go ================= */
   rebuild();

@@ -221,12 +221,12 @@
 - Updated: `package.json` (add nodemailer)
 
 **Checkpoint #3 (End of Phase 3):**
-- [ ] Alert rules stored in DB; CRUD endpoints work
-- [ ] Price fetch triggers alert evaluation
-- [ ] Test email received at specified address
-- [ ] Frontend can create/edit/delete alerts
-- [ ] No spam (throttle to once per 24h per rule)
-- [ ] Logging shows which alerts triggered
+- [x] Alert rules stored in DB; CRUD endpoints work (tested 2026-09-04)
+- [x] Price fetch triggers alert evaluation (tested: 1 alert triggered for TSLA < €330)
+- [ ] Test email received at specified address (requires SMTP credentials)
+- [x] Frontend can create/edit/delete alerts (UI added to index.html)
+- [x] No spam (throttle to once per 24h per rule) – implemented in price-fetch.js
+- [x] Logging shows which alerts triggered (logs to price-fetch.log)
 
 ---
 

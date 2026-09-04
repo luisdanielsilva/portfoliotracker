@@ -131,6 +131,108 @@ app.get('/api/prices', (req, res) => {
   }
 });
 
+// GET /api/alerts - retrieve user's alerts
+app.get('/api/alerts', (req, res) => {
+  try {
+    const stmt = db.prepare(`
+      SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
+      FROM alerts
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+    `);
+    const alerts = stmt.all(DEFAULT_USER_ID);
+    res.json({ alerts });
+  } catch (err) {
+    console.error('GET /api/alerts error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/alerts - create new alert
+app.post('/api/alerts', (req, res) => {
+  try {
+    const alert = req.body;
+
+    if (!alert.ticker || !alert.ruleType || alert.threshold === undefined) {
+      return res.status(400).json({ error: 'Missing required fields: ticker, ruleType, threshold' });
+    }
+
+    const insertStmt = db.prepare(`
+      INSERT INTO alerts (user_id, ticker, rule_type, threshold, enabled)
+      VALUES (?, ?, ?, ?, 1)
+    `);
+
+    const result = insertStmt.run(
+      DEFAULT_USER_ID,
+      alert.ticker.toUpperCase(),
+      alert.ruleType,
+      parseFloat(alert.threshold)
+    );
+
+    const selectStmt = db.prepare(`
+      SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
+      FROM alerts WHERE id = ?
+    `);
+    const newAlert = selectStmt.get(result.lastInsertRowid);
+
+    res.json({ success: true, alert: newAlert });
+  } catch (err) {
+    console.error('POST /api/alerts error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/alerts/:id - update alert
+app.put('/api/alerts/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { enabled, threshold } = req.body;
+
+    const checkStmt = db.prepare('SELECT id FROM alerts WHERE id = ? AND user_id = ?');
+    if (!checkStmt.get(id, DEFAULT_USER_ID)) {
+      return res.status(404).json({ error: 'Alert not found' });
+    }
+
+    const updateStmt = db.prepare(`
+      UPDATE alerts
+      SET enabled = COALESCE(?, enabled),
+          threshold = COALESCE(?, threshold)
+      WHERE id = ? AND user_id = ?
+    `);
+
+    updateStmt.run(enabled !== undefined ? (enabled ? 1 : 0) : null, threshold || null, id, DEFAULT_USER_ID);
+
+    const selectStmt = db.prepare(`
+      SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
+      FROM alerts WHERE id = ?
+    `);
+    const alert = selectStmt.get(id);
+
+    res.json({ success: true, alert });
+  } catch (err) {
+    console.error('PUT /api/alerts error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/alerts/:id - remove alert
+app.delete('/api/alerts/:id', (req, res) => {
+  try {
+    const checkStmt = db.prepare('SELECT id FROM alerts WHERE id = ? AND user_id = ?');
+    if (!checkStmt.get(req.params.id, DEFAULT_USER_ID)) {
+      return res.status(404).json({ error: 'Alert not found' });
+    }
+
+    const deleteStmt = db.prepare('DELETE FROM alerts WHERE id = ? AND user_id = ?');
+    deleteStmt.run(req.params.id, DEFAULT_USER_ID);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('DELETE /api/alerts error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.API_PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Portfolio tracker server running on http://localhost:${PORT}`);

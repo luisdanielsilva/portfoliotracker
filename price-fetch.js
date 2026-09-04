@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * price-fetch.js — Daily price fetching from Yahoo Finance
+ * price-fetch.js — Daily price fetching from Yahoo Finance + alert evaluation
  * Fetches closing prices for all tracked tickers and stores in SQLite
+ * Evaluates active alerts and sends email notifications
  * Usage: node price-fetch.js
  * Scheduled via systemd timer (daily at 09:00 UTC)
  */
@@ -10,6 +11,8 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
+const nodemailer = require('nodemailer');
+require('dotenv').config();
 
 const dbPath = path.join(__dirname, 'data.db');
 const logsDir = path.join(__dirname, 'logs');
@@ -25,6 +28,129 @@ function log(message) {
   const logMessage = `[${timestamp}] ${message}`;
   console.log(logMessage);
   fs.appendFileSync(logFile, logMessage + '\n');
+}
+
+function initEmailTransporter() {
+  if (!process.env.SMTP_HOST) {
+    log('⚠ SMTP not configured, alerts will be logged only (not emailed)');
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '25'),
+    secure: process.env.SMTP_USE_TLS === 'true',
+    auth: process.env.SMTP_USER ? {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASSWORD
+    } : undefined
+  });
+}
+
+function renderEmailTemplate(ticker, rule, threshold, currentPrice) {
+  let templatePath = path.join(__dirname, 'email-template.html');
+  let html = fs.readFileSync(templatePath, 'utf-8');
+
+  const ruleText = rule === 'price_above' ? 'above' : rule === 'price_below' ? 'below' : 'changed';
+
+  html = html
+    .replace(/{{ticker}}/g, ticker)
+    .replace(/{{rule}}/g, ruleText)
+    .replace(/{{threshold}}/g, threshold.toFixed(2))
+    .replace(/{{currentPrice}}/g, currentPrice.toFixed(2))
+    .replace(/{{timestamp}}/g, new Date().toISOString());
+
+  return html;
+}
+
+async function evaluateAlerts(db, mailer) {
+  log('\n📢 Evaluating active alerts...');
+
+  const getAlertsStmt = db.prepare(`
+    SELECT id, user_id, ticker, rule_type, threshold, last_triggered_at
+    FROM alerts
+    WHERE enabled = 1
+  `);
+
+  const getPriceStmt = db.prepare(`
+    SELECT price_eur FROM prices
+    WHERE ticker = ?
+    ORDER BY price_date DESC
+    LIMIT 1
+  `);
+
+  const updateAlertStmt = db.prepare(`
+    UPDATE alerts
+    SET last_triggered_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `);
+
+  const alerts = getAlertsStmt.all();
+  let triggeredCount = 0;
+
+  for (const alert of alerts) {
+    try {
+      const price = getPriceStmt.get(alert.ticker);
+
+      if (!price) {
+        log(`  ⚠ No price data for ${alert.ticker}, skipping alert ${alert.id}`);
+        continue;
+      }
+
+      const currentPrice = price.price_eur;
+      const threshold = alert.threshold;
+      const rule = alert.rule_type;
+      let triggered = false;
+
+      // Check if alert should trigger
+      if (rule === 'price_above' && currentPrice > threshold) {
+        triggered = true;
+      } else if (rule === 'price_below' && currentPrice < threshold) {
+        triggered = true;
+      }
+
+      if (!triggered) continue;
+
+      // Check 24h throttle
+      if (alert.last_triggered_at) {
+        const lastTriggered = new Date(alert.last_triggered_at);
+        const now = new Date();
+        const hoursSince = (now - lastTriggered) / (1000 * 60 * 60);
+
+        if (hoursSince < 24) {
+          log(`  ⏳ Alert ${alert.id} (${alert.ticker}) throttled (triggered ${hoursSince.toFixed(1)}h ago)`);
+          continue;
+        }
+      }
+
+      // Send email if mailer is configured
+      if (mailer) {
+        try {
+          const html = renderEmailTemplate(alert.ticker, rule, threshold, currentPrice);
+          await mailer.sendMail({
+            from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
+            to: process.env.ALERT_EMAIL_TO || 'admin@example.com',
+            subject: `🚨 Price Alert: ${alert.ticker} ${rule === 'price_above' ? '>' : '<'} €${threshold.toFixed(2)}`,
+            html
+          });
+          log(`  ✉ Email sent for alert ${alert.id} (${alert.ticker})`);
+        } catch (emailErr) {
+          log(`  ❌ Failed to send email for alert ${alert.id}: ${emailErr.message}`);
+        }
+      } else {
+        log(`  📌 Alert triggered: ${alert.ticker} ${rule} €${threshold}`);
+      }
+
+      // Update last triggered time
+      updateAlertStmt.run(alert.id);
+      triggeredCount++;
+
+    } catch (err) {
+      log(`  ❌ Error evaluating alert ${alert.id}: ${err.message}`);
+    }
+  }
+
+  log(`✅ Alert evaluation complete: ${triggeredCount} triggered`);
 }
 
 async function fetchPrices() {
@@ -110,6 +236,10 @@ async function fetchPrices() {
         log(`  ${p.ticker}: €${p.price_eur} (${p.price_date})`);
       });
     }
+
+    // Evaluate alerts
+    const mailer = initEmailTransporter();
+    await evaluateAlerts(db, mailer);
 
     db.close();
     process.exit(0);
