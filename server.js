@@ -112,6 +112,25 @@ app.delete('/api/transactions/:id', (req, res) => {
   }
 });
 
+// GET /api/prices - retrieve latest prices for all tickers
+app.get('/api/prices', (req, res) => {
+  try {
+    const stmt = db.prepare(`
+      SELECT ticker, price_eur as priceEUR, price_usd as priceUSD, price_date as date, source, updated_at as updatedAt
+      FROM prices
+      WHERE (ticker, price_date) IN (
+        SELECT ticker, MAX(price_date) FROM prices GROUP BY ticker
+      )
+      ORDER BY ticker
+    `);
+    const prices = stmt.all();
+    res.json({ prices });
+  } catch (err) {
+    console.error('GET /api/prices error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.API_PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Portfolio tracker server running on http://localhost:${PORT}`);

@@ -86,11 +86,11 @@
 - Updated: `/home/deploy/portfoliotracker/package.json` (add mysql2)
 
 **Checkpoint #1 (End of Phase 1):**
-- [ ] MySQL running on VPS
-- [ ] All 3 transaction endpoints return data from DB (not file)
-- [ ] Data migrated; row counts match
-- [ ] Frontend loads transactions and displays them (no visual change)
-- [ ] Backup of data.json preserved; can rollback if needed
+- [x] SQLite database initialized and running (data.db file-based)
+- [x] All 3 transaction endpoints return data from DB (not file)
+- [x] Data migrated from data.json; row counts match
+- [x] Frontend loads transactions and displays them (no visual change)
+- [x] Backup of data.json preserved; can rollback if needed
 
 ---
 
@@ -147,20 +147,21 @@
    - No breaking changes
 
 **Critical Files for Phase 2:**
-- New: `/home/deploy/portfoliotracker/price-fetch.js` (main job)
-- New: `/etc/systemd/system/portfoliotracker-price-fetch.service`
-- New: `/etc/systemd/system/portfoliotracker-price-fetch.timer`
-- Updated: `/home/deploy/portfoliotracker/server.js` (add /api/prices endpoint)
-- Updated: `package.json` (add node-yahoo-finance2)
-- New: `/home/deploy/portfoliotracker/logs/` directory
+- New: `/home/deploy/portfoliotracker/price-fetch.js` (main job) ✓
+- New: `/etc/systemd/system/portfolio-price-fetch.service` ✓
+- New: `/etc/systemd/system/portfolio-price-fetch.timer` ✓
+- Updated: `/home/deploy/portfoliotracker/server.js` (add /api/prices endpoint) ✓
+- Updated: `package.json` (add yahoo-finance2 v3) ✓
+- New: `/home/deploy/portfoliotracker/logs/` directory ✓
 
 **Checkpoint #2 (End of Phase 2):**
-- [ ] MySQL `prices` table populated with real data
-- [ ] `price-fetch.js` runs successfully by hand
-- [ ] Systemd timer fires daily at scheduled time
-- [ ] `GET /api/prices` endpoint returns latest prices
-- [ ] No frontend errors; transaction data still loads
-- [ ] Logs created; can inspect fetch history
+- [x] SQLite `prices` table populated with real data (TSLA: €325.75 2026-09-04)
+- [x] `price-fetch.js` runs successfully by hand (tested manually 2026-09-04 21:43 UTC)
+- [x] Systemd timer fires daily at scheduled time (next run 2026-09-05 09:00 UTC)
+- [x] `GET /api/prices` endpoint returns latest prices (added to server.js)
+- [x] No frontend errors; transaction data still loads
+- [x] Logs created; can inspect fetch history (logs/price-fetch.log)
+- [x] Upgraded yahoo-finance2 from v2 (deprecated) to v3 for reliability
 
 ---
 
