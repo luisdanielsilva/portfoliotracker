@@ -204,6 +204,12 @@
   .toast.error{background:var(--neg);padding:10px 16px}
   .toast.success{background:var(--pos);padding:10px 16px}
 
+  .loading-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;z-index:999;backdrop-filter:blur(2px);opacity:1;transition:opacity 0.3s ease-out}
+  .loading-spinner{background:var(--surface);border-radius:12px;padding:24px;text-align:center;box-shadow:var(--shadow)}
+  .spinner{width:40px;height:40px;border:3px solid var(--hair);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading-text{font-size:13px;color:var(--muted);font-weight:500}
+
   .notes{font-size:13.5px;color:var(--muted)}
   .notes h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:19px;color:var(--ink);margin:0 0 10px}
   .notes ul{margin:0;padding-left:18px}
@@ -484,6 +490,12 @@
   </section>
 
   <footer>Built from iPhone screenshots &middot; figures in EUR, European number format &middot; not investment advice.</footer>
+</div>
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-spinner">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading portfolio...</div>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -1687,11 +1699,19 @@
   }
 
   /* ================= go ================= */
+  function hideLoadingOverlay(){
+    var overlay=document.getElementById("loading-overlay");
+    if(overlay) setTimeout(function(){ overlay.style.opacity="0"; overlay.style.pointerEvents="none"; }, 300);
+  }
+
   loadSnapshotsFromAPI().then(() => {
     rebuild();
     resetForm();
     loadTransactions();
     loadAndRenderPrices();
+    hideLoadingOverlay();
+  }).catch(function(){
+    hideLoadingOverlay();
   });
 })();
 </script>
