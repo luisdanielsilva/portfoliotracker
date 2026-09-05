@@ -199,8 +199,10 @@
   .io-area{width:100%;min-height:80px;font-family:"IBM Plex Mono",monospace;font-size:11px;border:1px solid var(--hair);border-radius:8px;background:var(--surface-2);color:var(--ink);padding:8px;margin-top:8px;resize:vertical}
   select{font:inherit;font-size:12px;padding:5px 7px;border:1px solid var(--hair);border-radius:6px;background:var(--surface);color:var(--ink);width:100%}
 
-  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(8px);background:var(--ink);color:var(--ground);font-size:13px;padding:9px 16px;border-radius:999px;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:20}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(8px);background:var(--ink);color:var(--ground);font-size:13px;padding:10px 16px;border-radius:999px;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:20}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.error{background:var(--neg);padding:10px 16px}
+  .toast.success{background:var(--pos);padding:10px 16px}
 
   .notes{font-size:13.5px;color:var(--muted)}
   .notes h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:19px;color:var(--ink);margin:0 0 10px}
@@ -1182,7 +1184,17 @@
 
   /* ================= ADD DATA ================= */
   var toastEl=document.getElementById("toast"), toastT;
-  function toast(msg){ toastEl.textContent=msg; toastEl.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove("on"); },2600); }
+  function toast(msg, type){
+    toastEl.textContent=msg;
+    toastEl.classList.remove("error", "success");
+    if(type==="error") toastEl.classList.add("error");
+    if(type==="success") toastEl.classList.add("success");
+    toastEl.classList.add("on");
+    clearTimeout(toastT);
+    toastT=setTimeout(function(){ toastEl.classList.remove("on"); },type==="error"?4000:2600);
+  }
+  function showError(msg){ console.error(msg); toast("❌ "+msg,"error"); }
+  function showSuccess(msg){ toast("✓ "+msg,"success"); }
   function todayISO(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
   function isoOf(ts){ var d=new Date(ts); return {date:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"), time:String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}; }
   var formSource="manual", editId=null;
@@ -1317,10 +1329,19 @@
   var transactions=[], txType="buy";
 
   function loadTransactions(){
-    fetch("./api/transactions").then(function(r){return r.json();}).then(function(d){
-      transactions=d.transactions||[];
-      renderTransactionList();
-    }).catch(function(e){ console.error("Failed to load transactions:",e); });
+    fetch("./api/transactions")
+      .then(function(r){
+        if(!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        return r.json();
+      })
+      .then(function(d){
+        transactions=d.transactions||[];
+        renderTransactionList();
+      })
+      .catch(function(e){
+        console.error("Failed to load transactions:",e.message);
+        showError('Failed to load transactions');
+      });
   }
 
   function renderTransactionList(){
@@ -1431,10 +1452,19 @@
   var alerts=[];
 
   function loadAlerts(){
-    fetch('./api/alerts').then(r=>r.json()).then(data=>{
-      alerts=data.alerts||[];
-      renderAlerts();
-    }).catch(err=>console.error('Failed to load alerts:',err));
+    fetch('./api/alerts')
+      .then(r=>{
+        if(!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        return r.json();
+      })
+      .then(data=>{
+        alerts=data.alerts||[];
+        renderAlerts();
+      })
+      .catch(err=>{
+        console.error('Failed to load alerts:',err.message);
+        showError('Failed to load alerts');
+      });
   }
 
   function renderAlerts(){
@@ -1546,39 +1576,56 @@
 
   /* ================= fetch and display prices ================= */
   function loadAndRenderPrices(){
-    fetch('./api/prices').then(r=>r.json()).then(data=>{
-      if(!data.prices) return;
+    fetch('./api/prices')
+      .then(r=>{
+        if(!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        return r.json();
+      })
+      .then(data=>{
+        if(!data.prices || data.prices.length===0){
+          console.warn('No prices available from API');
+          return;
+        }
 
-      LATEST_PRICES={};
-      data.prices.forEach(p=>{
-        LATEST_PRICES[p.ticker.toUpperCase()]={
-          priceEUR:p.priceEUR,
-          priceUSD:p.priceUSD,
-          date:p.date,
-          updatedAt:p.updatedAt
-        };
-      });
-
-      // Calculate current market value
-      if(n>0 && entries[n-1]){
-        var lastSnap=entries[n-1];
-        var marketVal=0;
-        lastSnap.pos.forEach(holding=>{
-          // Find ticker for this holding by name
-          var bnIdx=BNAMES.indexOf(holding.name);
-          if(bnIdx>=0){
-            var ticker=BKEY[bnIdx].toUpperCase();
-            if(LATEST_PRICES[ticker]){
-              marketVal += (holding.qty||0) * LATEST_PRICES[ticker].priceEUR;
-            }
-          }
+        LATEST_PRICES={};
+        data.prices.forEach(p=>{
+          LATEST_PRICES[p.ticker.toUpperCase()]={
+            priceEUR:p.priceEUR,
+            priceUSD:p.priceUSD,
+            date:p.date,
+            updatedAt:p.updatedAt
+          };
         });
-        if(marketVal>0) CURRENT_MARKET_VALUE=Math.round(marketVal*100)/100;
-      }
 
-      renderHeadline();
-      renderPricesTable();
-    }).catch(err=>console.error('Failed to load prices:',err));
+        // Calculate current market value
+        if(n>0 && entries[n-1]){
+          var lastSnap=entries[n-1];
+          var marketVal=0;
+          var missingTickers=[];
+          lastSnap.pos.forEach(holding=>{
+            var bnIdx=BNAMES.indexOf(holding.name);
+            if(bnIdx>=0){
+              var ticker=BKEY[bnIdx].toUpperCase();
+              if(LATEST_PRICES[ticker]){
+                marketVal += (holding.qty||0) * LATEST_PRICES[ticker].priceEUR;
+              } else {
+                missingTickers.push(ticker);
+              }
+            }
+          });
+          if(marketVal>0) CURRENT_MARKET_VALUE=Math.round(marketVal*100)/100;
+          if(missingTickers.length>0){
+            console.warn('Missing prices for: '+missingTickers.join(', '));
+          }
+        }
+
+        renderHeadline();
+        renderPricesTable();
+      })
+      .catch(err=>{
+        console.error('Failed to load prices:',err.message);
+        showError('Could not load price data (markets may be closed)');
+      });
   }
 
   function renderPricesTable(){
@@ -1602,27 +1649,25 @@
   /* ================= fetch snapshots from API ================= */
   function loadSnapshotsFromAPI() {
     return fetch('./api/snapshots')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        return r.json();
+      })
       .then(data => {
         if (!data.snapshots || data.snapshots.length === 0) {
           console.warn('No snapshots from API, using empty array');
+          showError('No snapshot data found');
           return [];
         }
 
         // Transform API snapshots to BASE_RAW format: [dateStr, [[tickerIdx, qty, amount, rent]]]
         BASE_RAW = data.snapshots
-          .filter(snap => snap.holdings && snap.holdings.length > 0 && snap.ts) // Filter out empty snapshots
+          .filter(snap => snap.holdings && snap.holdings.length > 0 && snap.ts)
           .map(snap => {
-            // Convert ISO date to simple format (YYYY-MM-DDTHH:mm) without Z
             const dateStr = snap.date.replace('Z', '').substring(0, 16);
             const holdings = snap.holdings.map(h => {
-              // Find ticker index in BKEY array
               const tickerIdx = BKEY.indexOf(h.ticker.toLowerCase());
-              if (tickerIdx === -1) {
-                console.warn(`Ticker ${h.ticker} not in BKEY, skipping`);
-                return null;
-              }
-              // Format: [tickerIdx, qty, amount, rent]
+              if (tickerIdx === -1) return null;
               return [tickerIdx, h.quantity, h.amount, null];
             }).filter(h => h !== null);
 
@@ -1635,7 +1680,8 @@
         return BASE_RAW;
       })
       .catch(err => {
-        console.error('Failed to load snapshots:', err);
+        console.error('Failed to load snapshots:', err.message);
+        showError('Failed to load portfolio data: '+err.message);
         return [];
       });
   }
