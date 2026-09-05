@@ -240,7 +240,7 @@
 </div>
 
 <div class="tabs" role="tablist">
-  <button id="tab-total" role="tab" aria-selected="true">Time series</button>
+  <button id="tab-total" role="tab" aria-selected="true">Portfolio over time</button>
   <button id="tab-stocks" role="tab" aria-selected="false">All stocks at a glance</button>
   <button id="tab-growth" role="tab" aria-selected="false">Growth</button>
   <button id="tab-ind" role="tab" aria-selected="false">Indicators</button>
@@ -263,9 +263,9 @@
       </div>
       <div class="toolbar">
         <div class="legend" id="legend"></div>
-        <div class="segmented" role="group" aria-label="Value scale">
-          <button id="m-eur" aria-pressed="true">Euros</button>
-          <button id="m-idx" aria-pressed="false">Indexed (start = 100)</button>
+        <div class="segmented" role="group" aria-label="Currency">
+          <button id="m-eur" aria-pressed="true">EUR</button>
+          <button id="m-usd" aria-pressed="false">USD</button>
         </div>
       </div>
       <p class="caphint" id="caphint" hidden>Up to 8 lines at once &mdash; remove one to add another.</p>
@@ -529,6 +529,7 @@
   var nfEur2=new Intl.NumberFormat("de-DE",{minimumFractionDigits:2,maximumFractionDigits:2});
   var nfEur0=new Intl.NumberFormat("de-DE",{maximumFractionDigits:0});
   function eur(v){ return "\u20ac\u00a0"+nfEur2.format(v); }
+  function usd(v){ return "$\u00a0"+nfEur2.format(v); }
   function idx1(v){ return (Math.round(v*10)/10).toFixed(1); }
   function comma(x){ return String(x).replace(".",","); }
   function d0(v){ return (v>=0?"+":"\u2212")+"\u20ac"+nfEur0.format(Math.abs(Math.round(v))); }
@@ -716,7 +717,7 @@
   function palette(){ return isDark()?PAL_D:PAL_L; }
   function colorOf(k){ var i=selected.indexOf(k); return i<0?"var(--faint)":palette()[i%CAP]; }
   function firstNN(a){ for(var i=0;i<n;i++) if(a[i]!=null) return i; return 0; }
-  function sval(o,i){ if(o.arr[i]==null) return null; return mode==="eur"?o.arr[i]:o.arr[i]/o.arr[firstNN(o.arr)]*100; }
+  function sval(o,i){ if(o.arr[i]==null) return null; return mode==="eur"?o.arr[i]:o.arr[i]*1.087; }
   function X(i){ return D.l+(T[i]-T0)/((T1-T0)||1)*pW; }
   function Y(v){ return D.t+(1-(v-DOMc[0])/((DOMc[1]-DOMc[0])||1))*pH; }
   function computeDomain(){
@@ -742,7 +743,7 @@
       var y=Y(tk); if(y<D.t-1||y>D.t+pH+1) return;
       svg.appendChild(el("line",{class:"gridline",x1:D.l,x2:D.w-D.r,y1:y,y2:y}));
       var lb=el("text",{class:"axislbl","text-anchor":"end",x:D.l-10,y:y+3.5});
-      lb.textContent=mode==="eur"?nfEur0.format(tk):idx1(tk); svg.appendChild(lb);
+      lb.textContent=mode==="eur"?nfEur0.format(tk):Math.round(tk*1.087); svg.appendChild(lb);
     });
     svg.appendChild(el("line",{class:"gridline",x1:D.l,x2:D.w-D.r,y1:D.t+pH,y2:D.t+pH}));
     monthTicks().forEach(function(m){
@@ -762,7 +763,7 @@
       if(s.qty) for(var b=0;b<n;b++) if(isBuyIdx(s.qty,b) && s.arr[b]!=null)
         svg.appendChild(el("circle",{class:"buyring",cx:X(b),cy:Y(sval(s,b)),r:3.6,stroke:col}));
       var lv=sval(s,n-1);
-      if(lv!=null) ends.push({y:Y(lv),col:col,txt:mode==="eur"?nfEur0.format(s.arr[n-1]):idx1(lv)});
+      if(lv!=null) ends.push({y:Y(lv),col:col,txt:mode==="eur"?nfEur0.format(s.arr[n-1]):nfEur0.format(lv)});
     });
     ends.sort(function(a,b){return a.y-b.y;});
     for(var e=1;e<ends.length;e++) if(ends[e].y-ends[e-1].y<12) ends[e].y=ends[e-1].y+12;
@@ -826,7 +827,7 @@
       var s=byKey(k); if(!s) return;
       var v=sval(s,i);
       if(v!=null){ g.appendChild(el("circle",{class:"focus-dot",r:4,fill:colorOf(k),cx:x,cy:Y(v)})); if(yref==null) yref=Y(v); }
-      var disp=v==null?"\u2014":(mode==="eur"?eur(s.arr[i]):idx1(v));
+      var disp=v==null?"\u2014":(mode==="eur"?eur(s.arr[i]):usd(v));
       var qsh=(s.qty&&s.qty[i]!=null)?' <span class="qsh">'+s.qty[i]+' sh</span>':'';
       rows+='<div class="row"><span class="lab"><i style="background:'+colorOf(k)+'"></i>'+s.name+qsh+'</span><span class="v">'+disp+'</span></div>';
     });
@@ -846,11 +847,11 @@
   svg.addEventListener("pointerdown",function(e){ showMain(nearMain(e.clientX)); });
   svg.addEventListener("pointerleave",hideMain);
   document.getElementById("m-eur").addEventListener("click",function(){ setMode("eur"); });
-  document.getElementById("m-idx").addEventListener("click",function(){ setMode("idx"); });
+  document.getElementById("m-usd").addEventListener("click",function(){ setMode("usd"); });
   function setMode(m){
     mode=m;
     document.getElementById("m-eur").setAttribute("aria-pressed",m==="eur");
-    document.getElementById("m-idx").setAttribute("aria-pressed",m==="idx");
+    document.getElementById("m-usd").setAttribute("aria-pressed",m==="usd");
     hideMain(); renderMain();
   }
   if(window.matchMedia){
