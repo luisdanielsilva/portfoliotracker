@@ -990,38 +990,49 @@
     // Render enhanced pie chart for portfolio allocation
     var pieContainer=document.getElementById("bars-weight");
     var sorted=per.slice().sort(function(a,b){return b.w-a.w;});
-    var svgW=520, svgH=340, cx=svgW/2-80, cy=svgH/2, r=90;
-    var svg='<div style="position:relative;margin-bottom:16px"><svg viewBox="0 0 '+svgW+' '+svgH+'" style="max-width:100%;height:auto;cursor:pointer" id="pie-chart" role="img" aria-label="Portfolio allocation pie chart">';
-    svg+='<defs><style>.pie-slice{transition:opacity 0.2s}.pie-slice:hover{opacity:0.8;stroke-width:3!important}.pie-label{font-size:11px;font-weight:600;fill:var(--ink);pointer-events:none;text-anchor:middle}.pie-pct{font-size:9px;fill:var(--faint);pointer-events:none;text-anchor:middle}</style></defs>';
-    var angle=0;
+    var svgW=700, svgH=380, cx=140, cy=190, r=80;
+    var svg='<div style="position:relative;margin-bottom:16px"><svg viewBox="0 0 '+svgW+' '+svgH+'" style="max-width:100%;height:auto;cursor:pointer;overflow:visible" id="pie-chart" role="img" aria-label="Portfolio allocation pie chart">';
+    svg+='<defs><style>.pie-slice{transition:all 0.2s}.pie-slice:hover{filter:brightness(1.15);stroke-width:3!important}.pie-label{font-size:13px;font-weight:700;fill:var(--ink);pointer-events:none}.pie-pct{font-size:11px;fill:var(--muted);pointer-events:none;font-weight:500}</style></defs>';
+    var angle=-Math.PI/2;
     var colors=palette();
-    var slices=[];
     sorted.forEach(function(p,i){
       var sliceAngle=p.w*2*Math.PI;
       var x1=cx+r*Math.cos(angle), y1=cy+r*Math.sin(angle);
       var x2=cx+r*Math.cos(angle+sliceAngle), y2=cy+r*Math.sin(angle+sliceAngle);
       var large=sliceAngle>Math.PI?1:0;
       var path='M '+cx+' '+cy+' L '+x1.toFixed(1)+' '+y1.toFixed(1)+' A '+r+' '+r+' 0 '+large+' 1 '+x2.toFixed(1)+' '+y2.toFixed(1)+' Z';
+
+      // Position labels outside the pie
       var midAngle=angle+sliceAngle/2;
-      var labelDist=r*0.65;
-      var labelX=cx+labelDist*Math.cos(midAngle);
-      var labelY=cy+labelDist*Math.sin(midAngle);
-      var pctX=cx+(r*0.35)*Math.cos(midAngle);
-      var pctY=cy+(r*0.35)*Math.sin(midAngle);
+      var labelRadius=r+45;
+      var labelX=cx+labelRadius*Math.cos(midAngle);
+      var labelY=cy+labelRadius*Math.sin(midAngle);
+      var lineX=cx+(r+8)*Math.cos(midAngle);
+      var lineY=cy+(r+8)*Math.sin(midAngle);
 
       svg+='<g class="pie-group" data-ticker="'+p.short+'" data-pct="'+comma((p.w*100).toFixed(1))+'" data-val="'+nfEur2.format(p.val)+'">';
-      svg+='<path class="pie-slice" d="'+path+'" fill="'+colors[i%8]+'" stroke="var(--surface)" stroke-width="2" data-idx="'+i+'"/>';
-      if(p.w>0.06){
-        svg+='<text class="pie-label" x="'+labelX.toFixed(1)+'" y="'+labelY.toFixed(1)+'">'+p.short+'</text>';
-        svg+='<text class="pie-pct" x="'+pctX.toFixed(1)+'" y="'+pctY.toFixed(1)+'">'+comma((p.w*100).toFixed(1))+'%</text>';
-      }
+      svg+='<path class="pie-slice" d="'+path+'" fill="'+colors[i%8]+'" stroke="var(--surface)" stroke-width="2"/>';
+
+      // Draw leader line
+      svg+='<line x1="'+lineX.toFixed(1)+'" y1="'+lineY.toFixed(1)+'" x2="'+labelX.toFixed(1)+'" y2="'+labelY.toFixed(1)+'" stroke="'+colors[i%8]+'" stroke-width="1" opacity="0.5"/>';
+
+      // Draw label background
+      var labelW=45, labelH=30;
+      var bgX=labelX-(labelW/2), bgY=labelY-(labelH/2);
+      svg+='<rect x="'+bgX.toFixed(1)+'" y="'+bgY.toFixed(1)+'" width="'+labelW+'" height="'+labelH+'" rx="4" fill="var(--surface)" stroke="'+colors[i%8]+'" stroke-width="1.5" opacity="0.95"/>';
+
+      // Draw text
+      svg+='<text class="pie-label" x="'+labelX.toFixed(1)+'" y="'+(labelY-4).toFixed(1)+'" text-anchor="middle">'+p.short+'</text>';
+      svg+='<text class="pie-pct" x="'+labelX.toFixed(1)+'" y="'+(labelY+10).toFixed(1)+'" text-anchor="middle">'+comma((p.w*100).toFixed(1))+'%</text>';
+
       svg+='</g>';
-      slices.push({ticker:p.short, pct:comma((p.w*100).toFixed(1)), val:nfEur2.format(p.val)});
       angle+=sliceAngle;
     });
     svg+='<circle cx="'+cx+'" cy="'+cy+'" r="'+Math.round(r*0.35)+'" fill="var(--surface)" stroke="var(--hair)" stroke-width="1"/>';
+    svg+='<text x="'+cx+'" y="'+(cy-5)+'" text-anchor="middle" style="font-size:12px;font-weight:600;fill:var(--muted)">Portfolio</text>';
+    svg+='<text x="'+cx+'" y="'+(cy+12)+'" text-anchor="middle" style="font-size:11px;fill:var(--faint)">'+per.length+' holdings</text>';
     svg+='</svg>';
-    var tip='<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:10" id="pie-tip" hidden><div style="font-weight:600;font-size:14px;color:var(--ink)" id="pie-tip-ticker"></div><div style="font-size:12px;color:var(--muted)">\u20ac<span id="pie-tip-val"></span></div><div style="font-size:11px;color:var(--faint)"><span id="pie-tip-pct"></span>%</div></div>';
+    var tip='<div style="position:absolute;top:50%;left:140px;transform:translate(0,-50%);text-align:center;pointer-events:none;z-index:10;background:var(--surface);border:1px solid var(--hair);border-radius:10px;padding:10px 14px;box-shadow:var(--shadow)" id="pie-tip" hidden><div style="font-weight:600;font-size:13px;color:var(--ink)" id="pie-tip-ticker"></div><div style="font-size:12px;color:var(--muted);margin-top:4px">\u20ac<span id="pie-tip-val"></span></div><div style="font-size:11px;color:var(--muted);margin-top:2px"><span id="pie-tip-pct"></span>%</div></div>';
     svg+=tip+'</div>';
 
     pieContainer.innerHTML=svg;
@@ -1040,9 +1051,9 @@
       });
     });
 
-    svg='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:8px">';
+    svg='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:12px">';
     sorted.forEach(function(p,i){
-      svg+='<div style="font-size:12px;display:flex;align-items:center;gap:6px;padding:6px;border-radius:6px;background:var(--surface-2)"><i style="width:12px;height:12px;background:'+colors[i%8]+';border-radius:2px;flex:none"></i><span><b>'+p.short+'</b><br/><span style="color:var(--faint)">'+comma((p.w*100).toFixed(1))+'%</span></span></div>';
+      svg+='<div style="font-size:12px;display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;background:var(--surface-2);border:1px solid var(--hair)"><i style="width:14px;height:14px;background:'+colors[i%8]+';border-radius:2px;flex:none"></i><span><b>'+p.short+'</b><br/><span style="color:var(--muted);font-size:11px">'+comma((p.w*100).toFixed(1))+'% \u00b7 '+nfEur2.format(p.val)+'</span></span></div>';
     });
     svg+='</div>';
     pieContainer.innerHTML+=svg;
