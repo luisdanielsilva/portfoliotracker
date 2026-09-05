@@ -17,6 +17,48 @@ db.pragma('foreign_keys = ON');
 const schema = require('fs').readFileSync(path.join(__dirname, 'schema.sqlite.sql'), 'utf-8');
 db.exec(schema);
 
+// Migration: widen alerts.rule_type CHECK constraint to include 'dip_from_avg_cost'
+// (SQLite can't ALTER a CHECK constraint in place, so rebuild the table if needed)
+(function migrateAlertsRuleType() {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='alerts'").get();
+  if (row && !row.sql.includes('dip_from_avg_cost')) {
+    db.exec(`
+      CREATE TABLE alerts_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        ticker TEXT NOT NULL,
+        rule_type TEXT NOT NULL CHECK(rule_type IN ('price_above', 'price_below', 'change_pct', 'dip_from_avg_cost')),
+        threshold REAL NOT NULL,
+        enabled BOOLEAN DEFAULT 1,
+        last_triggered_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      INSERT INTO alerts_new SELECT * FROM alerts;
+      DROP TABLE alerts;
+      ALTER TABLE alerts_new RENAME TO alerts;
+      CREATE INDEX IF NOT EXISTS idx_user_ticker_alert ON alerts(user_id, ticker);
+      CREATE INDEX IF NOT EXISTS idx_enabled ON alerts(enabled);
+    `);
+    console.log('Migrated alerts table to support dip_from_avg_cost rule_type');
+  }
+})();
+
+// Compute average cost per share (in EUR) currently held for a ticker, from transactions
+function getAvgCostPerShare(ticker, userId) {
+  const txStmt = db.prepare(`
+    SELECT tx_type, quantity, amount_eur FROM transactions
+    WHERE user_id = ? AND ticker = ? ORDER BY ts ASC
+  `);
+  let qty = 0, totalAmount = 0;
+  for (const tx of txStmt.all(userId, ticker)) {
+    if (tx.tx_type === 'buy') { qty += tx.quantity; totalAmount += tx.amount_eur; }
+    else if (tx.tx_type === 'sell') { qty -= tx.quantity; totalAmount -= tx.amount_eur; }
+  }
+  if (qty <= 0) return null;
+  return { avgCostEUR: totalAmount / qty, quantity: qty };
+}
+
 app.use(express.json());
 app.use(express.static(__dirname));
 
@@ -151,6 +193,7 @@ app.delete('/api/transactions/:id', (req, res) => {
   }
 });
 
+
 // GET /api/prices - retrieve latest prices for all tickers
 app.get('/api/prices', (req, res) => {
   try {
@@ -170,32 +213,75 @@ app.get('/api/prices', (req, res) => {
   }
 });
 
-// 74 original snapshot dates (for interpolation)
-const ORIGINAL_SNAPSHOT_DATES = [
-  "2023-06-10T16:36", "2023-06-19T18:54", "2023-06-30T16:39", "2023-07-03T13:12",
-  "2023-07-03T23:13", "2023-07-11T22:51", "2023-07-17T18:58", "2023-07-19T17:23",
-  "2023-07-21T15:13", "2023-08-18T00:02", "2023-08-28T00:16", "2024-03-07T22:07",
-  "2024-03-12T20:25", "2024-03-18T11:03", "2024-03-22T17:11", "2024-03-27T16:58",
-  "2024-04-05T21:09", "2024-04-09T11:24", "2024-04-09T21:52", "2024-04-11T14:21",
-  "2024-04-14T13:29", "2024-04-16T10:08", "2024-04-17T17:38", "2024-04-22T12:23",
-  "2024-05-31T15:14", "2024-06-11T23:38", "2024-07-03T19:57", "2024-10-07T16:26",
-  "2024-10-25T16:59", "2024-11-13T19:49", "2024-11-18T18:44", "2024-12-05T15:46",
-  "2024-12-05T21:04", "2024-12-07T13:59", "2024-12-12T10:18", "2024-12-17T16:39",
-  "2024-12-18T23:22", "2025-01-05T18:20", "2025-01-17T19:54", "2025-01-22T21:38",
-  "2025-01-30T20:45", "2025-02-03T17:23", "2025-02-06T09:00", "2025-02-11T15:47",
-  "2025-02-21T15:53", "2025-02-26T16:28", "2025-03-03T16:27", "2025-03-12T15:07",
-  "2025-06-06T21:32", "2025-07-05T16:18", "2025-09-15T15:06", "2025-11-01T13:37",
-  "2025-11-07T10:43", "2025-12-10T13:59", "2025-12-26T11:39", "2026-01-03T11:00",
-  "2026-02-09T14:55", "2026-03-30T15:41", "2026-05-07T12:27", "2026-05-08T20:58",
-  "2026-05-10T18:50", "2026-05-11T15:07", "2026-05-13T08:44", "2026-05-14T13:44",
-  "2026-05-19T17:41", "2026-05-29T19:20", "2026-05-29T19:27", "2026-06-12T15:15",
-  "2026-06-27T17:40", "2026-07-08T18:27", "2026-07-14T09:47", "2026-08-10T10:18",
-  "2026-08-22T10:00", "2026-08-31T19:01"
-];
+// GET /api/price-history/:ticker - retrieve full daily price history for a ticker
+app.get('/api/price-history/:ticker', (req, res) => {
+  try {
+    const ticker = req.params.ticker.toUpperCase();
+    const stmt = db.prepare(`
+      SELECT ticker, price_eur as priceEUR, price_usd as priceUSD, price_date as date
+      FROM prices
+      WHERE ticker = ?
+      ORDER BY price_date ASC
+    `);
+    const history = stmt.all(ticker);
+    res.json({ ticker, history });
+  } catch (err) {
+    console.error('GET /api/price-history error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/stock-splits - retrieve all stock splits
+app.get('/api/stock-splits', (req, res) => {
+  try {
+    const stmt = db.prepare(`
+      SELECT ticker, split_date as date, ratio, description
+      FROM stock_splits
+      ORDER BY split_date ASC
+    `);
+    const splits = stmt.all();
+    res.json({ splits });
+  } catch (err) {
+    console.error('GET /api/stock-splits error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate daily snapshot dates from first transaction to today
+function generateDailySnapshots() {
+  const txStmt = db.prepare(`
+    SELECT MIN(ts) as firstTx FROM transactions WHERE user_id = ?
+  `);
+  const result = txStmt.get(DEFAULT_USER_ID);
+
+  if (!result.firstTx) return []; // No transactions
+
+  const startDate = new Date(result.firstTx);
+  const endDate = new Date();
+
+  const dates = [];
+  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    dates.push(`${year}-${month}-${day}T00:00`);
+  }
+
+  return dates;
+}
 
 // GET /api/snapshots - compute snapshots from transactions with market value
 app.get('/api/snapshots', (req, res) => {
   try {
+    // Get all stock splits
+    const splitsStmt = db.prepare('SELECT ticker, split_date, ratio FROM stock_splits ORDER BY split_date ASC');
+    const splits = splitsStmt.all();
+    const splitsByTicker = {};
+    splits.forEach(s => {
+      if (!splitsByTicker[s.ticker]) splitsByTicker[s.ticker] = [];
+      splitsByTicker[s.ticker].push({date: s.split_date, ratio: s.ratio});
+    });
+
     // Get all transactions ordered by date
     const txStmt = db.prepare(`
       SELECT ticker, tx_type, quantity, amount_eur, ts
@@ -249,8 +335,22 @@ app.get('/api/snapshots', (req, res) => {
       latestPrices[p.ticker] = p.price_eur;
     });
 
-    // Generate snapshots for all 74 original dates by interpolating
-    const snapshots = ORIGINAL_SNAPSHOT_DATES.map(dateStr => {
+    // Helper: apply splits to quantity as of a given date
+    function applySplits(ticker, quantity, asOfDate) {
+      let qty = quantity;
+      const tickerSplits = splitsByTicker[ticker] || [];
+      for (const split of tickerSplits) {
+        if (asOfDate >= split.date) {
+          qty *= split.ratio;
+        }
+      }
+      return qty;
+    }
+
+    // Generate daily snapshots from first transaction to today
+    const snapshotDates = generateDailySnapshots();
+
+    const snapshots = snapshotDates.map(dateStr => {
       const ts = new Date(dateStr).getTime();
       const snapshotDate = dateStr.split('T')[0]; // YYYY-MM-DD
 
@@ -265,6 +365,7 @@ app.get('/api/snapshots', (req, res) => {
       }
 
       // Get prices as of this snapshot date (or latest available before it)
+      // Adjust prices for stock splits: pre-split prices need to be adjusted up
       const pricesOnDate = {};
       Object.keys(latestPrices).forEach(ticker => {
         const priceStmt = db.prepare(`
@@ -274,20 +375,35 @@ app.get('/api/snapshots', (req, res) => {
           LIMIT 1
         `);
         const priceRow = priceStmt.get(ticker, snapshotDate);
-        pricesOnDate[ticker] = priceRow ? priceRow.price_eur : null;
+        let price = priceRow ? priceRow.price_eur : null;
+
+        // Apply split adjustment to prices (multiply pre-split prices by ratio)
+        if (price !== null) {
+          const tickerSplits = splitsByTicker[ticker] || [];
+          for (const split of tickerSplits) {
+            if (snapshotDate < split.date) {
+              // Price is before this split, multiply by split ratio
+              price *= split.ratio;
+            }
+          }
+        }
+        pricesOnDate[ticker] = price;
       });
 
-      // Build holdings array with market value
+      // Build holdings array with market value, applying stock splits
       let marketValue = 0;
       const holdingsArray = Object.entries(stateAtDate)
         .filter(([_, h]) => h.qty > 0) // Only include positive positions
         .map(([ticker, h]) => {
+          const adjustedQty = applySplits(ticker, h.qty, snapshotDate);
           const price = pricesOnDate[ticker];
-          const currentValue = price ? h.qty * price : h.qty * (h.totalAmount / h.qty); // Fallback to cost if no price
+          const currentValue = price ? adjustedQty * price : adjustedQty * (h.totalAmount / h.qty); // Fallback to cost if no price
           marketValue += currentValue;
+
+
           return {
             ticker,
-            quantity: h.qty,
+            quantity: adjustedQty,
             amount: h.totalAmount,
             costPerShare: h.qty > 0 ? h.totalAmount / h.qty : 0,
             price: price || (h.totalAmount / h.qty),
@@ -299,8 +415,8 @@ app.get('/api/snapshots', (req, res) => {
         date: new Date(dateStr).toISOString(),
         ts,
         holdings: holdingsArray,
-        portfolioTotal: marketValue, // Market value instead of cost basis
-        costBasis: Object.values(stateAtDate).reduce((sum, h) => sum + h.totalAmount, 0) // For reference
+        portfolioTotal: marketValue,
+        costBasis: Object.values(stateAtDate).reduce((sum, h) => sum + h.totalAmount, 0)
       };
     });
 
@@ -311,6 +427,49 @@ app.get('/api/snapshots', (req, res) => {
   }
 });
 
+// GET /api/avg-cost - average cost per share for each ticker currently held, with current price & dip vs. that cost
+app.get('/api/avg-cost', (req, res) => {
+  try {
+    const tickerStmt = db.prepare('SELECT DISTINCT ticker FROM transactions WHERE user_id = ? ORDER BY ticker');
+    const priceStmt = db.prepare('SELECT price_eur, price_usd FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1');
+    const result = tickerStmt.all(DEFAULT_USER_ID).map(row => {
+      const cost = getAvgCostPerShare(row.ticker, DEFAULT_USER_ID);
+      if (!cost) return null;
+      const price = priceStmt.get(row.ticker);
+      const currentPriceEUR = price ? price.price_eur : null;
+      const dipPct = currentPriceEUR !== null ? (currentPriceEUR / cost.avgCostEUR - 1) : null;
+      return {
+        ticker: row.ticker,
+        quantity: cost.quantity,
+        avgCostEUR: cost.avgCostEUR,
+        currentPriceEUR,
+        currentPriceUSD: price ? price.price_usd : null,
+        dipPct
+      };
+    }).filter(Boolean);
+    res.json({ tickers: result });
+  } catch (err) {
+    console.error('GET /api/avg-cost error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add avg-cost / current-price / dip context to a dip_from_avg_cost alert (mutates and returns it)
+function enrichDipAlert(a) {
+  if (a.ruleType !== 'dip_from_avg_cost') return a;
+  const cost = getAvgCostPerShare(a.ticker, DEFAULT_USER_ID);
+  if (!cost) return a;
+  a.avgCostEUR = cost.avgCostEUR;
+  a.triggerPriceEUR = cost.avgCostEUR * (1 - a.threshold / 100);
+  const priceRow = db.prepare('SELECT price_eur, price_usd FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1').get(a.ticker);
+  if (priceRow) {
+    a.currentPriceEUR = priceRow.price_eur;
+    a.currentPriceUSD = priceRow.price_usd;
+    a.currentDipPct = (priceRow.price_eur / cost.avgCostEUR - 1) * 100;
+  }
+  return a;
+}
+
 // GET /api/alerts - retrieve user's alerts
 app.get('/api/alerts', (req, res) => {
   try {
@@ -320,7 +479,7 @@ app.get('/api/alerts', (req, res) => {
       WHERE user_id = ?
       ORDER BY created_at DESC
     `);
-    const alerts = stmt.all(DEFAULT_USER_ID);
+    const alerts = stmt.all(DEFAULT_USER_ID).map(enrichDipAlert);
     res.json({ alerts });
   } catch (err) {
     console.error('GET /api/alerts error:', err.message);
@@ -353,7 +512,7 @@ app.post('/api/alerts', (req, res) => {
       SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
       FROM alerts WHERE id = ?
     `);
-    const newAlert = selectStmt.get(result.lastInsertRowid);
+    const newAlert = enrichDipAlert(selectStmt.get(result.lastInsertRowid));
 
     res.json({ success: true, alert: newAlert });
   } catch (err) {
@@ -386,7 +545,7 @@ app.put('/api/alerts/:id', (req, res) => {
       SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
       FROM alerts WHERE id = ?
     `);
-    const alert = selectStmt.get(id);
+    const alert = enrichDipAlert(selectStmt.get(id));
 
     res.json({ success: true, alert });
   } catch (err) {
@@ -409,6 +568,28 @@ app.delete('/api/alerts/:id', (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /api/alerts error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/contact - handle contact form submissions
+app.post('/api/contact', (req, res) => {
+  try {
+    const { type, name, email, title, message } = req.body;
+
+    // Validate required fields
+    if (!type || !name || !email || !title || !message) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // TODO: Send email using a service like SendGrid, Nodemailer, or AWS SES
+    // For now, just log the message
+    console.log(`Contact form submission: Type=${type}, Name=${name}, Email=${email}, Title=${title}`);
+    console.log(`Message: ${message}`);
+
+    res.json({ success: true, message: 'Contact form received. Email functionality will be configured soon.' });
+  } catch (err) {
+    console.error('POST /api/contact error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -60,7 +60,8 @@
   .delta.neg{color:var(--neg)} .delta.pos{color:var(--pos)}
   .sub{color:var(--muted);font-size:14px;max-width:64ch;margin:12px 0 0}
 
-  .tabs{display:inline-flex;flex-wrap:wrap;border:1px solid var(--hair);border-radius:10px;overflow:hidden;margin:0;position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:100;background:var(--ground);box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:0}
+  .tabs-sticky{position:sticky;top:0;z-index:100;display:flex;justify-content:center;background:var(--ground);padding:12px 24px;box-shadow:0 2px 8px rgba(0,0,0,0.08)}
+  .tabs{display:inline-flex;flex-wrap:wrap;border:1px solid var(--hair);border-radius:10px;overflow:hidden;margin:0;background:var(--ground);padding:0}
   .tabs button{font:inherit;font-size:13.5px;font-weight:500;padding:9px 16px;border:0;cursor:pointer;background:var(--surface);color:var(--muted)}
   .tabs button[aria-selected="true"]{background:var(--accent);color:#fff}
   .tabs button+button{border-left:1px solid var(--hair)}
@@ -174,7 +175,14 @@
   .filerow{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
   .btn{font:inherit;font-size:12.5px;font-weight:500;padding:7px 14px;border-radius:8px;border:1px solid var(--hair);background:var(--surface);color:var(--ink);cursor:pointer}
   .btn.primary{background:var(--accent);color:#fff;border-color:transparent}
+  .btn[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:transparent}
   .btn:disabled{opacity:.45;cursor:default}
+  .type-switch{position:relative;display:flex;border:1px solid var(--hair);border-radius:8px;overflow:hidden;background:var(--surface-2);height:34px}
+  .type-switch-thumb{position:absolute;top:2px;left:2px;width:calc(50% - 2px);height:calc(100% - 4px);border-radius:6px;background:var(--pos);transition:transform .18s ease,background .18s ease;z-index:0}
+  .type-switch[data-active="sell"] .type-switch-thumb{transform:translateX(100%);background:var(--neg)}
+  .type-switch-opt{flex:1;position:relative;z-index:1;background:transparent;border:0;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--muted);transition:color .18s ease}
+  .type-switch[data-active="buy"] .type-switch-opt[data-type="buy"],
+  .type-switch[data-active="sell"] .type-switch-opt[data-type="sell"]{color:#fff}
   .thumb{max-height:120px;border-radius:6px;border:1px solid var(--hair)}
   .aistatus{font-size:12px;color:var(--muted);min-height:18px;align-self:center}
   .aistatus.err{color:var(--neg)}
@@ -216,7 +224,36 @@
   .notes li{margin:7px 0}
   .notes b{color:var(--ink);font-weight:600}
 
+  .contact-section{background:var(--surface-2);margin-top:40px;padding:24px;border-radius:8px;text-align:center}
+  .contact-container h2{margin:0 0 8px;font-size:18px;font-weight:600}
+  .contact-container p{margin:0 0 16px;font-size:14px;color:var(--muted)}
+  .contact-btn{padding:10px 20px;background:var(--accent);color:white;border:none;border-radius:6px;font-weight:500;cursor:pointer;font-size:14px;transition:opacity 0.2s}
+  .contact-btn:hover{opacity:0.9}
+
+  .modal{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:1000}
+  .modal-backdrop{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5)}
+  .modal-content{position:relative;background:var(--surface);border-radius:8px;box-shadow:var(--shadow);max-width:500px;width:90%;max-height:90vh;overflow-y:auto;padding:24px;z-index:1001}
+  .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+  .modal-header h3{margin:0;font-size:20px;font-weight:600}
+  .modal-close{background:none;border:none;font-size:28px;cursor:pointer;color:var(--muted);padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center}
+  .modal-close:hover{color:var(--ink)}
+
+  .form-group{margin-bottom:16px}
+  .form-group label{display:block;margin-bottom:6px;font-weight:500;font-size:14px}
+  .form-group input,.form-group select,.form-group textarea{width:100%;padding:10px 12px;border:1px solid var(--hair);border-radius:6px;font-family:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
+  .form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .form-group textarea{resize:vertical}
+
+  .form-actions{display:flex;gap:10px;margin-top:24px}
+  .btn-primary,.btn-secondary{flex:1;padding:12px 16px;border:none;border-radius:6px;font-weight:500;cursor:pointer;font-size:14px}
+  .btn-primary{background:var(--accent);color:white}
+  .btn-primary:hover{opacity:0.9}
+  .btn-secondary{background:var(--surface-2);color:var(--ink);border:1px solid var(--hair)}
+  .btn-secondary:hover{background:var(--hair)}
+
   footer{margin-top:28px;font-size:12px;color:var(--faint)}
+  footer a{color:var(--faint);text-decoration:none}
+  footer a:hover{color:var(--ink)}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -224,32 +261,32 @@
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">Brokerage statement &middot; <span id="eyebrow-range">12 snapshots</span></p>
-    <h1>Stock portfolio, snapshot by snapshot</h1>
+    <p class="eyebrow">Portfolio Tracker &middot; <span id="eyebrow-range">Last updated: —</span></p>
+    <h1>Stock portfolio</h1>
     <div class="headline">
       <span class="big" id="h-value">&euro;&nbsp;&mdash;</span>
       <span class="delta" id="h-delta"></span>
     </div>
     <p class="sub">
-      Reconstructed from 74 iPhone screenshots of the &ldquo;Statement&rdquo; / &ldquo;Patrim&oacute;nio&rdquo; screen,
-      Jun&nbsp;2023 &ndash; Aug&nbsp;2026, dated by each photo&rsquo;s EXIF. Add more from the <b>Add data</b> tab.
-      Anything you add is stored only in this browser (localStorage) &mdash; not uploaded anywhere.
+      Track your investment portfolio over time with daily snapshots, historical prices, and performance analytics.
+      Add transactions from the <b>Add data</b> tab to build your portfolio history.
+      All data is stored securely in your browser (localStorage) &mdash; nothing is uploaded.
     </p>
     <div class="kpi-strip" id="kpi-strip"></div>
   </header>
 </div>
 
-<div class="tabs" role="tablist">
-  <button id="tab-total" role="tab" aria-selected="true">Portfolio over time</button>
-  <button id="tab-stocks" role="tab" aria-selected="false">All stocks at a glance</button>
-  <button id="tab-growth" role="tab" aria-selected="false">Growth</button>
-  <button id="tab-ind" role="tab" aria-selected="false">Indicators</button>
-  <button id="tab-prices" role="tab" aria-selected="false">Prices</button>
-  <button id="tab-add" role="tab" aria-selected="false">Add data</button>
-  <button id="tab-alerts" role="tab" aria-selected="false">Price Alerts</button>
+<div class="tabs-sticky">
+  <div class="tabs" role="tablist">
+    <button id="tab-total" role="tab" aria-selected="true">Portfolio over time</button>
+    <button id="tab-detail" role="tab" aria-selected="false">Portfolio In Detail</button>
+    <button id="tab-stocks" role="tab" aria-selected="false">All stocks at a glance</button>
+    <button id="tab-dca" role="tab" aria-selected="false">DCA</button>
+    <button id="tab-add" role="tab" aria-selected="false">Add transactions and alerts</button>
+  </div>
 </div>
 
-<div class="wrap" style="margin-top:70px">
+<div class="wrap">
 
   <!-- ===== VIEW 1: TIME SERIES ===== -->
   <section id="view-total">
@@ -269,11 +306,23 @@
         </div>
       </div>
       <p class="caphint" id="caphint" hidden>Up to 8 lines at once &mdash; remove one to add another.</p>
+      <div class="toolbar" style="margin:12px 0">
+        <span class="lbl">Period</span>
+        <div class="picker" style="gap:4px;margin:0">
+          <button id="period-1m" class="mini" style="padding:5px 10px;font-size:11px">1M</button>
+          <button id="period-3m" class="mini" style="padding:5px 10px;font-size:11px">3M</button>
+          <button id="period-6m" class="mini" style="padding:5px 10px;font-size:11px">6M</button>
+          <button id="period-1y" class="mini" style="padding:5px 10px;font-size:11px">1Y</button>
+          <button id="period-3y" class="mini" style="padding:5px 10px;font-size:11px">3Y</button>
+          <button id="period-5y" class="mini" style="padding:5px 10px;font-size:11px">5Y</button>
+          <button id="period-all" class="mini" style="padding:5px 10px;font-size:11px;color:var(--accent);font-weight:600">All</button>
+        </div>
+      </div>
       <div class="chartbox">
         <svg class="chart" id="chart" viewBox="0 0 960 540" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Line chart of the selected series over time"></svg>
         <div class="tip" id="tip"></div>
       </div>
-      <p class="microcopy">Pick any mix of series. <b>Euros</b> auto-scales the axis to your selection. <b>Indexed</b> rebases every line to 100 at its first snapshot. <span class="mono">&#9711;</span> marks a snapshot where shares were bought.</p>
+      <div id="events-timeline" style="margin:16px 0;font-size:12px;color:var(--muted)"></div>
     </div>
   </section>
 
@@ -283,7 +332,7 @@
       <div class="ctlrow">
         <span class="lbl">Scale</span>
         <div class="segmented" role="group" aria-label="Panel scale">
-          <button id="s-abs" aria-pressed="true">Absolute &euro;</button>
+          <button id="s-abs" aria-pressed="true">Absolute</button>
           <button id="s-idx" aria-pressed="false">Indexed to 100</button>
         </div>
         <span class="lbl">Order</span>
@@ -301,67 +350,70 @@
   </section>
 
   <!-- ===== VIEW 2b: GROWTH ===== -->
-  <section id="view-growth" hidden>
+  <!-- ===== VIEW: PORTFOLIO IN DETAIL (merged Growth + Indicators) ===== -->
+  <section id="view-detail" hidden>
     <div class="panel">
-      <div class="kpi-grid" id="growth-kpi"></div>
+      <div class="kpi-grid" id="detail-kpi"></div>
+
       <h3 class="ind-h">Money in vs. what it&rsquo;s worth</h3>
       <p class="microcopy" style="margin:0 0 10px">Estimated invested capital (cost basis, backed out of the app&rsquo;s return&nbsp;% each snapshot) against market value. The shaded band is your gain.</p>
       <div class="chartbox">
         <svg class="chart" id="g-iv" viewBox="0 0 960 430" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Invested capital versus market value over time"></svg>
         <div class="tip" id="g-tip"></div>
       </div>
+
       <h3 class="ind-h">Underwater &mdash; how far below the prior peak</h3>
       <p class="microcopy" style="margin:0 0 10px">Portfolio value as a % below its running all-time high. Flat at 0 = at a new high.</p>
       <div class="chartbox">
         <svg class="chart" id="g-uw" viewBox="0 0 960 300" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Drawdown from peak over time"></svg>
       </div>
-      <p class="microcopy">&ldquo;Return on picks&rdquo; is an approximate time-weighted return: each gap&rsquo;s % move with new cash removed, chain-linked &mdash; it answers &ldquo;how did the holdings do&rdquo; independent of when money went in. Cost basis is estimated and the mid-2026 batch has no return&nbsp;% column, so treat these as indicative.</p>
-    </div>
-  </section>
 
-  <!-- ===== VIEW 3: INDICATORS ===== -->
-  <section id="view-ind" hidden>
-    <div class="panel">
-      <div class="kpi-grid" id="kpi-grid"></div>
       <h3 class="ind-h" id="ind-h1">Weight of each holding</h3>
       <div class="hbars" id="bars-weight"></div>
+
       <h3 class="ind-h">Value gained or lost over the window, per holding (&euro;)</h3>
       <p class="microcopy" style="margin:0 0 12px">First snapshot &rarr; last. Figures for holdings you added shares to include those purchases.</p>
       <div class="hbars" id="bars-contrib"></div>
+
       <h3 class="ind-h">Per-stock indicators</h3>
       <div class="tablewrap"><table id="ind-table"></table></div>
-      <p class="microcopy">&ldquo;&Delta; price/sh&rdquo; strips out purchases (value per share, first vs last). &ldquo;Unreal. %&rdquo; is the app&rsquo;s own return-vs-cost figure from the most recent snapshot that has it; the cost estimate is derived from it.</p>
+      <p class="microcopy">&ldquo;&Delta; price/sh&rdquo; strips out purchases (value per share, first vs last). &ldquo;Unreal. %&rdquo; is the app&rsquo;s own return-vs-cost figure from the most recent snapshot that has it; the cost estimate is derived from it. &ldquo;Return on picks&rdquo; is an approximate time-weighted return: each gap&rsquo;s % move with new cash removed, chain-linked &mdash; it answers &ldquo;how did the holdings do&rdquo; independent of when money went in. Cost basis is estimated and the mid-2026 batch has no return&nbsp;% column, so treat these as indicative.</p>
     </div>
   </section>
 
-  <!-- ===== VIEW 5: PRICES ===== -->
-  <section id="view-prices" hidden>
+  <!-- ===== VIEW: DCA (dollar-cost-averaging opportunity finder) ===== -->
+  <section id="view-dca" hidden>
     <div class="panel">
-      <h3 class="ind-h">Latest stock prices from Yahoo Finance</h3>
-      <p class="microcopy" style="margin:0 0 12px">Updated daily at 09:00 UTC. Prices in EUR and USD for reference.</p>
-      <div class="tablewrap"><table id="prices-table"></table></div>
+      <p class="microcopy" style="margin:0 0 12px">Find good moments to add to a position: how far below its own trailing average a stock is trading right now, and how often that&rsquo;s happened over the last year.</p>
+      <div class="segmented" role="group" aria-label="Select stock" id="dca-tickers" style="margin-bottom:16px"></div>
+      <div class="kpi-grid" id="dca-kpi"></div>
+      <h3 class="ind-h" id="dca-h1">Price vs. trailing average</h3>
+      <p class="microcopy" style="margin:0 0 10px"><span style="color:var(--pos)">&#9679;</span> Buy &middot; <span style="color:var(--neg)">&#9679;</span> Sell &mdash; each mark is one of your actual transactions, plotted at the price you paid or received, so you can see at a glance whether past trades landed above or below the trend.</p>
+      <div class="chartbox">
+        <svg class="chart" id="dca-price" viewBox="0 0 960 320" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Price versus trailing average over time"></svg>
+        <div class="tip" id="dca-price-tip"></div>
+      </div>
+      <h3 class="ind-h" id="dca-bb-h">Bollinger Bands</h3>
+      <p class="microcopy" style="margin:0 0 10px">20-day moving average &plusmn; 2 standard deviations. Price near or below the lower band has historically been statistically cheap relative to its own recent volatility &mdash; a classic DCA signal.</p>
+      <div class="chartbox">
+        <svg class="chart" id="dca-bb" viewBox="0 0 960 320" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Bollinger Bands over time"></svg>
+        <div class="tip" id="dca-bb-tip"></div>
+      </div>
+      <h3 class="ind-h">Deviation from average &mdash; how far below (or above) the norm</h3>
+      <p class="microcopy" style="margin:0 0 10px">% difference between the daily price and its trailing average. Below zero (shaded) = trading cheaper than usual = a candidate moment to reinforce.</p>
+      <div class="chartbox">
+        <svg class="chart" id="dca-dev" viewBox="0 0 960 300" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Deviation from trailing average over time"></svg>
+        <div class="tip" id="dca-tip"></div>
+      </div>
+      <h3 class="ind-h">Notable dips</h3>
+      <p class="microcopy" style="margin:0 0 12px">The deepest below-average stretches in the window, most recent first.</p>
+      <div class="tablewrap"><table id="dca-table"></table></div>
     </div>
   </section>
 
   <!-- ===== VIEW 4: ADD DATA ===== -->
   <section id="view-add" hidden>
     <div class="panel">
-      <div class="addcard">
-        <h3>Snapshot entry</h3>
-        <p class="hint">One point in time. &ldquo;Amount&rdquo; is the Amount&nbsp;EUR figure on the screen; &ldquo;Ret.&nbsp;%&rdquo; is optional (feeds the unrealised-return estimate). Leave a row blank to skip it &mdash; record everything you hold for an accurate total. To change or remove one you added, use <b>Edit</b> / <b>&times;</b> in the list below.</p>
-        <div class="dt-row">
-          <input type="date" id="f-date" aria-label="Date">
-          <input type="time" id="f-time" value="12:00" aria-label="Time">
-        </div>
-        <div class="tablewrap"><div class="frm" id="f-frm"></div></div>
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn" id="f-addrow">+ Add holding</button>
-          <button type="button" class="btn" id="f-reset">Reset</button>
-          <button type="button" class="btn primary" id="f-save">Save snapshot</button>
-        </div>
-        <div class="frm-note" id="f-note"></div>
-      </div>
-
       <div class="addcard">
         <h3>Register transaction</h3>
         <p class="hint">Buy or sell a holding. Currency conversion to EUR is applied at transaction time. A snapshot is automatically created from your last recorded state + this transaction.</p>
@@ -397,8 +449,11 @@
           </div>
         </div>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn" id="tx-type-buy" aria-pressed="true" style="flex:1">Buy</button>
-          <button type="button" class="btn" id="tx-type-sell" aria-pressed="false" style="flex:1">Sell</button>
+          <div class="type-switch" id="tx-type-switch" data-active="buy" role="group" aria-label="Transaction type" style="flex:1">
+            <span class="type-switch-thumb"></span>
+            <button type="button" class="type-switch-opt" data-type="buy">Buy</button>
+            <button type="button" class="type-switch-opt" data-type="sell">Sell</button>
+          </div>
           <button type="button" class="btn primary" id="tx-save" style="flex:1">Register</button>
         </div>
         <div class="frm-note" id="tx-note"></div>
@@ -411,22 +466,31 @@
       </div>
 
       <div class="addcard">
-        <h3>Your added snapshots <span id="us-count" style="color:var(--faint);font-weight:400"></span></h3>
-        <p class="hint">Stored in this browser only (localStorage) &mdash; not shared, not uploaded. Export to keep a copy elsewhere.</p>
-        <div class="uslist" id="us-list"></div>
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn" id="io-export">Export JSON</button>
-          <button type="button" class="btn" id="io-import">Import JSON</button>
-          <button type="button" class="btn" id="io-clear">Clear all</button>
+        <h3>Create dip alert</h3>
+        <p class="hint">Get an email when a stock drops a set % below your own average purchase price for it &mdash; a signal to consider reinforcing the position.</p>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;max-width:260px">
+          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Stock</label>
+          <select id="dip-ticker" style="font-size:12px;padding:8px"></select>
         </div>
-        <textarea class="io-area" id="io-area" hidden spellcheck="false"></textarea>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Alert when down</label>
+          <div class="segmented" role="group" aria-label="Dip threshold" id="dip-presets">
+            <button type="button" data-pct="5" aria-pressed="true">5%</button>
+            <button type="button" data-pct="7">7%</button>
+            <button type="button" data-pct="10">10%</button>
+            <button type="button" data-pct="12.5">12.5%</button>
+            <button type="button" data-pct="15">15%</button>
+            <button type="button" data-pct="custom">Custom</button>
+          </div>
+          <input type="number" id="dip-custom" placeholder="e.g. 20" step="0.5" min="0.5" style="font-size:12px;max-width:140px" hidden>
+        </div>
+        <div class="frm-note" id="dip-preview" style="background:var(--surface-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--muted)"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn primary" id="dip-create" style="flex:1">Create dip alert</button>
+        </div>
+        <div class="frm-note" id="dip-note"></div>
       </div>
-    </div>
-  </section>
 
-  <!-- ===== VIEW 6: PRICE ALERTS ===== -->
-  <section id="view-alerts" hidden>
-    <div class="panel">
       <div class="addcard">
         <h3>Create price alert</h3>
         <p class="hint">Get notified when a stock reaches a specific price.</p>
@@ -456,44 +520,101 @@
 
       <div class="addcard">
         <h3>Your alerts <span id="al-count" style="color:var(--faint);font-weight:400"></span></h3>
-        <p class="hint">Active alerts are evaluated every time prices are fetched (daily at 09:00 UTC). Throttled to 1 email per alert per 24h.</p>
+        <p class="hint">Active alerts are evaluated every time prices are fetched (daily at 09:00 UTC). Throttled to 1 email per alert per 24h. Emails currently go to a placeholder address &mdash; a per-user address will replace it once account profiles exist.</p>
         <div id="al-list" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
     </div>
   </section>
 
   <!-- ===== DATA TABLE ===== -->
-  <section class="panel">
-    <div class="toolbar" style="margin-bottom:10px">
-      <span class="lbl" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:600">Show</span>
-      <div class="segmented" role="group" aria-label="Table cell values">
-        <button id="t-amt" aria-pressed="true">Amount &euro;</button>
-        <button id="t-qty" aria-pressed="false">Shares held</button>
+  <section class="panel" id="table-section" style="opacity:0.6">
+    <div id="table-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;cursor:pointer;padding:8px;margin:-8px -8px 14px;border-radius:8px;transition:background 0.2s">
+      <h3 style="margin:0;font-size:14px;font-weight:600">Share counts over time</h3>
+      <button id="table-toggle" style="background:none;border:0;color:var(--accent);cursor:pointer;font-size:18px;padding:4px 8px;pointer-events:none">▼</button>
+    </div>
+    <div id="table-content" style="display:none">
+      <div class="toolbar" style="margin-bottom:10px">
+        <span class="lbl" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:600">Show</span>
+        <div class="segmented" role="group" aria-label="Table cell values">
+          <button id="t-amt" aria-pressed="true">Amount</button>
+          <button id="t-qty" aria-pressed="false">Shares held</button>
+        </div>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <caption>Every snapshot, every position. A <span style="color:var(--accent)">&#9679;</span> marks a row you added.</caption>
+          <thead><tr id="th-row"></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
       </div>
     </div>
-    <div class="tablewrap">
-      <table>
-        <caption>Every snapshot, every position. A <span style="color:var(--accent)">&#9679;</span> marks a row you added.</caption>
-        <thead><tr id="th-row"></tr></thead>
-        <tbody id="tbody"></tbody>
-      </table>
+  </section>
+
+  <section class="panel notes" id="notes-section" style="opacity:0.6">
+    <div id="notes-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;cursor:pointer;padding:8px;margin:-8px -8px 14px;border-radius:8px;transition:background 0.2s">
+      <h2 style="margin:0;font-size:14px;font-weight:600">How to read this</h2>
+      <button id="notes-toggle" style="background:none;border:0;color:var(--accent);cursor:pointer;font-size:18px;padding:4px 8px;pointer-events:none">▼</button>
+    </div>
+    <div id="notes-content" style="display:none">
+      <ul style="font-size:13px;line-height:1.5">
+        <li><b>Portfolio over time chart</b> &mdash; Shows your portfolio&rsquo;s market value over time. Use <b>EUR</b> or <b>USD</b> to toggle currency (Y-axis scale stays proportional). Select time periods (1M, 3M, 6M, 1Y, etc.) to zoom into specific ranges. X-axis shows quarters for longer periods or months for shorter periods. Vertical lines mark stock split events.</li>
+        <li><b>Stock splits</b> &mdash; Marked with a vertical line on the chart. Events listed below the chart show the date, ticker, and split ratio (e.g., 3-for-1). Your share count automatically adjusts to reflect the split.</li>
+        <li><b>Series selection</b> &mdash; Pick any combination of &ldquo;Total&rdquo;, &ldquo;Tesla&rdquo;, &ldquo;Ex-Tesla&rdquo;, or individual holdings to plot. The chart updates instantly. Colored dots mark points where shares were purchased.</li>
+        <li><b>Share counts table</b> &mdash; Toggle between <b>Amount</b> (cost basis in original currency) or <b>Shares held</b> to see quantities. Values show in USD for stocks bought in USD (TSLA, AMD) or EUR for others. Collapsible to reduce clutter.</li>
+        <li><b>Original currency</b> &mdash; Each stock displays in its purchase currency: TSLA and AMD in USD (using the transaction&rsquo;s exchange rate), others in EUR. This shows your actual cost basis.</li>
+        <li><b>Events timeline</b> &mdash; Below the chart, corporate actions like stock splits are listed chronologically by date, ticker, and event type.</li>
+      </ul>
     </div>
   </section>
 
-  <section class="panel notes">
-    <h2>How to read this</h2>
-    <ul>
-      <li><b>Add data tab</b> &mdash; enter a snapshot by hand (date/time + a row per holding with quantity, amount, and optional return&nbsp;%). Each snapshot you add can be edited or deleted from the list. It all lives in this browser&rsquo;s localStorage only &mdash; use <b>Export JSON</b> to keep a copy, <b>Import JSON</b> to restore it or move it to another device.</li>
-      <li><b>Time series tab</b> plots any combination of the three totals and the individual holdings. Euros fits the axis to your selection; Indexed rebases each line to 100. The hover tooltip shows the share count held at that date next to each holding.</li>
-      <li><b>Share counts over time</b>: the table below has an <b>Amount &euro; / Shares held</b> switch &mdash; &ldquo;Shares held&rdquo; shows the quantity of each holding at every snapshot (last column = number of positions). On <b>All stocks</b>, scrubbing a panel updates its share count too.</li>
-      <li><b>Base data</b>: 74 snapshots, 10&nbsp;Jun&nbsp;2023 &ndash; 31&nbsp;Aug&nbsp;2026, dated by EXIF. Very unevenly spaced &mdash; clusters of near-daily shots, then multi-month gaps (nothing between Jul&nbsp;2023 and Mar&nbsp;2024, or Jul&ndash;Sep&nbsp;2025). Every screenshot that showed an &ldquo;A&ccedil;&otilde;es&rdquo; total reconciles to the cent against the summed rows.</li>
-      <li><b>The book grew from 5 holdings to 13.</b> Started as Tesla + VW + Lufthansa + Meta + the S&amp;P 500 ETF; Palantir, Nvidia and ASML were added end-Jan&nbsp;2025; Oracle around Nov&nbsp;2025; AMD and Qualcomm by Feb&nbsp;2026; ServiceNow in May&nbsp;2026; Microsoft in Aug&nbsp;2026. Share counts also stepped up (Tesla 208&rarr;228&rarr;235, VW 7&rarr;14, Oracle 5&rarr;13, Qualcomm 15&rarr;23, Palantir 15&rarr;20, ServiceNow 10&rarr;18). A jump in a line at a <span class="mono">&#9711;</span> is partly a purchase, not price &mdash; so the multi-year &ldquo;since&rdquo; return is inflated by a lot of added capital.</li>
-      <li><b>Rent %</b> (the app&rsquo;s return-vs-cost column) was captured for the 2023 &ndash; May&nbsp;2026 screenshots and the final one, but not for the mid-May &ndash; 22&nbsp;Aug&nbsp;2026 batch &mdash; so the unrealised-return estimate uses the most recent snapshot that carries it.</li>
-      <li>The <b>S&amp;P 500 ETF</b> (SPDR / State Street, 5 units held throughout, ~&euro;2.0k in 2023 rising to ~&euro;3.3k) is now included as the 13th holding. A few of its values (2025 gap, mid-2026) were interpolated where the ETF card was scrolled off the screenshot.</li>
-    </ul>
+  <section id="contact-section" class="contact-section">
+    <div class="contact-container">
+      <h2>Contact / Support</h2>
+      <p>Have a question or suggestion? We'd love to hear from you.</p>
+      <button id="contact-btn" class="contact-btn">Send us a message</button>
+    </div>
   </section>
 
-  <footer>Built from iPhone screenshots &middot; figures in EUR, European number format &middot; not investment advice.</footer>
+  <div id="contact-modal" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Contact / Support</h3>
+        <button class="modal-close" id="contact-close">&times;</button>
+      </div>
+      <form id="contact-form">
+        <div class="form-group">
+          <label for="contact-type">Type</label>
+          <select id="contact-type" required>
+            <option value="support">Support</option>
+            <option value="feature">Feature Request</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="contact-name">Name</label>
+          <input type="text" id="contact-name" placeholder="Your name" required>
+        </div>
+        <div class="form-group">
+          <label for="contact-email">Email</label>
+          <input type="email" id="contact-email" placeholder="your@email.com" required>
+        </div>
+        <div class="form-group">
+          <label for="contact-title">Title</label>
+          <input type="text" id="contact-title" placeholder="Subject" required>
+        </div>
+        <div class="form-group">
+          <label for="contact-message">Message</label>
+          <textarea id="contact-message" placeholder="Tell us more..." rows="6" required></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Send</button>
+          <button type="button" class="btn-secondary" id="contact-cancel">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <footer>Made by <strong>Luís Silva</strong> with the help of AI &middot; <a href="https://www.luisdanielsilva.com" target="_blank">www.luisdanielsilva.com</a> &middot; <a href="#" id="footer-contact">Support</a></footer>
 </div>
 <div class="loading-overlay" id="loading-overlay">
   <div class="loading-spinner">
@@ -521,15 +642,25 @@
     'QCOM': 'Qualcomm', 'NOW': 'ServiceNow', 'MSFT': 'Microsoft', 'SPY': 'SPDR S&P 500 ETF Trust'
   };
 
+  // Ticker to currency mapping (USD by default if not in this map)
+  var TICKER_CURRENCY = {
+    'TSLA': 'USD', 'AMD': 'USD', 'QCOM': 'USD', 'NVDA': 'USD', 'MSFT': 'USD',
+    'META': 'USD', 'ORCL': 'USD', 'NOW': 'USD', 'PLTR': 'USD'
+  };
+
   var BASE_RAW = []; // Will be populated from API
   var LATEST_PRICES = {}; // ticker -> {priceEUR, priceUSD, date, updatedAt}
   var CURRENT_MARKET_VALUE = null; // calculated from latest holdings + prices
+  var CURRENT_COST_BASIS = null; // cost basis of current portfolio
+  var STOCK_SPLITS = []; // {ticker, date, ratio, description}
+  var TICKER_EXCHANGE_RATE = {}; // ticker -> exchange rate used in transactions
 
   /* ================= helpers ================= */
   var nfEur2=new Intl.NumberFormat("de-DE",{minimumFractionDigits:2,maximumFractionDigits:2});
   var nfEur0=new Intl.NumberFormat("de-DE",{maximumFractionDigits:0});
   function eur(v){ return "\u20ac\u00a0"+nfEur2.format(v); }
   function usd(v){ return "$\u00a0"+nfEur2.format(v); }
+  function showCurrencyValue(ticker,v){ return (TICKER_CURRENCY[ticker]==="USD"?usd(v):eur(v)); }
   function idx1(v){ return (Math.round(v*10)/10).toFixed(1); }
   function comma(x){ return String(x).replace(".",","); }
   function d0(v){ return (v>=0?"+":"\u2212")+"\u20ac"+nfEur0.format(Math.abs(Math.round(v))); }
@@ -653,52 +784,65 @@
     };
 
     renderHeadline();
-    renderPicker(); renderMain();
+    renderPicker(); renderMain(); renderEventsTimeline();
     buildGrid();
-    renderIndicators();
+    renderPortfolioDetail();
     renderTable();
-    renderGrowth();
-    renderUserList();
   }
 
   function monthTicks(){
-    var span=(new Date(T1).getFullYear()-new Date(T0).getFullYear())*12 + (new Date(T1).getMonth()-new Date(T0).getMonth());
-    var step = span<=8 ? 1 : span<=20 ? 3 : span<=40 ? 6 : 12;
-    var out=[], d=new Date(T0); d.setDate(1); d.setHours(0,0,0,0);
-    while(d.getMonth()%step!==0) d.setMonth(d.getMonth()+1);
-    var guard=0;
-    while(d.getTime()<=T1 && guard++<200){
-      if(d.getTime()>=T0){
-        var lab = step>=12 ? String(d.getFullYear())
-          : d.toLocaleDateString("en-GB",{month:"short"}) + (step>=3 ? " ’"+String(d.getFullYear()).slice(2) : "");
-        out.push({t:d.getTime(), lab:lab});
+    var span=(new Date(chartT1).getFullYear()-new Date(chartT0).getFullYear())*12 + (new Date(chartT1).getMonth()-new Date(chartT0).getMonth());
+    var useQuarters = span > 6;
+    var out=[], d=new Date(chartT0); d.setDate(1); d.setHours(0,0,0,0);
+
+    if(useQuarters){
+      // Show quarters: year label first, then quarters, format like "2022    Q1    Q2    Q3    2023"
+      while(d.getMonth()%3!==0) d.setMonth(d.getMonth()+1);
+      var currentYear=null;
+      var guard=0;
+      while(d.getTime()<=chartT1 && guard++<200){
+        if(d.getTime()>=chartT0){
+          var year=d.getFullYear();
+          if(year!==currentYear){
+            out.push({t:d.getTime(), lab:String(year), isYear:true});
+            currentYear=year;
+          }
+          var q=Math.floor(d.getMonth()/3)+1;
+          out.push({t:d.getTime(), lab:"Q"+q});
+        }
+        d.setMonth(d.getMonth()+3);
       }
-      d.setMonth(d.getMonth()+step);
+    } else {
+      // Show months
+      d=new Date(chartT0); d.setDate(1); d.setHours(0,0,0,0);
+      var guard=0;
+      while(d.getTime()<=chartT1 && guard++<200){
+        if(d.getTime()>=chartT0){
+          var lab = d.toLocaleDateString("en-GB",{month:"short"}) + (span>2 ? " ‘"+String(d.getFullYear()).slice(2) : "");
+          out.push({t:d.getTime(), lab:lab});
+        }
+        d.setMonth(d.getMonth()+1);
+      }
     }
     return out;
   }
 
   function renderHeadline(){
-    var cur=TOTAL[n-1], first=TOTAL[0], diff=cur-first, p=cur/first-1;
+    var marketValue = CURRENT_MARKET_VALUE || TOTAL[n-1] || 0;
+    var costBasis = CURRENT_COST_BASIS || 0;
 
-    // Calculate current market value if prices are available
-    var marketValue = CURRENT_MARKET_VALUE !== null ? CURRENT_MARKET_VALUE : cur;
-    var displayValue = CURRENT_MARKET_VALUE !== null ? marketValue : cur;
-    var displayLabel = CURRENT_MARKET_VALUE !== null ? "Current market value" : "Cost basis";
-
-    document.getElementById("h-value").textContent=eur(displayValue);
+    document.getElementById("h-value").textContent=eur(marketValue);
     var de=document.getElementById("h-delta");
 
-    // Show gain/loss from cost basis if market value is available
-    if(CURRENT_MARKET_VALUE !== null){
-      var gain = marketValue - cur;
+    if(costBasis > 0){
+      var gain = marketValue - costBasis;
       de.className="delta "+(gain>=0?"pos":"neg");
-      de.textContent="Basis: "+eur(cur)+" \u2022 Gain: "+(gain>=0?"+":"\u2212")+"\u20ac"+nfEur2.format(Math.abs(gain))+"  ("+dp(gain/cur)+")";
+      de.textContent="Basis: "+eur(costBasis)+" \u2022 Gain: "+(gain>=0?"+":"\u2212")+"\u20ac"+nfEur2.format(Math.abs(gain))+"  ("+dp(gain/costBasis)+")";
     } else {
-      de.className="delta "+(diff>=0?"pos":"neg");
-      de.textContent=(diff>=0?"+":"\u2212")+"\u20ac"+nfEur2.format(Math.abs(diff))+"  ("+dp(p)+") since "+shortDate(T0);
+      de.className="delta";
+      de.textContent="\u2014";
     }
-    document.getElementById("eyebrow-range").textContent=n+" snapshots \u00b7 "+shortDate(T0)+" \u2013 "+fmtDayY.format(new Date(T1));
+    document.getElementById("eyebrow-range").textContent="Last updated: "+fmtDayY.format(new Date(T[n-1]));
   }
 
   /* ================= VIEW 1 : time series ================= */
@@ -706,6 +850,8 @@
   var D={w:960,h:540,l:72,r:140,t:28,b:44};
   var pW=D.w-D.l-D.r, pH=D.h-D.t-D.b;
   var mode="eur", CAP=8, DOMc=[0,1], selected=["_total","_tesla","_ex"], capTimer;
+  var CURRENT_EUR_TO_USD=1.087; // Default exchange rate, updated from latest prices
+  var timePeriod="all"; // Current time period filter: 1m, 3m, 6m, 1y, 3y, 5y, or all
   var PAL_L=["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4","#008300","#4a3aa7","#e34948"];
   var PAL_D=["#3987e5","#d95926","#199e70","#c98500","#d55181","#008300","#9085e9","#e66767"];
   function byKey(k){ for(var i=0;i<ALL.length;i++) if(ALL[i].key===k) return ALL[i]; }
@@ -717,50 +863,96 @@
   function palette(){ return isDark()?PAL_D:PAL_L; }
   function colorOf(k){ var i=selected.indexOf(k); return i<0?"var(--faint)":palette()[i%CAP]; }
   function firstNN(a){ for(var i=0;i<n;i++) if(a[i]!=null) return i; return 0; }
-  function sval(o,i){ if(o.arr[i]==null) return null; return mode==="eur"?o.arr[i]:o.arr[i]*1.087; }
-  function X(i){ return D.l+(T[i]-T0)/((T1-T0)||1)*pW; }
+  function sval(o,i){ if(o.arr[i]==null) return null; return mode==="eur"?o.arr[i]:o.arr[i]*CURRENT_EUR_TO_USD; }
+  function X(i){ return D.l+(T[i]-chartT0)/((chartT1-chartT0)||1)*pW; }
   function Y(v){ return D.t+(1-(v-DOMc[0])/((DOMc[1]-DOMc[0])||1))*pH; }
+  function isInChartRange(i){ return T[i]>=chartT0 && T[i]<=chartT1; }
   function computeDomain(){
     var lo=Infinity,hi=-Infinity;
     selected.forEach(function(k){ var s=byKey(k); if(!s) return;
-      for(var i=0;i<n;i++){ var v=sval(s,i); if(v==null) continue; if(v<lo)lo=v; if(v>hi)hi=v; } });
+      for(var i=0;i<n;i++){ var v=s.arr[i]; if(v==null) continue; if(v<lo)lo=v; if(v>hi)hi=v; } });
     if(!isFinite(lo)) return [0,1];
     if(lo===hi) return [lo-1,hi+1];
     var pad=(hi-lo)*0.08; return [lo-pad,hi+pad];
   }
   function niceTicks(lo,hi,c){
     var span=hi-lo; if(span<=0) return [lo];
-    var step=Math.pow(10,Math.floor(Math.log(span/c)/Math.LN10)), err=span/c/step;
-    if(err>=7.5)step*=10; else if(err>=3.5)step*=5; else if(err>=1.5)step*=2;
+    var step=500;
+    var tickCount=span/step;
+    if(tickCount>10) step=1000;
+    if(tickCount>15) step=2000;
+    if(tickCount>20) step=5000;
     var out=[], start=Math.ceil(lo/step)*step;
     for(var v=start;v<=hi+step*0.5;v+=step) out.push(Math.round(v*1e6)/1e6);
     return out;
   }
+  function getTimeRange(){
+    // Calculate the earliest date from selected stocks
+    var minT=T0;
+    selected.forEach(function(k){
+      var s=byKey(k); if(!s) return;
+      for(var i=0;i<n;i++) if(s.arr[i]!=null){ minT=Math.min(minT,T[i]); break; }
+    });
+
+    // Apply time period filter
+    var maxT=T1;
+    if(timePeriod!=="all"){
+      var now=new Date().getTime();
+      var days={"1m":30,"3m":90,"6m":180,"1y":365,"3y":1095,"5y":1825}[timePeriod]||365;
+      maxT=Math.min(maxT,now);
+      minT=Math.max(minT,now-days*24*3600*1000);
+    }
+
+    return {t0:minT,t1:maxT};
+  }
+  var chartT0=T0, chartT1=T1; // Chart display time range
   function renderMain(){
     while(svg.firstChild) svg.removeChild(svg.firstChild);
+
+    // Get adjusted time range for X-axis
+    var tr=getTimeRange();
+    chartT0=tr.t0;
+    chartT1=tr.t1;
+
     DOMc=computeDomain();
     niceTicks(DOMc[0],DOMc[1],5).forEach(function(tk){
       var y=Y(tk); if(y<D.t-1||y>D.t+pH+1) return;
       svg.appendChild(el("line",{class:"gridline",x1:D.l,x2:D.w-D.r,y1:y,y2:y}));
       var lb=el("text",{class:"axislbl","text-anchor":"end",x:D.l-10,y:y+3.5});
-      lb.textContent=mode==="eur"?nfEur0.format(tk):Math.round(tk*1.087); svg.appendChild(lb);
+      lb.textContent=mode==="eur"?nfEur0.format(tk):Math.round(tk*CURRENT_EUR_TO_USD); svg.appendChild(lb);
     });
     svg.appendChild(el("line",{class:"gridline",x1:D.l,x2:D.w-D.r,y1:D.t+pH,y2:D.t+pH}));
     monthTicks().forEach(function(m){
-      var x=D.l+(m.t-T0)/((T1-T0)||1)*pW;
-      svg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:D.t,y2:D.t+pH,"stroke-dasharray":"2 3"}));
-      var lb=el("text",{class:"xlbl",x:x,y:D.t+pH+22}); lb.textContent=m.lab; svg.appendChild(lb);
+      var x=D.l+(m.t-chartT0)/((chartT1-chartT0)||1)*pW;
+      if(x<D.l||x>D.w-D.r) return;
+      if(!m.isYear){
+        svg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:D.t,y2:D.t+pH,"stroke-dasharray":"2 3"}));
+      }
+      var lb=el("text",{class:"xlbl",x:x,y:D.t+pH+22});
+      if(m.isYear){
+        lb.setAttribute("font-weight","600");
+        lb.setAttribute("fill","var(--ink)");
+      }
+      lb.textContent=m.lab; svg.appendChild(lb);
+    });
+    // Draw stock split indicators
+    STOCK_SPLITS.forEach(function(split){
+      var splitTs = new Date(split.date).getTime();
+      if(splitTs < chartT0 || splitTs > chartT1) return; // Outside chart range
+      var x = D.l + (splitTs - chartT0) / ((chartT1 - chartT0) || 1) * pW;
+      // Draw vertical line
+      svg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:D.t,y2:D.t+pH,"stroke-dasharray":"3 3",stroke:"rgba(233, 123, 164, 0.6)",opacity:"0.8"}));
     });
     var ends=[];
     selected.forEach(function(k){
       var s=byKey(k); if(!s) return;
       var col=colorOf(k), dstr="", started=false;
-      for(var i=0;i<n;i++){ var v=sval(s,i); if(v==null) continue;
+      for(var i=0;i<n;i++){ if(!isInChartRange(i)) continue; var v=sval(s,i); if(v==null) continue;
         dstr+=(started?" L ":"M ")+X(i).toFixed(1)+" "+Y(v).toFixed(1); started=true; }
       if(dstr) svg.appendChild(el("path",{class:"serieline",d:dstr,stroke:col}));
-      for(var j=0;j<n;j++){ var vv=sval(s,j); if(vv==null) continue;
+      for(var j=0;j<n;j++){ if(!isInChartRange(j)) continue; var vv=sval(s,j); if(vv==null) continue;
         svg.appendChild(el("circle",{class:"dot",cx:X(j),cy:Y(vv),r:2.4,fill:col})); }
-      if(s.qty) for(var b=0;b<n;b++) if(isBuyIdx(s.qty,b) && s.arr[b]!=null)
+      if(s.qty) for(var b=0;b<n;b++) if(isBuyIdx(s.qty,b) && s.arr[b]!=null && isInChartRange(b))
         svg.appendChild(el("circle",{class:"buyring",cx:X(b),cy:Y(sval(s,b)),r:3.6,stroke:col}));
       var lv=sval(s,n-1);
       if(lv!=null) ends.push({y:Y(lv),col:col,txt:mode==="eur"?nfEur0.format(s.arr[n-1]):nfEur0.format(lv)});
@@ -783,6 +975,20 @@
       b.addEventListener("click",function(){ toggle(k); });
       lg.appendChild(b);
     });
+  }
+  function renderEventsTimeline(){
+    var timeline=document.getElementById("events-timeline");
+    if(!STOCK_SPLITS || STOCK_SPLITS.length===0){ timeline.innerHTML=""; return; }
+    var sorted=STOCK_SPLITS.slice().sort(function(a,b){
+      return new Date(a.date).getTime()-new Date(b.date).getTime();
+    });
+    var html='<div style="margin-top:8px"><b style="color:var(--ink);font-size:11px;letter-spacing:.08em;text-transform:uppercase">Events:</b><div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">';
+    sorted.forEach(function(split){
+      var date=new Date(split.date).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+      html+='<span><b>'+date+'</b> \u00b7 '+split.ticker+' \u00b7 '+split.description+'</span>';
+    });
+    html+='</div></div>';
+    timeline.innerHTML=html;
   }
   function renderPicker(){
     var p=document.getElementById("picker"); p.innerHTML="";
@@ -854,6 +1060,19 @@
     document.getElementById("m-usd").setAttribute("aria-pressed",m==="usd");
     hideMain(); renderMain();
   }
+
+  // Time period buttons
+  ["1m","3m","6m","1y","3y","5y","all"].forEach(function(p){
+    var btn=document.getElementById("period-"+p);
+    if(btn) btn.addEventListener("click",function(){
+      timePeriod=p;
+      document.querySelectorAll("[id^='period-']").forEach(function(b){ b.style.color="var(--muted)"; b.style.fontWeight="400"; });
+      btn.style.color="var(--accent)";
+      btn.style.fontWeight="600";
+      hideMain(); renderMain();
+    });
+  });
+  document.getElementById("period-all").click();
   if(window.matchMedia){
     var mq=window.matchMedia("(prefers-color-scheme: dark)");
     var onTheme=function(){ renderPicker(); renderMain(); };
@@ -886,24 +1105,30 @@
   }
   function buildGrid(){
     grid.innerHTML=""; panels=[];
-    var multiYear=new Date(T1).getFullYear()!==new Date(T0).getFullYear();
-    var rngFmt=function(ts){ var d=new Date(ts); return d.toLocaleDateString("en-GB",multiYear?{month:"short",year:"2-digit"}:{day:"numeric",month:"short"}); };
-    var lastShort=rngFmt(T1);
     orderedStocks().forEach(function(s){
       if(s.vals[n-1]==null && s.vals.every(function(v){return v==null;})) return;
-      var pts=series(s), dom=domainOf(pts), f=firstIdx(s);
+      var f=firstIdx(s);
+      var stockT0=T[f], stockT1=T[n-1];
+      var stockMultiYear=new Date(stockT1).getFullYear()!==new Date(stockT0).getFullYear();
+      var rngFmt=function(ts){ var d=new Date(ts); return d.toLocaleDateString("en-GB",stockMultiYear?{month:"short",year:"2-digit"}:{day:"numeric",month:"short"}); };
+      var xPStock=function(t){ return PiL+(t-stockT0)/((stockT1-stockT0)||1)*PpW; };
+      var filteredPts=series(s).filter(function(p){ return T[p.i]>=stockT0 && T[p.i]<=stockT1; });
+      if(filteredPts.length===0) return;
+      var dom=domainOf(filteredPts);
       var chg=s.vals[n-1]!=null?s.vals[n-1]/s.vals[f]-1:0;
       var hasBuy=s.qty.some(function(q,i){ return isBuyIdx(s.qty,i); });
       var dLine="", dArea="";
-      pts.forEach(function(p,k){ var X1=xP(T[p.i]).toFixed(1), Y1=yP(p.v,dom).toFixed(1); dLine+=(k?" L ":"M ")+X1+" "+Y1; dArea+=(k?" L ":"M ")+X1+" "+Y1; });
-      var x0=xP(T[pts[0].i]).toFixed(1), xLast=xP(T[pts[pts.length-1].i]).toFixed(1);
+      filteredPts.forEach(function(p,k){ var X1=xPStock(T[p.i]).toFixed(1), Y1=yP(p.v,dom).toFixed(1); dLine+=(k?" L ":"M ")+X1+" "+Y1; dArea+=(k?" L ":"M ")+X1+" "+Y1; });
+      var x0=xPStock(T[filteredPts[0].i]).toFixed(1), xLast=xPStock(T[filteredPts[filteredPts.length-1].i]).toFixed(1);
       dArea="M "+x0+" "+(PiT+PpH)+" L "+dArea.slice(2)+" L "+xLast+" "+(PiT+PpH)+" Z";
-      var mg=""; monthTicks().forEach(function(m){ var x=xP(m.t).toFixed(1); mg+='<line class="sm-grid" x1="'+x+'" y1="'+PiT+'" x2="'+x+'" y2="'+(PiT+PpH)+'" stroke-dasharray="2 3"/>'; });
-      var bm=""; s.qty.forEach(function(q,i){ if(isBuyIdx(s.qty,i)&&s.vals[i]!=null){ var vv=smMode==="abs"?s.vals[i]:s.vals[i]/s.vals[f]*100; bm+='<circle class="sm-buy" cx="'+xP(T[i]).toFixed(1)+'" cy="'+yP(vv,dom).toFixed(1)+'" r="3"/>'; } });
-      var lastPt=pts[pts.length-1];
+      var mg="";
+      for(var mi=0;mi<n;mi++){ if(T[mi]>=stockT0 && T[mi]<=stockT1){ var m=T[mi], x=xPStock(m).toFixed(1); mg+='<line class="sm-grid" x1="'+x+'" y1="'+PiT+'" x2="'+x+'" y2="'+(PiT+PpH)+'" stroke-dasharray="2 3"/>'; } }
+      var bm=""; s.qty.forEach(function(q,i){ if(isBuyIdx(s.qty,i)&&s.vals[i]!=null&&T[i]>=stockT0 && T[i]<=stockT1){ var vv=smMode==="abs"?s.vals[i]:s.vals[i]/s.vals[f]*100; bm+='<circle class="sm-buy" cx="'+xPStock(T[i]).toFixed(1)+'" cy="'+yP(vv,dom).toFixed(1)+'" r="3"/>'; } });
+      var lastPt=filteredPts[filteredPts.length-1];
       var cell=document.createElement("div"); cell.className="cell";
+      var displayVal=s.vals[n-1]!=null?(smMode==="abs"?showCurrencyValue(s.key.toUpperCase(),s.vals[n-1]):idx1(s.vals[n-1]/s.vals[f]*100)):"\u2014";
       cell.innerHTML=
-        '<div class="top"><span class="nm">'+s.name+'</span><span class="val" data-role="val">'+(s.vals[n-1]!=null?eur(s.vals[n-1]):"\u2014")+'</span></div>'+
+        '<div class="top"><span class="nm">'+s.name+'</span><span class="val" data-role="val">'+displayVal+'</span></div>'+
         '<div class="qy"><span data-role="qy">'+(s.qty[n-1]!=null?s.qty[n-1]+" shares":"")+'</span>'+(hasBuy?" &middot; position changed":"")+'</div>'+
         '<svg viewBox="0 0 '+PdW+' '+PdH+'" role="img" aria-label="'+esc(s.name)+' value over time">'+mg+
           '<path class="sm-area" d="'+dArea+'"/><path class="sm-line" d="'+dLine+'"/>'+bm+
@@ -911,19 +1136,19 @@
           '<line class="sm-scrub" data-role="scrub" x1="0" y1="'+PiT+'" x2="0" y2="'+(PiT+PpH)+'"/>'+
           '<circle class="sm-scrub-dot" data-role="scrubdot" r="3.2" cx="0" cy="0"/></svg>'+
         '<div class="foot"><span class="chg '+(chg>=0?"pos":"neg")+'">'+dp(chg)+(hasBuy?" *":"")+'</span>'+
-        '<span class="rng">'+rngFmt(T[f])+' &ndash; '+lastShort+'</span></div>';
+        '<span class="rng">'+rngFmt(stockT0)+' &ndash; '+rngFmt(stockT1)+'</span></div>';
       grid.appendChild(cell);
-      panels.push({s:s,dom:dom,f:f,valEl:cell.querySelector('[data-role=val]'),qyEl:cell.querySelector('[data-role=qy]'),scrub:cell.querySelector('[data-role=scrub]'),scrubDot:cell.querySelector('[data-role=scrubdot]')});
+      panels.push({s:s,dom:dom,f:f,stockT0:stockT0,stockT1:stockT1,xPStock:xPStock,valEl:cell.querySelector('[data-role=val]'),qyEl:cell.querySelector('[data-role=qy]'),scrub:cell.querySelector('[data-role=scrub]'),scrubDot:cell.querySelector('[data-role=scrubdot]')});
     });
     scrubClear();
   }
   function scrubTo(i){
     scrubDate.textContent=(i===n-1?"Latest \u2014 ":"")+fmtDayY.format(new Date(T[i]));
     panels.forEach(function(p){
-      var s=p.s, held=s.vals[i]!=null;
-      p.valEl.textContent=held?eur(s.vals[i]):"\u2014";
+      var s=p.s, held=s.vals[i]!=null&&T[i]>=p.stockT0 && T[i]<=p.stockT1;
+      p.valEl.textContent=held?(smMode==="abs"?showCurrencyValue(s.key.toUpperCase(),s.vals[i]):idx1(s.vals[i]/s.vals[p.f]*100)):"\u2014";
       if(p.qyEl){ var qq=s.qty[i]; p.qyEl.textContent=qq!=null?qq+" shares":""; }
-      if(held){ var v=smMode==="abs"?s.vals[i]:s.vals[i]/s.vals[p.f]*100; var x=xP(T[i]).toFixed(1), y=yP(v,p.dom).toFixed(1);
+      if(held){ var v=smMode==="abs"?s.vals[i]:s.vals[i]/s.vals[p.f]*100; var x=p.xPStock(T[i]).toFixed(1), y=yP(v,p.dom).toFixed(1);
         p.scrub.setAttribute("x1",x); p.scrub.setAttribute("x2",x); p.scrub.setAttribute("opacity",1);
         p.scrubDot.setAttribute("cx",x); p.scrubDot.setAttribute("cy",y); p.scrubDot.setAttribute("opacity",1);
       } else { p.scrub.setAttribute("opacity",0); p.scrubDot.setAttribute("opacity",0); }
@@ -931,12 +1156,20 @@
   }
   function scrubClear(){
     scrubDate.textContent="Latest \u2014 "+fmtDayY.format(new Date(T1));
-    panels.forEach(function(p){ p.valEl.textContent=p.s.vals[n-1]!=null?eur(p.s.vals[n-1]):"\u2014"; if(p.qyEl){ var qn=p.s.qty[n-1]; p.qyEl.textContent=qn!=null?qn+" shares":""; } p.scrub.setAttribute("opacity",0); p.scrubDot.setAttribute("opacity",0); });
+    panels.forEach(function(p){
+      var s=p.s;
+      p.valEl.textContent=s.vals[n-1]!=null?(smMode==="abs"?showCurrencyValue(s.key.toUpperCase(),s.vals[n-1]):idx1(s.vals[n-1]/s.vals[p.f]*100)):"\u2014";
+      if(p.qyEl){ var qn=s.qty[n-1]; p.qyEl.textContent=qn!=null?qn+" shares":""; }
+      p.scrub.setAttribute("opacity",0); p.scrubDot.setAttribute("opacity",0);
+    });
   }
   grid.addEventListener("pointermove",function(e){
     var sv=e.target.closest?e.target.closest("svg"):null; if(!sv) return;
-    var r=sv.getBoundingClientRect(), t=T0+(e.clientX-r.left)/r.width*(T1-T0), best=0, bd=1e18;
-    for(var i=0;i<n;i++){ var dd=Math.abs(T[i]-t); if(dd<bd){bd=dd;best=i;} }
+    var cell=sv.closest(".cell");
+    var panel=panels.find(function(p){ return p.scrub.closest(".cell")===cell; });
+    if(!panel) return;
+    var r=sv.getBoundingClientRect(), t=panel.stockT0+(e.clientX-r.left)/r.width*(panel.stockT1-panel.stockT0), best=0, bd=1e18;
+    for(var i=0;i<n;i++){ if(T[i]>=panel.stockT0 && T[i]<=panel.stockT1){ var dd=Math.abs(T[i]-t); if(dd<bd){bd=dd;best=i;} } }
     scrubTo(best);
   });
   grid.addEventListener("pointerleave",scrubClear);
@@ -947,7 +1180,9 @@
   function segp(on,off){ document.getElementById(on).setAttribute("aria-pressed","true"); document.getElementById(off).setAttribute("aria-pressed","false"); }
 
   /* ================= VIEW 3 : indicators ================= */
-  function renderIndicators(){
+  function renderPortfolioDetail(){
+    if(!GROWTH||!INVESTED) return;
+    var g=GROWTH;
     var nowTot=TOTAL[n-1], t0=TOTAL[0], winRet=nowTot/t0-1;
     var peak=-1,pk=0,trough=1e18,tr=0,rp=-1,rpi=0,mdd=0,mp=0,mt=0;
     TOTAL.forEach(function(v,i){
@@ -991,8 +1226,15 @@
       {l:"Max drawdown", v:dp(mdd), s:dd2(mp)+" \u2192 "+dd2(mt), c:"neg"}
     ];
     document.getElementById("kpi-strip").innerHTML=strip.map(kpi).join("");
-    document.getElementById("kpi-grid").innerHTML=[
-      strip[0],strip[1],strip[2],strip[3],strip[4],
+    document.getElementById("detail-kpi").innerHTML=[
+      {l:"Market value", v:eur(nowTot), s:fmtDayY.format(new Date(T1))},
+      {l:"Invested (cost basis)", v:"\u20ac "+nfEur0.format(g.invEnd), s:"estimated, from the return % column"},
+      {l:"Total gain", v:d0(g.gain), s:dp(g.gainPct)+" on cost", c:g.gain>=0?"pos":"neg"},
+      strip[1],
+      {l:"Return on picks", v:dp(g.twr), s:"time-weighted, deposits removed", c:g.twr>=0?"pos":"neg"},
+      {l:"Return on picks / yr", v:dp(g.twrAnn)+"/yr", s:"annualised over "+g.years.toFixed(1)+" yrs", c:g.twrAnn>=0?"pos":"neg"},
+      {l:"Capital added", v:d0(g.added), s:"since "+shortDate(T0)},
+      strip[2],strip[3],strip[4],
       {l:"Now vs peak", v:dp(nowTot/peak-1), c:nowTot>=peak?"pos":"neg", s:"clawed back "+d0(nowTot-trough)+" off the low"},
       {l:"Snapshot-to-snapshot swing", v:"\u00b1"+comma((sd*100).toFixed(1))+"%", s:"std dev of the "+mv.length+" gaps"},
       {l:"Best / worst gap", v:dp(mv[bi])+" / "+dp(mv[wi]), s:gap(bi)+"  \u00b7  "+gap(wi)},
@@ -1001,7 +1243,8 @@
       {l:"Biggest lift / drag", v:(lift?lift.short:"")+" / "+(drag?drag.short:""), s:(lift?d0(lift.dVal):"")+"  \u00b7  "+(drag?d0(drag.dVal):"")+" in value"},
       withRent.length?{l:"Est. unrealised return", v:dp(rentVal/costSum-1), c:"pos", s:"all-time \u00b7 ~"+d0(rentVal-costSum)+" on ~\u20ac"+nfEur0.format(costSum)+" cost"+(withRent.length<per.length?" ("+withRent.length+"/"+per.length+" names)":"")}
         :{l:"Est. unrealised return", v:"\u2014", s:"add a Ret.% on a snapshot to enable"},
-      {l:"At this pace", v:dp(ann)+"/yr", c:ann>=0?"pos":"neg", s:"annualised "+Math.round(days)+"-day window \u00b7 distorted by deposits"}
+      {l:"At this pace", v:dp(ann)+"/yr", c:ann>=0?"pos":"neg", s:"annualised "+Math.round(days)+"-day window \u00b7 distorted by deposits"},
+      {l:"Deepest drawdown", v:dp(g.ddMin), s:"now "+dp(g.ddNow), c:"neg"}
     ].map(kpi).join("");
 
     document.getElementById("ind-h1").textContent="Weight of each holding \u00b7 "+fmtDayY.format(new Date(T1));
@@ -1062,23 +1305,6 @@
       per.slice().sort(function(a,b){return b.val-a.val;}).map(function(p){
         return '<tr><td>'+p.name+'</td><td>'+comma((p.w*100).toFixed(1))+'%</td><td>'+nfEur2.format(p.val)+'</td><td>'+d0(p.dVal)+'</td><td>'+dp(p.dValP)+'</td><td>'+dp(p.dPx)+'</td><td>'+(p.rent!=null?dp(p.rent/100):"\u2014")+'</td></tr>';
       }).join("")+'</tbody>';
-  }
-
-  /* ================= VIEW : growth (invested vs value + underwater) ================= */
-  function renderGrowth(){
-    if(!GROWTH||!INVESTED) return;
-    var g=GROWTH;
-    function kg(l,v,s,c){ return '<div class="kpi"><div class="k-label">'+l+'</div><div class="k-val">'+v+'</div>'+(s?'<div class="k-sub '+(c||"")+'">'+s+'</div>':'')+'</div>'; }
-    document.getElementById("growth-kpi").innerHTML=[
-      kg("Invested (cost basis)", "€ "+nfEur0.format(g.invEnd), "estimated, from the return % column"),
-      kg("Market value", "€ "+nfEur0.format(g.valEnd), fmtDayY.format(new Date(T1))),
-      kg("Total gain", d0(g.gain), dp(g.gainPct)+" on cost", g.gain>=0?"pos":"neg"),
-      kg("Return on picks", dp(g.twr), "time-weighted, deposits removed", g.twr>=0?"pos":"neg"),
-      kg("Return on picks / yr", dp(g.twrAnn)+"/yr", "annualised over "+g.years.toFixed(1)+" yrs", g.twrAnn>=0?"pos":"neg"),
-      kg("Capital added", d0(g.added), "since "+shortDate(T0)),
-      kg("Deepest drawdown", dp(g.ddMin), "now "+dp(g.ddNow), "neg")
-    ].join("");
-
     /* --- invested vs value --- */
     var svg=document.getElementById("g-iv");
     while(svg.firstChild) svg.removeChild(svg.firstChild);
@@ -1177,17 +1403,65 @@
       for(var c=0;c<UNI.length;c++){
         var v=UNI[c].vals[r], q=UNI[c].qty[r];
         if(v!=null) held++;
-        cells+='<td>'+(qtyMode ? (q==null?"\u2014":q) : (v==null?"\u2014":nfEur2.format(v)))+'</td>';
+        var cellContent;
+        if(qtyMode){
+          cellContent=q==null?"\u2014":q;
+        } else {
+          if(v==null){
+            cellContent="\u2014";
+          } else {
+            // Get currency for this ticker
+            var ticker=UNI[c].key.toUpperCase();
+            var currency=TICKER_CURRENCY[ticker]||"EUR";
+            if(currency==="USD"){
+              var rate=TICKER_EXCHANGE_RATE[ticker]||1.087;
+              cellContent="$\u00a0"+nfEur2.format(v/rate);
+            } else {
+              cellContent="\u20ac\u00a0"+nfEur2.format(v);
+            }
+          }
+        }
+        cells+='<td>'+cellContent+'</td>';
       }
-      cells+='<td>'+(qtyMode ? held : (TOTAL[r]==null?"\u2014":nfEur2.format(TOTAL[r])))+'</td>';
+      cells+='<td>'+(qtyMode ? held : (TOTAL[r]==null?"\u2014":"\u20ac\u00a0"+nfEur2.format(TOTAL[r])))+'</td>';
       tr.innerHTML=cells; tb.appendChild(tr);
     }
   }
+  // Table collapse/expand
+  var tableCollapsed=true;
+  function toggleTableCollapse(){
+    tableCollapsed=!tableCollapsed;
+    var content=document.getElementById("table-content");
+    var section=document.getElementById("table-section");
+    var header=document.getElementById("table-header");
+    var btn=document.getElementById("table-toggle");
+    content.style.display=tableCollapsed?"none":"block";
+    section.style.opacity=tableCollapsed?"0.6":"1";
+    btn.style.transform=tableCollapsed?"":"rotate(180deg)";
+    header.style.background=tableCollapsed?"":"rgba(255,255,255,0.03)";
+  }
+  document.getElementById("table-header").addEventListener("click",toggleTableCollapse);
+
+  // Notes collapse/expand
+  var notesCollapsed=true;
+  function toggleNotesCollapse(){
+    notesCollapsed=!notesCollapsed;
+    var content=document.getElementById("notes-content");
+    var section=document.getElementById("notes-section");
+    var header=document.getElementById("notes-header");
+    var btn=document.getElementById("notes-toggle");
+    content.style.display=notesCollapsed?"none":"block";
+    section.style.opacity=notesCollapsed?"0.6":"1";
+    btn.style.transform=notesCollapsed?"":"rotate(180deg)";
+    header.style.background=notesCollapsed?"":"rgba(255,255,255,0.03)";
+  }
+  document.getElementById("notes-header").addEventListener("click",toggleNotesCollapse);
+
   document.getElementById("t-amt").addEventListener("click",function(){ tableMode="amt"; this.setAttribute("aria-pressed","true"); document.getElementById("t-qty").setAttribute("aria-pressed","false"); renderTable(); });
   document.getElementById("t-qty").addEventListener("click",function(){ tableMode="qty"; this.setAttribute("aria-pressed","true"); document.getElementById("t-amt").setAttribute("aria-pressed","false"); renderTable(); });
 
   /* ================= tabs ================= */
-  var TABS=[["tab-total","view-total"],["tab-stocks","view-stocks"],["tab-growth","view-growth"],["tab-ind","view-ind"],["tab-prices","view-prices"],["tab-add","view-add"]];
+  var TABS=[["tab-total","view-total"],["tab-detail","view-detail"],["tab-stocks","view-stocks"],["tab-dca","view-dca"],["tab-add","view-add"]];
   TABS.forEach(function(pair){
     document.getElementById(pair[0]).addEventListener("click",function(){
       TABS.forEach(function(p){
@@ -1195,7 +1469,7 @@
         document.getElementById(p[0]).setAttribute("aria-selected",on?"true":"false");
         document.getElementById(p[1]).hidden=!on;
       });
-      if(pair[0]==="tab-prices") loadAndRenderPrices();
+      if(pair[0]==="tab-dca") loadAndRenderDCA();
     });
   });
 
@@ -1213,134 +1487,6 @@
   function showError(msg){ console.error(msg); toast("❌ "+msg,"error"); }
   function showSuccess(msg){ toast("✓ "+msg,"success"); }
   function todayISO(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
-  function isoOf(ts){ var d=new Date(ts); return {date:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"), time:String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}; }
-  var formSource="manual", editId=null;
-
-  function currentHoldings(){
-    if(!UNI) return [];
-    return UNI.filter(function(u){ return u.vals[n-1]!=null; }).map(function(u){
-      return {name:u.name, qty:u.qty[n-1], amount:"", rent:"", known:true};
-    });
-  }
-  function numv(x){ return (x===""||x==null||isNaN(x))?"":x; }
-  function buildForm(rows){
-    var f=document.getElementById("f-frm");
-    f.innerHTML='<div class="fh">Holding</div><div class="fh">Qty</div><div class="fh">Amount &euro;</div><div class="fh">Ret. %</div><div></div>'+
-      rows.map(function(r,i){
-        return '<input data-k="name" data-i="'+i+'" value="'+esc(r.name)+'"'+(r.known?" readonly":"")+' placeholder="Name">'+
-          '<input data-k="qty" data-i="'+i+'" type="number" step="any" value="'+numv(r.qty)+'" placeholder="0">'+
-          '<input data-k="amount" data-i="'+i+'" type="number" step="0.01" inputmode="decimal" value="'+numv(r.amount)+'" placeholder="0.00">'+
-          '<input data-k="rent" data-i="'+i+'" type="number" step="any" value="'+numv(r.rent)+'" placeholder="">'+
-          '<button class="xr" data-x="'+i+'" title="Remove row" aria-label="Remove row">\u00d7</button>';
-      }).join("");
-    f.querySelectorAll("[data-x]").forEach(function(b){ b.addEventListener("click",function(){ var rows=readForm(); rows.splice(+b.getAttribute("data-x"),1); buildForm(rows); }); });
-  }
-  function readForm(){
-    var map={};
-    document.getElementById("f-frm").querySelectorAll("input[data-i]").forEach(function(inp){
-      var i=inp.getAttribute("data-i"), k=inp.getAttribute("data-k");
-      map[i]=map[i]||{known:false};
-      map[i][k]=inp.value;
-      if(k==="name" && inp.hasAttribute("readonly")) map[i].known=true;
-    });
-    return Object.keys(map).sort(function(a,b){return a-b;}).map(function(i){ var r=map[i]; return {name:r.name||"",qty:r.qty,amount:r.amount,rent:r.rent,known:r.known}; });
-  }
-  function resetForm(){
-    formSource="manual"; editId=null;
-    document.getElementById("f-date").value=todayISO();
-    document.getElementById("f-time").value="12:00";
-    document.getElementById("f-save").textContent="Save snapshot";
-    document.getElementById("f-reset").textContent="Reset";
-    buildForm(currentHoldings());
-    var nt=document.getElementById("f-note"); nt.textContent=""; nt.className="frm-note";
-    renderUserList();
-  }
-  function editEntry(e){
-    editId=e.id; formSource=e.src||"manual";
-    var t=isoOf(e.ts);
-    document.getElementById("f-date").value=t.date;
-    document.getElementById("f-time").value=t.time;
-    buildForm(e.pos.map(function(p){ return {name:p.name, qty:p.qty, amount:p.amount, rent:(p.rent!=null?p.rent:""), known:false}; }));
-    document.getElementById("f-save").textContent="Update snapshot";
-    document.getElementById("f-reset").textContent="Cancel";
-    var nt=document.getElementById("f-note"); nt.className="frm-note ok";
-    nt.textContent="Editing the snapshot from "+stampLabel(e.ts)+" — change rows, then Update. Cancel to leave it as is.";
-    renderUserList();
-    document.getElementById("f-frm").scrollIntoView({behavior:"smooth",block:"center"});
-  }
-  document.getElementById("f-addrow").addEventListener("click",function(){ var rows=readForm(); rows.push({name:"",qty:"",amount:"",rent:"",known:false}); buildForm(rows); });
-  document.getElementById("f-reset").addEventListener("click",resetForm);
-  document.getElementById("f-save").addEventListener("click",function(){
-    var nt=document.getElementById("f-note"); nt.className="frm-note";
-    var dv=document.getElementById("f-date").value, tv=document.getElementById("f-time").value||"12:00";
-    if(!dv){ nt.textContent="Pick a date."; return; }
-    var ts=new Date(dv+"T"+tv).getTime();
-    if(isNaN(ts)){ nt.textContent="That date/time didn't parse."; return; }
-    var pos=[];
-    readForm().forEach(function(r){
-      var name=(r.name||"").trim(), amt=parseFloat(r.amount);
-      if(!name || !(amt>0)) return;
-      var qy=parseFloat(r.qty), rt=r.rent===""?null:parseFloat(r.rent);
-      pos.push({name:name, qty:isNaN(qy)?null:qy, amount:Math.round(amt*100)/100, rent:(rt==null||isNaN(rt))?null:rt});
-    });
-    if(!pos.length){ nt.textContent="Fill at least one holding with an amount above 0."; return; }
-    if(editId){
-      var idx=-1; for(var z=0;z<userEntries.length;z++) if(userEntries[z].id===editId) idx=z;
-      var rec={id:editId, ts:ts, src:formSource, pos:pos};
-      if(idx>-1) userEntries[idx]=rec; else userEntries.push(rec);
-      saveUser(); rebuild();
-      toast("Snapshot updated \u2014 "+shortDate(ts));
-    } else {
-      userEntries.push({id:"u"+ts+"-"+Math.random().toString(36).slice(2,6), ts:ts, src:formSource, pos:pos});
-      saveUser(); rebuild();
-      toast("Snapshot added \u2014 "+pos.length+" holdings on "+shortDate(ts));
-    }
-    resetForm();
-  });
-
-  function renderUserList(){
-    var list=document.getElementById("us-list"), cnt=document.getElementById("us-count");
-    cnt.textContent=userEntries.length?"("+userEntries.length+")":"";
-    if(!userEntries.length){ list.innerHTML='<div class="usempty">None yet. Add one above.</div>'; return; }
-    list.innerHTML="";
-    userEntries.slice().sort(function(a,b){return b.ts-a.ts;}).forEach(function(e){
-      var tot=e.pos.reduce(function(a,p){return a+(p.amount||0);},0);
-      var row=document.createElement("div"); row.className="usrow"+(e.id===editId?" editing":"");
-      row.innerHTML='<span class="ud">'+stampLabel(e.ts)+'</span><span class="um">\u20ac'+nfEur0.format(tot)+'</span><span class="um">'+e.pos.length+' pos</span><span class="ub">'+(e.src==="ai"?"AI":"manual")+'</span>'+
-        '<button class="ue" title="Edit this snapshot">'+(e.id===editId?"editing\u2026":"Edit")+'</button>'+
-        '<button class="ux" title="Delete" aria-label="Delete snapshot">\u00d7</button>';
-      row.querySelector(".ue").addEventListener("click",function(){
-        if(e.id===editId) resetForm(); else editEntry(e);
-      });
-      row.querySelector(".ux").addEventListener("click",function(){
-        var wasEditing=(e.id===editId);
-        userEntries=userEntries.filter(function(x){return x.id!==e.id;});
-        saveUser(); rebuild();
-        if(wasEditing) resetForm();
-        toast("Snapshot removed");
-      });
-      list.appendChild(row);
-    });
-  }
-  var ioArea=document.getElementById("io-area");
-  document.getElementById("io-export").addEventListener("click",function(){
-    ioArea.hidden=false; ioArea.value=JSON.stringify(userEntries,null,1); ioArea.readOnly=true; ioArea.focus(); ioArea.select();
-    if(navigator.clipboard) navigator.clipboard.writeText(ioArea.value).then(function(){ toast("Copied to clipboard"); },function(){});
-  });
-  document.getElementById("io-import").addEventListener("click",function(){
-    if(ioArea.hidden || ioArea.readOnly){ ioArea.hidden=false; ioArea.readOnly=false; ioArea.value=""; ioArea.placeholder="Paste exported JSON here, then press Import again."; ioArea.focus(); return; }
-    try{
-      var arr=JSON.parse(ioArea.value);
-      if(!Array.isArray(arr)) throw 0;
-      userEntries=arr; saveUser(); rebuild();
-      ioArea.hidden=true; toast("Imported "+userEntries.length+" snapshots");
-    }catch(e){ toast("That wasn't valid JSON"); }
-  });
-  document.getElementById("io-clear").addEventListener("click",function(){
-    if(!userEntries.length) return;
-    if(!window.confirm("Remove all "+userEntries.length+" snapshots you added? This only clears this browser.")) return;
-    userEntries=[]; saveUser(); rebuild(); ioArea.hidden=true; toast("Cleared");
-  });
 
   /* ================= transactions ================= */
   var transactions=[], txType="buy";
@@ -1353,6 +1499,12 @@
       })
       .then(function(d){
         transactions=d.transactions||[];
+        // Extract exchange rates by ticker
+        transactions.forEach(function(tx){
+          if(tx.currency==="USD" && tx.exchangeRate){
+            TICKER_EXCHANGE_RATE[tx.ticker.toUpperCase()]=tx.exchangeRate;
+          }
+        });
         renderTransactionList();
       })
       .catch(function(e){
@@ -1367,9 +1519,13 @@
     if(!transactions.length){ list.innerHTML='<div class="usempty">None yet. Register one above.</div>'; return; }
     list.innerHTML="";
     transactions.slice().sort(function(a,b){return b.ts-a.ts;}).forEach(function(tx){
-      var amtStr=tx.currency==="USD"?tx.amount+" USD → ":"€";
+      var isUSD=tx.currency==="USD";
+      var origAmount=isUSD&&tx.exchangeRate?tx.amount/tx.exchangeRate:tx.amount;
+      var amtStr=nfEur2.format(origAmount)+(isUSD?"$":"€");
+      var totalStr=isUSD?" × "+tx.exchangeRate+" = €"+nfEur2.format(tx.amount):"";
+      var typeLabel=tx.type==="sell"?"Sell":"Buy";
       var row=document.createElement("div"); row.className="usrow";
-      row.innerHTML='<span class="ud">'+stampLabel(tx.ts)+'</span><span class="um">'+tx.ticker+'</span><span class="um">'+tx.quantity+' qty</span><span class="um">'+amtStr+'€'+nfEur2.format(tx.amountEUR)+'</span>'+
+      row.innerHTML='<span class="ud">'+stampLabel(tx.ts)+'</span><span class="um">'+tx.ticker+'</span><span class="um">'+tx.quantity+' shares</span><span class="um">'+amtStr+totalStr+'</span><span class="ub">'+typeLabel+'</span>'+
         '<button class="ux" title="Delete" aria-label="Delete transaction">×</button>';
       row.querySelector(".ux").addEventListener("click",function(){
         fetch("./api/transactions/"+tx.id,{method:"DELETE"}).then(function(){
@@ -1386,17 +1542,13 @@
     document.getElementById("tx-rate-row").hidden=(e.target.value==="EUR");
   });
 
-  var buyBtn=document.getElementById("tx-type-buy");
-  var sellBtn=document.getElementById("tx-type-sell");
-  if(buyBtn) buyBtn.addEventListener("click",function(){
-    txType="buy";
-    document.getElementById("tx-type-buy").setAttribute("aria-pressed","true");
-    document.getElementById("tx-type-sell").setAttribute("aria-pressed","false");
-  });
-  if(sellBtn) sellBtn.addEventListener("click",function(){
-    txType="sell";
-    document.getElementById("tx-type-sell").setAttribute("aria-pressed","true");
-    document.getElementById("tx-type-buy").setAttribute("aria-pressed","false");
+
+  var typeSwitch=document.getElementById("tx-type-switch");
+  if(typeSwitch) Array.prototype.forEach.call(typeSwitch.querySelectorAll(".type-switch-opt"),function(opt){
+    opt.addEventListener("click",function(){
+      txType=opt.dataset.type;
+      typeSwitch.dataset.active=txType;
+    });
   });
 
   document.getElementById("tx-save").addEventListener("click",function(){
@@ -1467,6 +1619,55 @@
 
   /* ================= alerts ================= */
   var alerts=[];
+  var AVG_COST={}; // ticker -> {quantity, avgCostEUR, currentPriceEUR, currentPriceUSD, dipPct}
+  var dipPreset="5";
+
+  function loadAvgCostAndDipForm(){
+    return fetch('./api/avg-cost')
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        AVG_COST={};
+        (data.tickers||[]).forEach(function(t){ AVG_COST[t.ticker]=t; });
+        var sel=document.getElementById("dip-ticker");
+        var tickers=Object.keys(AVG_COST);
+        if(!tickers.length){
+          sel.innerHTML='<option value="">No holdings yet</option>';
+        } else {
+          sel.innerHTML=tickers.map(function(t){
+            var nm=BSHORT[BKEY.indexOf(t.toLowerCase())]||t;
+            return '<option value="'+t+'">'+esc(nm)+' ('+t+')</option>';
+          }).join("");
+        }
+        renderDipPreview();
+      })
+      .catch(function(err){ console.error('Failed to load avg cost:',err); });
+  }
+
+  function currentDipThreshold(){
+    if(dipPreset==="custom"){
+      var v=parseFloat(document.getElementById("dip-custom").value);
+      return (v>0)?v:null;
+    }
+    return parseFloat(dipPreset);
+  }
+
+  function renderDipPreview(){
+    var box=document.getElementById("dip-preview");
+    var ticker=document.getElementById("dip-ticker").value;
+    var pct=currentDipThreshold();
+    var info=AVG_COST[ticker];
+    if(!info){ box.textContent="Add a transaction for this stock first — an alert needs a purchase to compare against."; return; }
+    if(!pct){ box.textContent="Pick a dip % (or enter a custom one) to see the trigger price."; return; }
+    var isUSD=TICKER_CURRENCY[ticker]==="USD";
+    var rate=TICKER_EXCHANGE_RATE[ticker]||CURRENT_EUR_TO_USD||1.087;
+    var avgCost=isUSD?info.avgCostEUR*rate:info.avgCostEUR;
+    var triggerPrice=avgCost*(1-pct/100);
+    var current=isUSD?info.currentPriceUSD:info.currentPriceEUR;
+    var fmt=isUSD?usd:eur;
+    var already=current!=null && current<=triggerPrice;
+    box.innerHTML="Your average cost: <b>"+fmt(avgCost)+"</b> · Triggers at "+dp(-pct/100).replace("−","-")+" → <b>"+fmt(triggerPrice)+"</b>"+
+      (current!=null?"<br>Current price: "+fmt(current)+" ("+dp(current/avgCost-1)+" vs. your cost)"+(already?" — <span class='pos'>would trigger right away</span>":""):"");
+  }
 
   function loadAlerts(){
     fetch('./api/alerts')
@@ -1497,13 +1698,28 @@
     }
 
     list.innerHTML=alerts.map(a=>{
-      var ruleText=a.ruleType==="price_above"?"above":a.ruleType==="price_below"?"below":"changed";
       var lastTriggered=a.lastTriggeredAt?new Date(a.lastTriggeredAt).toLocaleDateString():"never";
+      var desc;
+      if(a.ruleType==="dip_from_avg_cost"){
+        var badge='<span style="display:inline-block;font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--pos);background:rgba(63,143,91,.12);border-radius:4px;padding:1px 6px;margin-right:6px">Dip</span>';
+        desc=badge+"Triggers "+a.threshold+"%+ below your avg cost";
+        if(a.avgCostEUR!=null){
+          desc+="<br>Avg cost: €"+a.avgCostEUR.toFixed(2)+" · Trigger price: €"+a.triggerPriceEUR.toFixed(2);
+          if(a.currentPriceEUR!=null){
+            var dipCls=a.currentDipPct<0?"pos":"neg";
+            desc+="<br>Current price: €"+a.currentPriceEUR.toFixed(2)+" · Currently <span class='"+dipCls+"'>"+(a.currentDipPct>=0?"+":"")+a.currentDipPct.toFixed(1)+"%</span> vs. your cost";
+          }
+        }
+        desc+="<br>Last triggered: "+lastTriggered;
+      } else {
+        var ruleText=a.ruleType==="price_above"?"above":a.ruleType==="price_below"?"below":"changed";
+        desc="Price "+ruleText+" €"+a.threshold.toFixed(2)+" • Last: "+lastTriggered;
+      }
       return `
         <div style="background:var(--surface-2);border:1px solid var(--hair);border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
           <div style="flex:1;min-width:200px">
             <div style="font-weight:600;color:var(--ink)">${a.ticker}</div>
-            <div style="font-size:12px;color:var(--muted)">Price ${ruleText} €${a.threshold.toFixed(2)} • Last: ${lastTriggered}</div>
+            <div style="font-size:12px;color:var(--muted)">${desc}</div>
           </div>
           <div style="display:flex;gap:6px">
             <button class="mini" data-action="toggle" data-id="${a.id}" ${a.enabled?"":"aria-pressed=false"}>${a.enabled?"On":"Off"}</button>
@@ -1584,10 +1800,50 @@
     }).catch(err=>console.error('Failed to delete alert:',err));
   }
 
+  function createDipAlert(){
+    var nt=document.getElementById("dip-note"); nt.className="frm-note";
+    var ticker=document.getElementById("dip-ticker").value;
+    var pct=currentDipThreshold();
+    if(!ticker){ nt.textContent="No stock to alert on — add a transaction first."; return; }
+    if(!pct){ nt.textContent="Pick a dip % (or enter a valid custom value)."; return; }
+
+    fetch('./api/alerts',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ticker,ruleType:'dip_from_avg_cost',threshold:pct})
+    }).then(function(r){ return r.json(); }).then(function(data){
+      if(data.error){ nt.textContent=data.error; return; }
+      alerts.unshift(data.alert);
+      loadAlerts();
+      nt.className="frm-note success";
+      nt.textContent="Dip alert created!";
+      setTimeout(function(){ nt.textContent=""; },3000);
+    }).catch(function(err){
+      nt.textContent="Failed to create alert";
+      console.error(err);
+    });
+  }
+
+  if(document.getElementById("dip-create")){
+    document.getElementById("dip-create").addEventListener("click",createDipAlert);
+    document.getElementById("dip-ticker").addEventListener("change",renderDipPreview);
+    document.getElementById("dip-custom").addEventListener("input",renderDipPreview);
+    Array.prototype.forEach.call(document.querySelectorAll("#dip-presets button"),function(b){
+      b.addEventListener("click",function(){
+        dipPreset=b.dataset.pct;
+        Array.prototype.forEach.call(document.querySelectorAll("#dip-presets button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
+        document.getElementById("dip-custom").hidden=(dipPreset!=="custom");
+        if(dipPreset==="custom") document.getElementById("dip-custom").focus();
+        renderDipPreview();
+      });
+    });
+  }
+
   if(document.getElementById("al-create")){
     document.getElementById("al-create").addEventListener("click",createAlert);
-    document.getElementById("tab-alerts").addEventListener("click",function(){
+    document.getElementById("tab-add").addEventListener("click",function(){
       loadAlerts();
+      loadAvgCostAndDipForm();
     });
   }
 
@@ -1614,25 +1870,22 @@
           };
         });
 
-        // Calculate current market value
-        if(n>0 && entries[n-1]){
-          var lastSnap=entries[n-1];
-          var marketVal=0;
-          var missingTickers=[];
-          lastSnap.pos.forEach(holding=>{
-            var bnIdx=BNAMES.indexOf(holding.name);
-            if(bnIdx>=0){
-              var ticker=BKEY[bnIdx].toUpperCase();
-              if(LATEST_PRICES[ticker]){
-                marketVal += (holding.qty||0) * LATEST_PRICES[ticker].priceEUR;
-              } else {
-                missingTickers.push(ticker);
-              }
-            }
-          });
-          if(marketVal>0) CURRENT_MARKET_VALUE=Math.round(marketVal*100)/100;
-          if(missingTickers.length>0){
-            console.warn('Missing prices for: '+missingTickers.join(', '));
+        // Calculate current exchange rate from latest prices
+        if(data.prices.length>0){
+          var p=data.prices[0];
+          if(p.priceEUR && p.priceUSD){
+            CURRENT_EUR_TO_USD=p.priceUSD/p.priceEUR;
+          }
+        }
+
+        // Get market value and cost basis from the latest API snapshot
+        if(data.snapshots && data.snapshots.length > 0){
+          var lastSnapshot = data.snapshots[data.snapshots.length-1];
+          if(lastSnapshot.portfolioTotal){
+            CURRENT_MARKET_VALUE = lastSnapshot.portfolioTotal;
+          }
+          if(lastSnapshot.costBasis !== undefined){
+            CURRENT_COST_BASIS = lastSnapshot.costBasis;
           }
         }
 
@@ -1682,6 +1935,300 @@
     table.innerHTML=html;
   }
 
+  /* ================= DCA (dollar-cost-averaging opportunity finder) ================= */
+  var DCA_HISTORY={}; // ticker -> [{date, ts, priceEUR, priceUSD}]
+  var DCA_TICKERS=[]; // tickers with enough history to analyze
+  var dcaSelected=null;
+  var DCA_MIN_POINTS=20;
+  var DCA_WINDOW_DAYS=365;
+  var DCA_DIP_THRESHOLD=-0.05;
+
+  function loadAndRenderDCA(){
+    if(!UNI || !UNI.length) return Promise.resolve();
+    var tickers=UNI.map(function(u){ return u.key.toUpperCase(); }).filter(function(t,i,a){ return a.indexOf(t)===i; });
+    var toFetch=tickers.filter(function(t){ return !DCA_HISTORY[t]; });
+    return Promise.all(toFetch.map(function(t){
+      return fetch('./api/price-history/'+t)
+        .then(function(r){ return r.ok?r.json():{history:[]}; })
+        .then(function(data){
+          DCA_HISTORY[t]=(data.history||[]).map(function(h){ return {date:h.date, ts:new Date(h.date).getTime(), priceEUR:h.priceEUR, priceUSD:h.priceUSD}; }).sort(function(a,b){ return a.ts-b.ts; });
+        })
+        .catch(function(){ DCA_HISTORY[t]=[]; });
+    })).then(function(){
+      DCA_TICKERS=tickers.filter(function(t){ return DCA_HISTORY[t] && DCA_HISTORY[t].length>=DCA_MIN_POINTS; });
+      if(!DCA_TICKERS.length){
+        document.getElementById("dca-tickers").innerHTML='<span class="lbl" style="padding:6px 10px">No stock has enough price history yet</span>';
+        return;
+      }
+      if(!dcaSelected || DCA_TICKERS.indexOf(dcaSelected)===-1) dcaSelected=DCA_TICKERS[0];
+      document.getElementById("dca-tickers").innerHTML=DCA_TICKERS.map(function(t){
+        var nm=BSHORT[BKEY.indexOf(t.toLowerCase())]||t;
+        return '<button data-ticker="'+t+'" aria-pressed="'+(t===dcaSelected?"true":"false")+'">'+esc(nm)+'</button>';
+      }).join("");
+      Array.prototype.forEach.call(document.querySelectorAll("#dca-tickers button"),function(b){
+        b.addEventListener("click",function(){
+          dcaSelected=b.dataset.ticker;
+          Array.prototype.forEach.call(document.querySelectorAll("#dca-tickers button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
+          renderDCA();
+        });
+      });
+      renderDCA();
+    });
+  }
+
+  function niceTicksGeneric(lo,hi,count){
+    var span=hi-lo; if(span<=0) return [lo];
+    var rawStep=span/count;
+    var mag=Math.pow(10,Math.floor(Math.log(rawStep)/Math.LN10));
+    var norm=rawStep/mag, step;
+    if(norm<1.5) step=1*mag; else if(norm<3) step=2*mag; else if(norm<7) step=5*mag; else step=10*mag;
+    var out=[], start=Math.ceil(lo/step)*step;
+    for(var v=start;v<=hi+step*0.5;v+=step) out.push(Math.round(v*1e6)/1e6);
+    return out;
+  }
+  function computeTrailingAvg(prices,ts,windowDays){
+    var out=[],sum=0,ws=0,wms=windowDays*864e5;
+    for(var i=0;i<prices.length;i++){
+      sum+=prices[i];
+      while(ts[i]-ts[ws]>wms){ sum-=prices[ws]; ws++; }
+      out.push(sum/(i-ws+1));
+    }
+    return out;
+  }
+
+  var BB_PERIOD=20, BB_MULT=2;
+  function computeBollingerBands(prices,period,mult){
+    var sma=[],upper=[],lower=[];
+    var sum=0,sumSq=0,q=[];
+    for(var i=0;i<prices.length;i++){
+      q.push(prices[i]); sum+=prices[i]; sumSq+=prices[i]*prices[i];
+      if(q.length>period){ var out=q.shift(); sum-=out; sumSq-=out*out; }
+      var mean=sum/q.length;
+      var variance=Math.max(0,sumSq/q.length-mean*mean);
+      var sd=Math.sqrt(variance);
+      sma.push(mean); upper.push(mean+mult*sd); lower.push(mean-mult*sd);
+    }
+    return {sma:sma,upper:upper,lower:lower};
+  }
+  function findDips(ts,dev,threshold){
+    var dips=[],i=0;
+    while(i<ts.length){
+      if(dev[i]<=threshold){
+        var start=i,minDev=dev[i],minIdx=i;
+        while(i<ts.length && dev[i]<=threshold){ if(dev[i]<minDev){minDev=dev[i];minIdx=i;} i++; }
+        dips.push({startIdx:start,endIdx:i-1,minDev:minDev,minIdx:minIdx});
+      } else i++;
+    }
+    return dips;
+  }
+
+  function renderDCA(){
+    var ticker=dcaSelected; if(!ticker) return;
+    var hist=DCA_HISTORY[ticker]; if(!hist||!hist.length) return;
+    var isUSD=TICKER_CURRENCY[ticker]==="USD";
+    var fmt=isUSD?usd:eur;
+    var prices=hist.map(function(h){ return isUSD?h.priceUSD:h.priceEUR; });
+    var ts=hist.map(function(h){ return h.ts; });
+    var avg=computeTrailingAvg(prices,ts,DCA_WINDOW_DAYS);
+    var dev=prices.map(function(p,i){ return p/avg[i]-1; });
+    var m=hist.length-1;
+
+    // stats over the trailing DCA_WINDOW_DAYS from the latest point
+    var cutoff=ts[m]-DCA_WINDOW_DAYS*864e5;
+    var w0=0; while(w0<m && ts[w0]<cutoff) w0++;
+    var winDev=dev.slice(w0), winTs=ts.slice(w0);
+    var belowCount=winDev.filter(function(d){ return d<0; }).length;
+    var belowPct=belowCount/winDev.length;
+    var belowVals=winDev.filter(function(d){ return d<0; });
+    var avgDiscount=belowVals.length?belowVals.reduce(function(a,b){return a+b;},0)/belowVals.length:0;
+    var deepestIdx=w0; for(var i=w0;i<=m;i++) if(dev[i]<dev[deepestIdx]) deepestIdx=i;
+
+    function kpi(k){ return '<div class="kpi"><div class="k-label">'+k.l+'</div><div class="k-val">'+k.v+'</div>'+(k.s?'<div class="k-sub '+(k.c||"")+'">'+k.s+'</div>':'')+'</div>'; }
+    document.getElementById("dca-kpi").innerHTML=[
+      {l:"Current price", v:fmt(prices[m]), s:hist[m].date},
+      {l:ntv()+"-day trailing average", v:fmt(avg[m])},
+      {l:"Current deviation", v:dp(dev[m]), c:dev[m]<0?"pos":"neg", s:dev[m]<0?"trading below its own average":"trading above its own average"},
+      {l:"Days below average", v:belowCount+" / "+winDev.length, s:comma((belowPct*100).toFixed(0))+"% of the last "+ntv()+" days"},
+      {l:"Average discount when below", v:belowVals.length?dp(avgDiscount):"—", s:"typical dip size in the window"},
+      {l:"Deepest discount", v:dp(dev[deepestIdx]), c:"pos", s:hist[deepestIdx].date}
+    ].map(kpi).join("");
+    function ntv(){ return Math.round((ts[m]-winTs[0])/864e5); }
+
+    document.getElementById("dca-h1").textContent="Price vs. trailing average · "+(BSHORT[BKEY.indexOf(ticker.toLowerCase())]||ticker);
+
+    /* --- price + average chart --- */
+    var svg=document.getElementById("dca-price");
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    var W=960,H=320,l=66,r=100,tp=20,bt=34,pW=W-l-r,pH=H-tp-bt;
+    var t0=ts[0],t1=ts[m];
+    var vmax=Math.max.apply(null,prices),vmin=Math.min.apply(null,prices);
+    var tks=niceTicksGeneric(vmin*0.98,vmax*1.02,5),yhi=Math.max(tks[tks.length-1],vmax*1.02),ylo=Math.min(tks[0],vmin*0.98);
+    function X(i){ return l+(ts[i]-t0)/((t1-t0)||1)*pW; }
+    function Y(v){ return tp+(1-(v-ylo)/((yhi-ylo)||1))*pH; }
+    tks.forEach(function(t){ var y=Y(t);
+      svg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
+      var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5}); lb.textContent=fmt(t); svg.appendChild(lb);
+    });
+    var yrTicks=[]; var yStart=new Date(t0).getFullYear(), yEnd=new Date(t1).getFullYear();
+    for(var yy=yStart;yy<=yEnd;yy++){ var yt=new Date(yy,0,1).getTime(); if(yt>=t0 && yt<=t1) yrTicks.push({t:yt,lab:String(yy)}); }
+    yrTicks.forEach(function(yt){ var x=l+(yt.t-t0)/((t1-t0)||1)*pW;
+      svg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:tp,y2:tp+pH,"stroke-dasharray":"2 3"}));
+      var lb=el("text",{class:"xlbl",x:x,y:tp+pH+20}); lb.textContent=yt.lab; svg.appendChild(lb);
+    });
+    var pp="",pa="";
+    for(var i=0;i<hist.length;i++){
+      pp+=(i?" L ":"M ")+X(i).toFixed(1)+" "+Y(prices[i]).toFixed(1);
+      pa+=(i?" L ":"M ")+X(i).toFixed(1)+" "+Y(avg[i]).toFixed(1);
+    }
+    svg.appendChild(el("path",{class:"serieline",d:pa,stroke:"var(--muted)","stroke-dasharray":"4 3"}));
+    svg.appendChild(el("path",{class:"serieline",d:pp,stroke:"var(--accent)"}));
+    var ePr=el("text",{class:"endlbl",x:W-r+8,y:Y(prices[m])+3.5,fill:"var(--accent)"}); ePr.textContent="Price "+fmt(prices[m]); svg.appendChild(ePr);
+    var eAv=el("text",{class:"endlbl",x:W-r+8,y:Y(avg[m])+3.5,fill:"var(--muted)"}); eAv.textContent="Avg "+fmt(avg[m]); svg.appendChild(eAv);
+
+    // Mark each of your own buy/sell transactions on the chart, at the price actually paid/received
+    var priceTip=document.getElementById("dca-price-tip"), priceBox=svg.parentNode;
+    (transactions||[]).filter(function(t){ return t.ticker===ticker && t.ts>=t0 && t.ts<=t1; }).forEach(function(t){
+      var isSell=t.type==="sell";
+      var perShareEUR=t.quantity?t.amount/t.quantity:0;
+      var perShare=isUSD?(t.exchangeRate?perShareEUR/t.exchangeRate:perShareEUR):perShareEUR;
+      var mx=l+(t.ts-t0)/((t1-t0)||1)*pW;
+      var my=Y(Math.max(ylo,Math.min(yhi,perShare)));
+      var dot=el("circle",{cx:mx.toFixed(1),cy:my.toFixed(1),r:5,fill:isSell?"var(--neg)":"var(--pos)",stroke:"var(--surface)","stroke-width":1.5,style:"cursor:pointer"});
+      dot.addEventListener("pointerenter",function(){
+        priceTip.innerHTML='<div class="th">'+(isSell?"Sell":"Buy")+" &middot; "+new Date(t.ts).toISOString().slice(0,10)+'</div>'+
+          '<div class="row"><span class="lab"><i style="background:'+(isSell?"var(--neg)":"var(--pos)")+'"></i>Quantity</span><span class="v">'+t.quantity+' shares</span></div>'+
+          '<div class="row"><span class="lab">Price</span><span class="v">'+fmt(perShare)+'</span></div>';
+        priceTip.classList.add("on");
+        var relX=mx/W*priceBox.clientWidth, tw=priceTip.offsetWidth;
+        priceTip.style.left=Math.max(tw/2+4,Math.min(priceBox.clientWidth-tw/2-4,relX))+"px";
+        priceTip.style.top=(my/H*priceBox.clientHeight-priceTip.offsetHeight-12)+"px";
+      });
+      dot.addEventListener("pointerleave",function(){ priceTip.classList.remove("on"); });
+      svg.appendChild(dot);
+    });
+
+    /* --- Bollinger Bands chart --- */
+    var bb=computeBollingerBands(prices,BB_PERIOD,BB_MULT);
+    document.getElementById("dca-bb-h").textContent="Bollinger Bands ("+BB_PERIOD+"-day, ±"+BB_MULT+"σ) · "+(BSHORT[BKEY.indexOf(ticker.toLowerCase())]||ticker);
+    var bsvg=document.getElementById("dca-bb");
+    while(bsvg.firstChild) bsvg.removeChild(bsvg.firstChild);
+    var bvmax=Math.max.apply(null,bb.upper),bvmin=Math.min.apply(null,bb.lower);
+    var btks=niceTicksGeneric(bvmin*0.98,bvmax*1.02,5),byhi=Math.max(btks[btks.length-1],bvmax*1.02),bylo=Math.min(btks[0],bvmin*0.98);
+    function BY(v){ return tp+(1-(v-bylo)/((byhi-bylo)||1))*pH; }
+    btks.forEach(function(t){ var y=BY(t);
+      bsvg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
+      var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5}); lb.textContent=fmt(t); bsvg.appendChild(lb);
+    });
+    yrTicks.forEach(function(yt){ var x=l+(yt.t-t0)/((t1-t0)||1)*pW;
+      bsvg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:tp,y2:tp+pH,"stroke-dasharray":"2 3"}));
+      var lb=el("text",{class:"xlbl",x:x,y:tp+pH+20}); lb.textContent=yt.lab; bsvg.appendChild(lb);
+    });
+    var bUp="",bLo="",bMid="",bBand="M ";
+    for(var i=0;i<hist.length;i++){
+      var x=X(i);
+      bUp+=(i?" L ":"M ")+x.toFixed(1)+" "+BY(bb.upper[i]).toFixed(1);
+      bLo+=(i?" L ":"M ")+x.toFixed(1)+" "+BY(bb.lower[i]).toFixed(1);
+      bMid+=(i?" L ":"M ")+x.toFixed(1)+" "+BY(bb.sma[i]).toFixed(1);
+      bBand+=(i?" L ":"")+x.toFixed(1)+" "+BY(bb.upper[i]).toFixed(1);
+    }
+    for(var i=hist.length-1;i>=0;i--){ bBand+=" L "+X(i).toFixed(1)+" "+BY(bb.lower[i]).toFixed(1); }
+    bBand+=" Z";
+    bsvg.appendChild(el("path",{d:bBand,fill:"var(--accent)",opacity:.08,stroke:"none"}));
+    bsvg.appendChild(el("path",{class:"serieline",d:bUp,stroke:"var(--muted)","stroke-width":1.3,"stroke-dasharray":"4 3"}));
+    bsvg.appendChild(el("path",{class:"serieline",d:bLo,stroke:"var(--muted)","stroke-width":1.3,"stroke-dasharray":"4 3"}));
+    bsvg.appendChild(el("path",{class:"serieline",d:bMid,stroke:"var(--faint)","stroke-width":1.3}));
+    var bPrice=""; for(var i=0;i<hist.length;i++){ bPrice+=(i?" L ":"M ")+X(i).toFixed(1)+" "+BY(prices[i]).toFixed(1); }
+    bsvg.appendChild(el("path",{class:"serieline",d:bPrice,stroke:"var(--accent)"}));
+    var bTouch=m; for(var i=m;i>=0 && i>m-90;i--){ if(prices[i]<=bb.lower[i]){ bTouch=i; break; } }
+    if(prices[bTouch]<=bb.lower[bTouch]) bsvg.appendChild(el("circle",{cx:X(bTouch),cy:BY(prices[bTouch]),r:3.5,fill:"var(--pos)",stroke:"var(--surface)","stroke-width":1.5}));
+    var eBP=el("text",{class:"endlbl",x:W-r+8,y:BY(prices[m])+3.5,fill:"var(--accent)"}); eBP.textContent="Price "+fmt(prices[m]); bsvg.appendChild(eBP);
+    var eBU=el("text",{class:"endlbl",x:W-r+8,y:BY(bb.upper[m])+3.5,fill:"var(--muted)"}); eBU.textContent="Upper "+fmt(bb.upper[m]); bsvg.appendChild(eBU);
+    var eBL=el("text",{class:"endlbl",x:W-r+8,y:BY(bb.lower[m])+3.5,fill:"var(--muted)"}); eBL.textContent="Lower "+fmt(bb.lower[m]); bsvg.appendChild(eBL);
+    var bbTip=document.getElementById("dca-bb-tip"), bBox=bsvg.parentNode;
+    var bCross=el("line",{class:"crosshair",x1:0,x2:0,y1:tp,y2:tp+pH,opacity:0}); bsvg.appendChild(bCross);
+    bsvg.appendChild(el("rect",{x:l,y:tp,width:pW,height:pH,fill:"transparent"}));
+    function bNear(cx){ var rr=bsvg.getBoundingClientRect(), px=(cx-rr.left)/rr.width*W, b=0,bd=1e9; for(var i=0;i<hist.length;i++){var d=Math.abs(X(i)-px); if(d<bd){bd=d;b=i;}} return b; }
+    function bShow(i){
+      var x=X(i);
+      bCross.setAttribute("x1",x); bCross.setAttribute("x2",x); bCross.setAttribute("opacity",1);
+      bbTip.innerHTML='<div class="th">'+hist[i].date+'</div>'+
+        '<div class="row"><span class="lab"><i style="background:var(--accent)"></i>Price</span><span class="v">'+fmt(prices[i])+'</span></div>'+
+        '<div class="row"><span class="lab">Upper band</span><span class="v">'+fmt(bb.upper[i])+'</span></div>'+
+        '<div class="row"><span class="lab">Middle (SMA'+BB_PERIOD+')</span><span class="v">'+fmt(bb.sma[i])+'</span></div>'+
+        '<div class="row"><span class="lab">Lower band</span><span class="v">'+fmt(bb.lower[i])+'</span></div>';
+      bbTip.classList.add("on");
+      var relX=x/W*bBox.clientWidth, tw=bbTip.offsetWidth;
+      bbTip.style.left=Math.max(tw/2+4,Math.min(bBox.clientWidth-tw/2-4,relX))+"px";
+      bbTip.style.top=(BY(prices[i])/H*bBox.clientHeight-bbTip.offsetHeight-12)+"px";
+    }
+    function bHide(){ bbTip.classList.remove("on"); bCross.setAttribute("opacity",0); }
+    bsvg.onpointermove=function(e){ bShow(bNear(e.clientX)); };
+    bsvg.onpointerdown=function(e){ bShow(bNear(e.clientX)); };
+    bsvg.onpointerleave=bHide;
+
+    /* --- deviation chart --- */
+    var dsvg=document.getElementById("dca-dev");
+    while(dsvg.firstChild) dsvg.removeChild(dsvg.firstChild);
+    var dmin=Math.min.apply(null,dev)*1.08, dmax=Math.max(0.02,Math.max.apply(null,dev)*1.08);
+    var stepd=Math.max(Math.abs(dmin),dmax)>0.32?0.1:0.05;
+    function DX(i){ return l+(ts[i]-t0)/((t1-t0)||1)*pW; }
+    function DY(v){ return tp+(1-(v-dmin)/((dmax-dmin)||1))*pH; }
+    for(var t=0;t>=dmin-1e-9;t-=stepd){ var y=DY(t);
+      dsvg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
+      var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5}); lb.textContent=Math.round(t*100)+"%"; dsvg.appendChild(lb);
+    }
+    for(var t=stepd;t<=dmax+1e-9;t+=stepd){ var y=DY(t);
+      dsvg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
+      var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5}); lb.textContent="+"+Math.round(t*100)+"%"; dsvg.appendChild(lb);
+    }
+    yrTicks.forEach(function(yt){ var x=l+(yt.t-t0)/((t1-t0)||1)*pW;
+      dsvg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:tp,y2:tp+pH,"stroke-dasharray":"2 3"}));
+      var lb=el("text",{class:"xlbl",x:x,y:tp+pH+20}); lb.textContent=yt.lab; dsvg.appendChild(lb);
+    });
+    var dl="";
+    for(var i=0;i<hist.length;i++){ dl+=(i?" L ":"M ")+DX(i).toFixed(1)+" "+DY(dev[i]).toFixed(1); }
+    dsvg.appendChild(el("path",{class:"uw-area",d:"M "+DX(0).toFixed(1)+" "+DY(0).toFixed(1)+" L "+dl.slice(2)+" L "+DX(m).toFixed(1)+" "+DY(0).toFixed(1)+" Z"}));
+    dsvg.appendChild(el("path",{class:"uw-line",d:dl}));
+    dsvg.appendChild(el("line",{x1:l,x2:W-r,y1:DY(0),y2:DY(0),stroke:"var(--hair)","stroke-width":1}));
+    dsvg.appendChild(el("circle",{cx:DX(deepestIdx),cy:DY(dev[deepestIdx]),r:3.5,fill:"var(--pos)",stroke:"var(--surface)","stroke-width":1.5}));
+    var nLab=el("text",{class:"endlbl",x:W-r+8,y:DY(dev[m])+3.5,fill:dev[m]<0?"var(--pos)":"var(--neg)"}); nLab.textContent="now "+dp(dev[m]); dsvg.appendChild(nLab);
+    var dTip=document.getElementById("dca-tip"), dBox=dsvg.parentNode;
+    var dCross=el("line",{class:"crosshair",x1:0,x2:0,y1:tp,y2:tp+pH,opacity:0}); dsvg.appendChild(dCross);
+    dsvg.appendChild(el("rect",{x:l,y:tp,width:pW,height:pH,fill:"transparent"}));
+    function dNear(cx){ var rr=dsvg.getBoundingClientRect(), px=(cx-rr.left)/rr.width*W, b=0,bd=1e9; for(var i=0;i<hist.length;i++){var d=Math.abs(DX(i)-px); if(d<bd){bd=d;b=i;}} return b; }
+    function dShow(i){
+      var x=DX(i);
+      dCross.setAttribute("x1",x); dCross.setAttribute("x2",x); dCross.setAttribute("opacity",1);
+      dTip.innerHTML='<div class="th">'+hist[i].date+'</div>'+
+        '<div class="row"><span class="lab">Price</span><span class="v">'+fmt(prices[i])+'</span></div>'+
+        '<div class="row"><span class="lab">Trailing avg</span><span class="v">'+fmt(avg[i])+'</span></div>'+
+        '<div class="row"><span class="lab">Deviation</span><span class="v">'+dp(dev[i])+'</span></div>';
+      dTip.classList.add("on");
+      var relX=x/W*dBox.clientWidth, tw=dTip.offsetWidth;
+      dTip.style.left=Math.max(tw/2+4,Math.min(dBox.clientWidth-tw/2-4,relX))+"px";
+      dTip.style.top=(DY(dev[i])/H*dBox.clientHeight-dTip.offsetHeight-12)+"px";
+    }
+    function dHide(){ dTip.classList.remove("on"); dCross.setAttribute("opacity",0); }
+    dsvg.onpointermove=function(e){ dShow(dNear(e.clientX)); };
+    dsvg.onpointerdown=function(e){ dShow(dNear(e.clientX)); };
+    dsvg.onpointerleave=dHide;
+
+    /* --- notable dips table --- */
+    var dips=findDips(ts,dev,DCA_DIP_THRESHOLD).sort(function(a,b){ return b.startIdx-a.startIdx; }).slice(0,10);
+    var tbl=document.getElementById("dca-table");
+    if(!dips.length){
+      tbl.innerHTML='<tbody><tr><td style="padding:12px;color:var(--faint)">No dip of '+Math.round(Math.abs(DCA_DIP_THRESHOLD)*100)+'%+ below average found in this window.</td></tr></tbody>';
+    } else {
+      tbl.innerHTML='<thead><tr><th>Period</th><th>Duration</th><th>Deepest discount</th><th>On</th></tr></thead><tbody>'+
+        dips.map(function(d){
+          var ongoing=d.endIdx===m;
+          var period=hist[d.startIdx].date+" → "+(ongoing?"now":hist[d.endIdx].date);
+          var days=Math.round((ts[d.endIdx]-ts[d.startIdx])/864e5)+1;
+          return '<tr><td>'+period+'</td><td>'+days+' days</td><td class="pos">'+dp(d.minDev)+'</td><td>'+hist[d.minIdx].date+'</td></tr>';
+        }).join("")+'</tbody>';
+    }
+  }
+
   /* ================= fetch snapshots from API ================= */
   function loadSnapshotsFromAPI() {
     return fetch('./api/snapshots')
@@ -1696,7 +2243,8 @@
           return [];
         }
 
-        // Transform API snapshots to BASE_RAW format: [dateStr, [[tickerIdx, qty, amount, rent]]]
+        // Transform API snapshots to BASE_RAW format: [dateStr, [[tickerIdx, qty, marketValue, rent]]]
+        // Transform API snapshots to BASE_RAW format: [dateStr, [[tickerIdx, qty, marketValue, rent]]]
         BASE_RAW = data.snapshots
           .filter(snap => snap.holdings && snap.holdings.length > 0 && snap.ts)
           .map(snap => {
@@ -1704,7 +2252,7 @@
             const holdings = snap.holdings.map(h => {
               const tickerIdx = BKEY.indexOf(h.ticker.toLowerCase());
               if (tickerIdx === -1) return null;
-              return [tickerIdx, h.quantity, h.amount, null];
+              return [tickerIdx, h.quantity, h.marketValue, null];
             }).filter(h => h !== null);
 
             if (holdings.length === 0) return null;
@@ -1722,20 +2270,87 @@
       });
   }
 
+  /* ================= fetch stock splits from API ================= */
+  function loadStockSplits() {
+    return fetch('./api/stock-splits')
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        return r.json();
+      })
+      .then(data => {
+        if (!data.splits || !Array.isArray(data.splits)) {
+          console.warn('No stock splits from API');
+          return [];
+        }
+        STOCK_SPLITS = data.splits;
+        console.log(`✓ Loaded ${STOCK_SPLITS.length} stock splits`);
+        renderEventsTimeline();
+        return STOCK_SPLITS;
+      })
+      .catch(err => {
+        console.error('Failed to load stock splits:', err.message);
+        return [];
+      });
+  }
+
   /* ================= go ================= */
   function hideLoadingOverlay(){
     var overlay=document.getElementById("loading-overlay");
     if(overlay) setTimeout(function(){ overlay.style.opacity="0"; overlay.style.pointerEvents="none"; }, 300);
   }
 
-  loadSnapshotsFromAPI().then(() => {
+  Promise.all([loadSnapshotsFromAPI(), loadStockSplits()]).then(() => {
     rebuild();
-    resetForm();
+    document.getElementById("tx-date").value=todayISO();
     loadTransactions();
     loadAndRenderPrices();
     hideLoadingOverlay();
   }).catch(function(){
     hideLoadingOverlay();
+  });
+
+  /* ================= Contact Form ================= */
+  var contactModal=document.getElementById("contact-modal");
+  var contactForm=document.getElementById("contact-form");
+  var contactBtn=document.getElementById("contact-btn");
+  var contactClose=document.getElementById("contact-close");
+  var contactCancel=document.getElementById("contact-cancel");
+  var footerContact=document.getElementById("footer-contact");
+
+  function openContactModal(){ contactModal.hidden=false; contactForm.reset(); }
+  function closeContactModal(){ contactModal.hidden=true; }
+
+  contactBtn.addEventListener("click",openContactModal);
+  contactClose.addEventListener("click",closeContactModal);
+  contactCancel.addEventListener("click",closeContactModal);
+  footerContact.addEventListener("click",function(e){ e.preventDefault(); openContactModal(); });
+
+  contactModal.addEventListener("click",function(e){
+    if(e.target===contactModal) closeContactModal();
+  });
+
+  contactForm.addEventListener("submit",function(e){
+    e.preventDefault();
+    var formData={
+      type:document.getElementById("contact-type").value,
+      name:document.getElementById("contact-name").value,
+      email:document.getElementById("contact-email").value,
+      title:document.getElementById("contact-title").value,
+      message:document.getElementById("contact-message").value
+    };
+    fetch("/api/contact",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formData)})
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(data.success){
+          alert("Thank you for your message! We'll get back to you soon.");
+          closeContactModal();
+        } else {
+          alert("Error sending message. Please try again later.");
+        }
+      })
+      .catch(function(){
+        alert("Error sending message. Please try again later.");
+      });
   });
 })();
 </script>

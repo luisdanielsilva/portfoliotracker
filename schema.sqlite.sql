@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
   ticker TEXT NOT NULL,
-  rule_type TEXT NOT NULL CHECK(rule_type IN ('price_above', 'price_below', 'change_pct')),
+  rule_type TEXT NOT NULL CHECK(rule_type IN ('price_above', 'price_below', 'change_pct', 'dip_from_avg_cost')),
   threshold REAL NOT NULL,
   enabled BOOLEAN DEFAULT 1,
   last_triggered_at DATETIME,

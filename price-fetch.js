@@ -47,11 +47,14 @@ function initEmailTransporter() {
   });
 }
 
-function renderEmailTemplate(ticker, rule, threshold, currentPrice) {
+function renderEmailTemplate(ticker, rule, threshold, currentPrice, extra) {
   let templatePath = path.join(__dirname, 'email-template.html');
   let html = fs.readFileSync(templatePath, 'utf-8');
 
-  const ruleText = rule === 'price_above' ? 'above' : rule === 'price_below' ? 'below' : 'changed';
+  const ruleText = rule === 'price_above' ? 'above'
+    : rule === 'price_below' ? 'below'
+    : rule === 'dip_from_avg_cost' ? `down ${threshold}% from your average cost (€${extra.avgCostEUR.toFixed(2)})`
+    : 'changed';
 
   html = html
     .replace(/{{ticker}}/g, ticker)
@@ -61,6 +64,21 @@ function renderEmailTemplate(ticker, rule, threshold, currentPrice) {
     .replace(/{{timestamp}}/g, new Date().toISOString());
 
   return html;
+}
+
+// Average cost per share (EUR) currently held for a ticker, from transactions
+function getAvgCostPerShare(db, ticker) {
+  const txStmt = db.prepare(`
+    SELECT tx_type, quantity, amount_eur FROM transactions
+    WHERE ticker = ? ORDER BY ts ASC
+  `);
+  let qty = 0, totalAmount = 0;
+  for (const tx of txStmt.all(ticker)) {
+    if (tx.tx_type === 'buy') { qty += tx.quantity; totalAmount += tx.amount_eur; }
+    else if (tx.tx_type === 'sell') { qty -= tx.quantity; totalAmount -= tx.amount_eur; }
+  }
+  if (qty <= 0) return null;
+  return totalAmount / qty;
 }
 
 async function evaluateAlerts(db, mailer) {
@@ -101,12 +119,18 @@ async function evaluateAlerts(db, mailer) {
       const threshold = alert.threshold;
       const rule = alert.rule_type;
       let triggered = false;
+      let avgCostEUR = null;
 
       // Check if alert should trigger
       if (rule === 'price_above' && currentPrice > threshold) {
         triggered = true;
       } else if (rule === 'price_below' && currentPrice < threshold) {
         triggered = true;
+      } else if (rule === 'dip_from_avg_cost') {
+        avgCostEUR = getAvgCostPerShare(db, alert.ticker);
+        if (avgCostEUR !== null && currentPrice <= avgCostEUR * (1 - threshold / 100)) {
+          triggered = true;
+        }
       }
 
       if (!triggered) continue;
@@ -123,14 +147,20 @@ async function evaluateAlerts(db, mailer) {
         }
       }
 
+      const subject = rule === 'dip_from_avg_cost'
+        ? `📉 Dip Alert: ${alert.ticker} is down ${threshold}%+ from your avg cost (€${avgCostEUR.toFixed(2)} → €${currentPrice.toFixed(2)})`
+        : `🚨 Price Alert: ${alert.ticker} ${rule === 'price_above' ? '>' : '<'} €${threshold.toFixed(2)}`;
+
       // Send email if mailer is configured
+      // NOTE: recipient is a placeholder (ALERT_EMAIL_TO env var) until per-user email
+      // is configurable from a user profile page.
       if (mailer) {
         try {
-          const html = renderEmailTemplate(alert.ticker, rule, threshold, currentPrice);
+          const html = renderEmailTemplate(alert.ticker, rule, threshold, currentPrice, {avgCostEUR});
           await mailer.sendMail({
             from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
             to: process.env.ALERT_EMAIL_TO || 'admin@example.com',
-            subject: `🚨 Price Alert: ${alert.ticker} ${rule === 'price_above' ? '>' : '<'} €${threshold.toFixed(2)}`,
+            subject,
             html
           });
           log(`  ✉ Email sent for alert ${alert.id} (${alert.ticker})`);
@@ -138,7 +168,7 @@ async function evaluateAlerts(db, mailer) {
           log(`  ❌ Failed to send email for alert ${alert.id}: ${emailErr.message}`);
         }
       } else {
-        log(`  📌 Alert triggered: ${alert.ticker} ${rule} €${threshold}`);
+        log(`  📌 Alert triggered: ${subject}`);
       }
 
       // Update last triggered time
