@@ -193,7 +193,7 @@ const ORIGINAL_SNAPSHOT_DATES = [
   "2026-08-22T10:00", "2026-08-31T19:01"
 ];
 
-// GET /api/snapshots - compute snapshots from transactions with interpolation
+// GET /api/snapshots - compute snapshots from transactions with market value
 app.get('/api/snapshots', (req, res) => {
   try {
     // Get all transactions ordered by date
@@ -236,9 +236,23 @@ app.get('/api/snapshots', (req, res) => {
       });
     });
 
+    // Get latest prices for market value calculation
+    const pricesStmt = db.prepare(`
+      SELECT ticker, price_eur, price_date
+      FROM prices
+      WHERE (ticker, price_date) IN (
+        SELECT ticker, MAX(price_date) FROM prices GROUP BY ticker
+      )
+    `);
+    const latestPrices = {};
+    pricesStmt.all().forEach(p => {
+      latestPrices[p.ticker] = p.price_eur;
+    });
+
     // Generate snapshots for all 74 original dates by interpolating
     const snapshots = ORIGINAL_SNAPSHOT_DATES.map(dateStr => {
       const ts = new Date(dateStr).getTime();
+      const snapshotDate = dateStr.split('T')[0]; // YYYY-MM-DD
 
       // Find the most recent transaction at or before this date
       let stateAtDate = {}; // empty if no transactions yet
@@ -250,23 +264,43 @@ app.get('/api/snapshots', (req, res) => {
         }
       }
 
-      // Build holdings array
+      // Get prices as of this snapshot date (or latest available before it)
+      const pricesOnDate = {};
+      Object.keys(latestPrices).forEach(ticker => {
+        const priceStmt = db.prepare(`
+          SELECT price_eur FROM prices
+          WHERE ticker = ? AND price_date <= ?
+          ORDER BY price_date DESC
+          LIMIT 1
+        `);
+        const priceRow = priceStmt.get(ticker, snapshotDate);
+        pricesOnDate[ticker] = priceRow ? priceRow.price_eur : null;
+      });
+
+      // Build holdings array with market value
+      let marketValue = 0;
       const holdingsArray = Object.entries(stateAtDate)
         .filter(([_, h]) => h.qty > 0) // Only include positive positions
-        .map(([ticker, h]) => ({
-          ticker,
-          quantity: h.qty,
-          amount: h.totalAmount,
-          costPerShare: h.qty > 0 ? h.totalAmount / h.qty : 0
-        }));
-
-      const portfolioTotal = Object.values(stateAtDate).reduce((sum, h) => sum + h.totalAmount, 0);
+        .map(([ticker, h]) => {
+          const price = pricesOnDate[ticker];
+          const currentValue = price ? h.qty * price : h.qty * (h.totalAmount / h.qty); // Fallback to cost if no price
+          marketValue += currentValue;
+          return {
+            ticker,
+            quantity: h.qty,
+            amount: h.totalAmount,
+            costPerShare: h.qty > 0 ? h.totalAmount / h.qty : 0,
+            price: price || (h.totalAmount / h.qty),
+            marketValue: currentValue
+          };
+        });
 
       return {
         date: new Date(dateStr).toISOString(),
         ts,
         holdings: holdingsArray,
-        portfolioTotal
+        portfolioTotal: marketValue, // Market value instead of cost basis
+        costBasis: Object.values(stateAtDate).reduce((sum, h) => sum + h.totalAmount, 0) // For reference
       };
     });
 
