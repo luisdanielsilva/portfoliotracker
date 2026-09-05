@@ -1649,13 +1649,32 @@
       return {ticker, priceEUR:p.priceEUR, priceUSD:p.priceUSD, date:p.date, updatedAt:p.updatedAt};
     }).sort((a,b)=>a.ticker.localeCompare(b.ticker));
 
+    // Check for missing tickers
+    var missingTickers=[];
+    if(UNI){
+      UNI.forEach(function(u){
+        var bnIdx=BNAMES.indexOf(u.name);
+        if(bnIdx>=0){
+          var ticker=BKEY[bnIdx].toUpperCase();
+          if(!LATEST_PRICES[ticker]) missingTickers.push(ticker);
+        }
+      });
+    }
+
     var lastUpdate=priceArray.length>0?new Date(priceArray[0].updatedAt):null;
     var lastUpdateStr=lastUpdate?lastUpdate.toLocaleDateString()+" "+lastUpdate.toLocaleTimeString():"—";
 
-    table.innerHTML='<thead><tr><th>Ticker</th><th>Price (EUR)</th><th>Price (USD)</th><th>Date</th></tr></thead><tbody>'+
+    var html='<thead><tr><th>Ticker</th><th>Price (EUR)</th><th>Price (USD)</th><th>Date</th></tr></thead><tbody>'+
       priceArray.map(p=>
         '<tr><td><b>'+esc(p.ticker)+'</b></td><td>€'+nfEur2.format(p.priceEUR)+'</td><td>$'+nfEur2.format(p.priceUSD)+'</td><td>'+new Date(p.date).toLocaleDateString()+'</td></tr>'
-      ).join('')+'</tbody>';
+      ).join('');
+
+    if(missingTickers.length>0){
+      html+='<tr style="background:var(--surface-2)"><td colspan="4" style="text-align:center;color:var(--faint);font-size:12px;padding:12px">⚠️ No price data for: '+missingTickers.join(', ')+'</td></tr>';
+    }
+
+    html+='</tbody>';
+    table.innerHTML=html;
   }
 
   /* ================= fetch snapshots from API ================= */
