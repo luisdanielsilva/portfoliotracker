@@ -60,7 +60,7 @@
   .delta.neg{color:var(--neg)} .delta.pos{color:var(--pos)}
   .sub{color:var(--muted);font-size:14px;max-width:64ch;margin:12px 0 0}
 
-  .tabs{display:inline-flex;flex-wrap:wrap;border:1px solid var(--hair);border-radius:10px;overflow:hidden;margin:0 24px;position:sticky;top:0;z-index:100;background:var(--ground);box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:0}
+  .tabs{display:inline-flex;flex-wrap:wrap;border:1px solid var(--hair);border-radius:10px;overflow:hidden;margin:0;position:fixed;top:24px;left:24px;z-index:100;background:var(--ground);box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:0}
   .tabs button{font:inherit;font-size:13.5px;font-weight:500;padding:9px 16px;border:0;cursor:pointer;background:var(--surface);color:var(--muted)}
   .tabs button[aria-selected="true"]{background:var(--accent);color:#fff}
   .tabs button+button{border-left:1px solid var(--hair)}
@@ -249,7 +249,7 @@
   <button id="tab-alerts" role="tab" aria-selected="false">Price Alerts</button>
 </div>
 
-<div class="wrap">
+<div class="wrap" style="margin-top:70px">
 
   <!-- ===== VIEW 1: TIME SERIES ===== -->
   <section id="view-total">
