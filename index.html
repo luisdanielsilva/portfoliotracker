@@ -986,10 +986,30 @@
     ].map(kpi).join("");
 
     document.getElementById("ind-h1").textContent="Weight of each holding \u00b7 "+fmtDayY.format(new Date(T1));
-    var wmax=Math.max.apply(null,per.map(function(p){return p.w;}));
-    document.getElementById("bars-weight").innerHTML=per.slice().sort(function(a,b){return b.w-a.w;}).map(function(p){
-      return '<div class="hrow"><span class="hl">'+p.short+'</span><span class="ht"><span class="hf" style="left:0;width:'+(p.w/wmax*100).toFixed(1)+'%"></span></span><span class="hv">'+comma((p.w*100).toFixed(1))+'%</span></div>';
-    }).join("");
+
+    // Render pie chart for portfolio allocation
+    var pieContainer=document.getElementById("bars-weight");
+    var sorted=per.slice().sort(function(a,b){return b.w-a.w;});
+    var svgW=500, svgH=320, cx=svgW/2-60, cy=svgH/2, r=80;
+    var svg='<svg viewBox="0 0 '+svgW+' '+svgH+'" style="max-width:100%;height:auto;margin-bottom:12px">';
+    var angle=0;
+    var colors=palette();
+    sorted.forEach(function(p,i){
+      var sliceAngle=p.w*2*Math.PI;
+      var x1=cx+r*Math.cos(angle), y1=cy+r*Math.sin(angle);
+      var x2=cx+r*Math.cos(angle+sliceAngle), y2=cy+r*Math.sin(angle+sliceAngle);
+      var large=sliceAngle>Math.PI?1:0;
+      var path='M '+cx+' '+cy+' L '+x1.toFixed(1)+' '+y1.toFixed(1)+' A '+r+' '+r+' 0 '+large+' 1 '+x2.toFixed(1)+' '+y2.toFixed(1)+' Z';
+      svg+='<path d="'+path+'" fill="'+colors[i%8]+'" stroke="var(--surface)" stroke-width="2"/>';
+      angle+=sliceAngle;
+    });
+    svg+='</svg>';
+    svg+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">';
+    sorted.forEach(function(p,i){
+      svg+='<div style="font-size:12px;display:flex;align-items:center;gap:6px"><i style="width:12px;height:12px;background:'+colors[i%8]+';border-radius:2px;flex:none"></i><span><b>'+p.short+'</b><br/><span style="color:var(--faint)">'+comma((p.w*100).toFixed(1))+'%</span></span></div>';
+    });
+    svg+='</div>';
+    pieContainer.innerHTML=svg;
     var cmax=Math.max.apply(null,per.map(function(p){return Math.abs(p.dVal);}))||1;
     document.getElementById("bars-contrib").innerHTML=per.slice().sort(function(a,b){return b.dVal-a.dVal;}).map(function(p){
       var w=(Math.abs(p.dVal)/cmax*50).toFixed(1);
