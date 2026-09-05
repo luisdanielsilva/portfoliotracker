@@ -987,29 +987,65 @@
 
     document.getElementById("ind-h1").textContent="Weight of each holding \u00b7 "+fmtDayY.format(new Date(T1));
 
-    // Render pie chart for portfolio allocation
+    // Render enhanced pie chart for portfolio allocation
     var pieContainer=document.getElementById("bars-weight");
     var sorted=per.slice().sort(function(a,b){return b.w-a.w;});
-    var svgW=500, svgH=320, cx=svgW/2-60, cy=svgH/2, r=80;
-    var svg='<svg viewBox="0 0 '+svgW+' '+svgH+'" style="max-width:100%;height:auto;margin-bottom:12px">';
+    var svgW=520, svgH=340, cx=svgW/2-80, cy=svgH/2, r=90;
+    var svg='<div style="position:relative;margin-bottom:16px"><svg viewBox="0 0 '+svgW+' '+svgH+'" style="max-width:100%;height:auto;cursor:pointer" id="pie-chart" role="img" aria-label="Portfolio allocation pie chart">';
+    svg+='<defs><style>.pie-slice{transition:opacity 0.2s}.pie-slice:hover{opacity:0.8;stroke-width:3!important}.pie-label{font-size:11px;font-weight:600;fill:var(--ink);pointer-events:none;text-anchor:middle}.pie-pct{font-size:9px;fill:var(--faint);pointer-events:none;text-anchor:middle}</style></defs>';
     var angle=0;
     var colors=palette();
+    var slices=[];
     sorted.forEach(function(p,i){
       var sliceAngle=p.w*2*Math.PI;
       var x1=cx+r*Math.cos(angle), y1=cy+r*Math.sin(angle);
       var x2=cx+r*Math.cos(angle+sliceAngle), y2=cy+r*Math.sin(angle+sliceAngle);
       var large=sliceAngle>Math.PI?1:0;
       var path='M '+cx+' '+cy+' L '+x1.toFixed(1)+' '+y1.toFixed(1)+' A '+r+' '+r+' 0 '+large+' 1 '+x2.toFixed(1)+' '+y2.toFixed(1)+' Z';
-      svg+='<path d="'+path+'" fill="'+colors[i%8]+'" stroke="var(--surface)" stroke-width="2"/>';
+      var midAngle=angle+sliceAngle/2;
+      var labelDist=r*0.65;
+      var labelX=cx+labelDist*Math.cos(midAngle);
+      var labelY=cy+labelDist*Math.sin(midAngle);
+      var pctX=cx+(r*0.35)*Math.cos(midAngle);
+      var pctY=cy+(r*0.35)*Math.sin(midAngle);
+
+      svg+='<g class="pie-group" data-ticker="'+p.short+'" data-pct="'+comma((p.w*100).toFixed(1))+'" data-val="'+nfEur2.format(p.val)+'">';
+      svg+='<path class="pie-slice" d="'+path+'" fill="'+colors[i%8]+'" stroke="var(--surface)" stroke-width="2" data-idx="'+i+'"/>';
+      if(p.w>0.06){
+        svg+='<text class="pie-label" x="'+labelX.toFixed(1)+'" y="'+labelY.toFixed(1)+'">'+p.short+'</text>';
+        svg+='<text class="pie-pct" x="'+pctX.toFixed(1)+'" y="'+pctY.toFixed(1)+'">'+comma((p.w*100).toFixed(1))+'%</text>';
+      }
+      svg+='</g>';
+      slices.push({ticker:p.short, pct:comma((p.w*100).toFixed(1)), val:nfEur2.format(p.val)});
       angle+=sliceAngle;
     });
+    svg+='<circle cx="'+cx+'" cy="'+cy+'" r="'+Math.round(r*0.35)+'" fill="var(--surface)" stroke="var(--hair)" stroke-width="1"/>';
     svg+='</svg>';
-    svg+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">';
+    var tip='<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:10" id="pie-tip" hidden><div style="font-weight:600;font-size:14px;color:var(--ink)" id="pie-tip-ticker"></div><div style="font-size:12px;color:var(--muted)">\u20ac<span id="pie-tip-val"></span></div><div style="font-size:11px;color:var(--faint)"><span id="pie-tip-pct"></span>%</div></div>';
+    svg+=tip+'</div>';
+
+    pieContainer.innerHTML=svg;
+
+    // Add hover handlers
+    document.querySelectorAll(".pie-group").forEach(function(g){
+      g.addEventListener("mouseenter",function(){
+        var tip=document.getElementById("pie-tip");
+        document.getElementById("pie-tip-ticker").textContent=g.dataset.ticker;
+        document.getElementById("pie-tip-val").textContent=g.dataset.val;
+        document.getElementById("pie-tip-pct").textContent=g.dataset.pct;
+        tip.hidden=false;
+      });
+      g.addEventListener("mouseleave",function(){
+        document.getElementById("pie-tip").hidden=true;
+      });
+    });
+
+    svg='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:8px">';
     sorted.forEach(function(p,i){
-      svg+='<div style="font-size:12px;display:flex;align-items:center;gap:6px"><i style="width:12px;height:12px;background:'+colors[i%8]+';border-radius:2px;flex:none"></i><span><b>'+p.short+'</b><br/><span style="color:var(--faint)">'+comma((p.w*100).toFixed(1))+'%</span></span></div>';
+      svg+='<div style="font-size:12px;display:flex;align-items:center;gap:6px;padding:6px;border-radius:6px;background:var(--surface-2)"><i style="width:12px;height:12px;background:'+colors[i%8]+';border-radius:2px;flex:none"></i><span><b>'+p.short+'</b><br/><span style="color:var(--faint)">'+comma((p.w*100).toFixed(1))+'%</span></span></div>';
     });
     svg+='</div>';
-    pieContainer.innerHTML=svg;
+    pieContainer.innerHTML+=svg;
     var cmax=Math.max.apply(null,per.map(function(p){return Math.abs(p.dVal);}))||1;
     document.getElementById("bars-contrib").innerHTML=per.slice().sort(function(a,b){return b.dVal-a.dVal;}).map(function(p){
       var w=(Math.abs(p.dVal)/cmax*50).toFixed(1);
