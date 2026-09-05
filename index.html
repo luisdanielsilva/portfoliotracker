@@ -234,6 +234,10 @@
   .auth-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:28px;max-width:400px;width:100%}
   .auth-card h2{margin:0 0 6px;font-size:20px;font-weight:600}
   .auth-sub{margin:0 0 18px;font-size:13px;color:var(--muted);line-height:1.5}
+  .google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;text-decoration:none;padding:10px 14px;font-size:13.5px;font-weight:500}
+  .google-btn:hover{background:var(--surface-2)}
+  .auth-divider{display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--faint);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em}
+  .auth-divider::before,.auth-divider::after{content:"";flex:1;height:1px;background:var(--hair)}
   .auth-sent-icon{font-size:34px;margin-bottom:8px}
   #auth-sent{text-align:center}
   #auth-sent .btn{margin-top:14px}
@@ -274,7 +278,15 @@
 <div id="auth-gate" class="auth-gate" hidden>
   <div class="auth-card">
     <h2>Portfolio Tracker</h2>
-    <p class="auth-sub">Sign in with your email. We'll send you a one-time link &mdash; no password to remember.</p>
+    <p class="auth-sub">Sign in to see your portfolio. No password to remember.</p>
+
+    <div id="auth-google-wrap" hidden>
+      <a href="./api/auth/google" class="btn google-btn" id="auth-google">
+        <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
+        Continue with Google
+      </a>
+      <div class="auth-divider"><span>or</span></div>
+    </div>
 
     <form id="auth-form">
       <div class="form-group">
@@ -2421,17 +2433,27 @@
     document.getElementById("auth-email").focus();
   });
 
+  // Only offer Google sign-in if the server actually has credentials for it.
+  function loadAuthConfig(){
+    return fetch("./api/auth/config",{credentials:"same-origin"})
+      .then(function(r){ return r.ok?r.json():{}; })
+      .then(function(cfg){
+        if(cfg && cfg.google) document.getElementById("auth-google-wrap").hidden=false;
+      })
+      .catch(function(){ /* leave Google hidden */ });
+  }
+
   // Boot: confirm a session before loading anything, otherwise show the gate.
   fetch("./api/auth/me",{credentials:"same-origin"})
     .then(function(r){ return r.ok?r.json():null; })
     .then(function(user){
-      if(!user){ hideLoadingOverlay(); showAuthGate(); return; }
+      if(!user){ hideLoadingOverlay(); loadAuthConfig(); showAuthGate(); return; }
       currentUser=user;
       hideAuthGate();
       renderAuthStatus();
       return startApp();
     })
-    .catch(function(){ hideLoadingOverlay(); showAuthGate(); });
+    .catch(function(){ hideLoadingOverlay(); loadAuthConfig(); showAuthGate(); });
 
   /* ================= Contact Form ================= */
   var contactModal=document.getElementById("contact-modal");

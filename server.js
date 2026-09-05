@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
+const { OAuth2Client } = require('google-auth-library');
 require('dotenv').config();
 
 const app = express();
@@ -117,6 +118,35 @@ function hashToken(rawToken) {
   return crypto.createHash('sha256').update(rawToken).digest('hex');
 }
 
+// Where to send a freshly signed-in user.
+function appUrl() {
+  const base = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
+  return base ? `${base}/` : '/';
+}
+
+// Issue a session for a user id and set the cookie. Shared by every sign-in path.
+function startSession(res, userId) {
+  const sessionId = crypto.randomBytes(32).toString('hex');
+  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
+    .run(sessionId, userId, new Date(Date.now() + SESSION_TTL_MS).toISOString());
+  res.cookie(SESSION_COOKIE, sessionId, {
+    httpOnly: true,
+    secure: COOKIE_SECURE,
+    sameSite: 'lax',
+    maxAge: SESSION_TTL_MS,
+    path: '/'
+  });
+  return sessionId;
+}
+
+// One account per email address, regardless of which sign-in path created it.
+// A Google login for an email that already exists attaches to that account.
+function findOrCreateUserByEmail(email) {
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  if (existing) return existing.id;
+  return db.prepare('INSERT INTO users (email) VALUES (?)').run(email).lastInsertRowid;
+}
+
 // Mirrors the SMTP-optional pattern in price-fetch.js: if SMTP isn't configured,
 // callers fall back to logging the magic link instead of emailing it.
 function initMailer() {
@@ -185,15 +215,11 @@ app.post('/api/auth/request-link', requestLinkIpLimiter, async (req, res) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.json(generic);
     if (emailRateLimited(email)) return res.json(generic);
 
-    let user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-    if (!user) {
-      const info = db.prepare('INSERT INTO users (email) VALUES (?)').run(email);
-      user = { id: info.lastInsertRowid };
-    }
+    const userId = findOrCreateUserByEmail(email);
 
     const rawToken = crypto.randomBytes(32).toString('hex');
     db.prepare('INSERT INTO login_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)')
-      .run(user.id, hashToken(rawToken), new Date(Date.now() + LOGIN_TOKEN_TTL_MS).toISOString());
+      .run(userId, hashToken(rawToken), new Date(Date.now() + LOGIN_TOKEN_TTL_MS).toISOString());
 
     const base = (process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     await sendMagicLink(email, `${base}/api/auth/verify?token=${rawToken}`);
@@ -221,23 +247,91 @@ app.get('/api/auth/verify', (req, res) => {
 
     db.prepare('UPDATE login_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
 
-    const sessionId = crypto.randomBytes(32).toString('hex');
-    db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
-      .run(sessionId, row.user_id, new Date(Date.now() + SESSION_TTL_MS).toISOString());
-
-    res.cookie(SESSION_COOKIE, sessionId, {
-      httpOnly: true,
-      secure: COOKIE_SECURE,
-      sameSite: 'lax',
-      maxAge: SESSION_TTL_MS,
-      path: '/'
-    });
-
-    const base = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
-    res.redirect(base ? `${base}/` : '/');
+    startSession(res, row.user_id);
+    res.redirect(appUrl());
   } catch (err) {
     console.error('GET /api/auth/verify error:', err.message);
     res.status(500).send('Could not complete sign-in.');
+  }
+});
+
+/* --- Google OAuth (authorization code flow) --- */
+
+const GOOGLE_STATE_COOKIE = 'pt_oauth_state';
+const GOOGLE_STATE_TTL_MS = 10 * 60 * 1000;
+const googleRedirectUri = `${(process.env.APP_BASE_URL || '').replace(/\/$/, '')}/api/auth/google/callback`;
+const googleEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.APP_BASE_URL);
+const googleClient = googleEnabled
+  ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, googleRedirectUri)
+  : null;
+if (!googleEnabled) {
+  console.log('Google sign-in disabled (needs GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and APP_BASE_URL)');
+}
+
+// GET /api/auth/config - lets the sign-in screen know which methods are available (public)
+app.get('/api/auth/config', (req, res) => {
+  res.json({ google: googleEnabled });
+});
+
+// GET /api/auth/google - kick off the OAuth redirect (public)
+app.get('/api/auth/google', (req, res) => {
+  if (!googleClient) return res.status(503).send('Google sign-in is not configured.');
+
+  // CSRF protection: the state we send to Google must come back unchanged, and we
+  // hold our copy in a short-lived HttpOnly cookie rather than server memory.
+  const state = crypto.randomBytes(16).toString('hex');
+  res.cookie(GOOGLE_STATE_COOKIE, state, {
+    httpOnly: true,
+    secure: COOKIE_SECURE,
+    sameSite: 'lax',
+    maxAge: GOOGLE_STATE_TTL_MS,
+    path: '/'
+  });
+
+  res.redirect(googleClient.generateAuthUrl({
+    access_type: 'online',
+    scope: ['openid', 'email'],
+    state,
+    prompt: 'select_account'
+  }));
+});
+
+// GET /api/auth/google/callback - exchange the code, verify the identity, start a session (public)
+app.get('/api/auth/google/callback', async (req, res) => {
+  if (!googleClient) return res.status(503).send('Google sign-in is not configured.');
+  try {
+    const { code, state, error } = req.query;
+    if (error) return res.status(400).send('Google sign-in was cancelled.');
+    if (!code) return res.status(400).send('Missing authorization code.');
+
+    const expectedState = req.cookies ? req.cookies[GOOGLE_STATE_COOKIE] : null;
+    res.clearCookie(GOOGLE_STATE_COOKIE, { path: '/' });
+    if (!expectedState || !state || String(state) !== expectedState) {
+      return res.status(400).send('Sign-in request expired or could not be verified. Please try again.');
+    }
+
+    const { tokens } = await googleClient.getToken(String(code));
+    if (!tokens.id_token) return res.status(400).send('Google did not return an identity token.');
+
+    // Verifies signature, issuer and that the token was minted for this client.
+    const ticket = await googleClient.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+    const payload = ticket.getPayload();
+
+    // Only trust an address Google itself has verified, otherwise someone could
+    // claim an account belonging to a different person's email.
+    if (!payload || !payload.email || payload.email_verified !== true) {
+      return res.status(400).send('Your Google account does not have a verified email address.');
+    }
+
+    const userId = findOrCreateUserByEmail(String(payload.email).trim().toLowerCase());
+    startSession(res, userId);
+    res.redirect(appUrl());
+  } catch (err) {
+    console.error('GET /api/auth/google/callback error:', err.message);
+    res.status(500).send('Could not complete Google sign-in.');
   }
 });
 
