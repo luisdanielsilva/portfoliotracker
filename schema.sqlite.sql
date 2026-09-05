@@ -1,17 +1,38 @@
 -- SQLite Schema for Portfolio Tracker
 
--- Users table
+-- Users table (passwordless: identity is the verified email address)
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT UNIQUE NOT NULL,
-  password_hash TEXT,
-  api_key TEXT UNIQUE NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create index on api_key for faster lookups
-CREATE INDEX IF NOT EXISTS idx_api_key ON users(api_key);
 CREATE INDEX IF NOT EXISTS idx_email ON users(email);
+
+-- Magic-link login tokens: single-use, short-lived. Only the hash is stored.
+CREATE TABLE IF NOT EXISTS login_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  token_hash TEXT UNIQUE NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_token_hash ON login_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_token_user ON login_tokens(user_id);
+
+-- Sessions: the opaque value stored in the session cookie
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_user ON sessions(user_id);
 
 -- Transactions table
 CREATE TABLE IF NOT EXISTS transactions (

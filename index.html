@@ -230,6 +230,17 @@
   .contact-btn{padding:10px 20px;background:var(--accent);color:white;border:none;border-radius:6px;font-weight:500;cursor:pointer;font-size:14px;transition:opacity 0.2s}
   .contact-btn:hover{opacity:0.9}
 
+  .auth-gate{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:var(--ground);padding:24px}
+  .auth-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:28px;max-width:400px;width:100%}
+  .auth-card h2{margin:0 0 6px;font-size:20px;font-weight:600}
+  .auth-sub{margin:0 0 18px;font-size:13px;color:var(--muted);line-height:1.5}
+  .auth-sent-icon{font-size:34px;margin-bottom:8px}
+  #auth-sent{text-align:center}
+  #auth-sent .btn{margin-top:14px}
+  #auth-status{color:var(--faint)}
+  #auth-status a{color:var(--accent);text-decoration:none;cursor:pointer}
+  #auth-status a:hover{text-decoration:underline}
+
   .modal{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:1000}
   .modal-backdrop{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5)}
   .modal-content{position:relative;background:var(--surface);border-radius:8px;box-shadow:var(--shadow);max-width:500px;width:90%;max-height:90vh;overflow-y:auto;padding:24px;z-index:1001}
@@ -259,9 +270,33 @@
 </head>
 <body>
 
+<!-- Auth gate: covers the whole app until a session exists. Not dismissible. -->
+<div id="auth-gate" class="auth-gate" hidden>
+  <div class="auth-card">
+    <h2>Portfolio Tracker</h2>
+    <p class="auth-sub">Sign in with your email. We'll send you a one-time link &mdash; no password to remember.</p>
+
+    <form id="auth-form">
+      <div class="form-group">
+        <label for="auth-email">Email</label>
+        <input type="email" id="auth-email" placeholder="you@example.com" required autocomplete="email">
+      </div>
+      <button type="submit" class="btn primary" id="auth-submit" style="width:100%">Send me a login link</button>
+      <div class="frm-note" id="auth-note"></div>
+    </form>
+
+    <div id="auth-sent" hidden>
+      <div class="auth-sent-icon">&#9993;</div>
+      <h3 style="margin:0 0 6px">Check your email</h3>
+      <p class="auth-sub" id="auth-sent-msg">If that's a valid email, a login link is on its way. It expires in 15 minutes.</p>
+      <button type="button" class="btn" id="auth-back" style="width:100%">Use a different email</button>
+    </div>
+  </div>
+</div>
+
 <div class="wrap">
   <header>
-    <p class="eyebrow">Portfolio Tracker &middot; <span id="eyebrow-range">Last updated: —</span></p>
+    <p class="eyebrow">Portfolio Tracker &middot; <span id="eyebrow-range">Last updated: —</span><span id="auth-status"></span></p>
     <h1>Stock portfolio</h1>
     <div class="headline">
       <span class="big" id="h-value">&euro;&nbsp;&mdash;</span>
@@ -269,8 +304,8 @@
     </div>
     <p class="sub">
       Track your investment portfolio over time with daily snapshots, historical prices, and performance analytics.
-      Add transactions from the <b>Add data</b> tab to build your portfolio history.
-      All data is stored securely in your browser (localStorage) &mdash; nothing is uploaded.
+      Add transactions from the <b>Add transactions and alerts</b> tab to build your portfolio history.
+      Your holdings are private to your account &mdash; only you can see them.
     </p>
     <div class="kpi-strip" id="kpi-strip"></div>
   </header>
@@ -627,6 +662,49 @@
 <script>
 (function(){
   "use strict";
+
+  /* ================= auth ================= */
+  var currentUser=null; // {id, email} once signed in
+
+  // All API calls go through here so a dropped/expired session lands the user
+  // back on the sign-in gate instead of failing silently mid-render.
+  // Cookies ride along automatically (same-origin), so no headers are needed.
+  function apiFetch(path, options){
+    var opts=options||{};
+    opts.credentials="same-origin";
+    return fetch(path, opts).then(function(r){
+      if(r.status===401){
+        currentUser=null;
+        showAuthGate();
+        throw new Error("Not authenticated");
+      }
+      return r;
+    });
+  }
+
+  function showAuthGate(){
+    var gate=document.getElementById("auth-gate");
+    if(gate) gate.hidden=false;
+    document.getElementById("auth-form").hidden=false;
+    document.getElementById("auth-sent").hidden=true;
+  }
+  function hideAuthGate(){
+    var gate=document.getElementById("auth-gate");
+    if(gate) gate.hidden=true;
+  }
+  function renderAuthStatus(){
+    var el=document.getElementById("auth-status");
+    if(!el) return;
+    el.innerHTML=currentUser
+      ? ' &middot; '+esc(currentUser.email)+' &middot; <a id="auth-logout">Log out</a>'
+      : '';
+    var out=document.getElementById("auth-logout");
+    if(out) out.addEventListener("click",function(){
+      fetch("./api/auth/logout",{method:"POST",credentials:"same-origin"})
+        .catch(function(){})
+        .then(function(){ location.reload(); });
+    });
+  }
 
   /* ================= base data: 74 screenshots, Jun 2023 - Aug 2026 (EXIF dates) ================= */
   /* name index: 0 Tesla 1 VW 2 Lufthansa 3 Meta 4 Palantir 5 Nvidia 6 ASML 7 Oracle 8 AMD 9 Qualcomm 10 ServiceNow 11 Microsoft */
@@ -1492,7 +1570,7 @@
   var transactions=[], txType="buy";
 
   function loadTransactions(){
-    fetch("./api/transactions")
+    apiFetch("./api/transactions")
       .then(function(r){
         if(!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
         return r.json();
@@ -1528,7 +1606,7 @@
       row.innerHTML='<span class="ud">'+stampLabel(tx.ts)+'</span><span class="um">'+tx.ticker+'</span><span class="um">'+tx.quantity+' shares</span><span class="um">'+amtStr+totalStr+'</span><span class="ub">'+typeLabel+'</span>'+
         '<button class="ux" title="Delete" aria-label="Delete transaction">×</button>';
       row.querySelector(".ux").addEventListener("click",function(){
-        fetch("./api/transactions/"+tx.id,{method:"DELETE"}).then(function(){
+        apiFetch("./api/transactions/"+tx.id,{method:"DELETE"}).then(function(){
           transactions=transactions.filter(function(t){return t.id!==tx.id;});
           rebuild(); renderTransactionList();
           toast("Transaction removed");
@@ -1599,7 +1677,7 @@
     rebuild();
 
     var txRecord={ts:ts, ticker:ticker, quantity:qty, amount:amount, currency:currency, amountEUR:amountEUR, type:txType};
-    fetch("./api/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(txRecord)}).then(function(r){
+    apiFetch("./api/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(txRecord)}).then(function(r){
       return r.json();
     }).then(function(d){
       transactions.push(d.transaction);
@@ -1623,7 +1701,7 @@
   var dipPreset="5";
 
   function loadAvgCostAndDipForm(){
-    return fetch('./api/avg-cost')
+    return apiFetch('./api/avg-cost')
       .then(function(r){ return r.json(); })
       .then(function(data){
         AVG_COST={};
@@ -1670,7 +1748,7 @@
   }
 
   function loadAlerts(){
-    fetch('./api/alerts')
+    apiFetch('./api/alerts')
       .then(r=>{
         if(!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
         return r.json();
@@ -1754,7 +1832,7 @@
     if(!ticker){ nt.textContent="Enter a ticker."; return; }
     if(!(threshold>0)){ nt.textContent="Threshold must be > 0."; return; }
 
-    fetch('./api/alerts',{
+    apiFetch('./api/alerts',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ticker,ruleType:rule,threshold})
@@ -1778,7 +1856,7 @@
     if(enabled!==null) body.enabled=enabled;
     if(threshold!==null) body.threshold=threshold;
 
-    fetch('./api/alerts/'+id,{
+    apiFetch('./api/alerts/'+id,{
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(body)
@@ -1791,7 +1869,7 @@
   }
 
   function deleteAlert(id){
-    fetch('./api/alerts/'+id,{
+    apiFetch('./api/alerts/'+id,{
       method:'DELETE'
     }).then(r=>r.json()).then(data=>{
       if(data.error){ console.error(data.error); return; }
@@ -1807,7 +1885,7 @@
     if(!ticker){ nt.textContent="No stock to alert on — add a transaction first."; return; }
     if(!pct){ nt.textContent="Pick a dip % (or enter a valid custom value)."; return; }
 
-    fetch('./api/alerts',{
+    apiFetch('./api/alerts',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ticker,ruleType:'dip_from_avg_cost',threshold:pct})
@@ -1849,7 +1927,7 @@
 
   /* ================= fetch and display prices ================= */
   function loadAndRenderPrices(){
-    fetch('./api/prices')
+    apiFetch('./api/prices')
       .then(r=>{
         if(!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
         return r.json();
@@ -1948,7 +2026,7 @@
     var tickers=UNI.map(function(u){ return u.key.toUpperCase(); }).filter(function(t,i,a){ return a.indexOf(t)===i; });
     var toFetch=tickers.filter(function(t){ return !DCA_HISTORY[t]; });
     return Promise.all(toFetch.map(function(t){
-      return fetch('./api/price-history/'+t)
+      return apiFetch('./api/price-history/'+t)
         .then(function(r){ return r.ok?r.json():{history:[]}; })
         .then(function(data){
           DCA_HISTORY[t]=(data.history||[]).map(function(h){ return {date:h.date, ts:new Date(h.date).getTime(), priceEUR:h.priceEUR, priceUSD:h.priceUSD}; }).sort(function(a,b){ return a.ts-b.ts; });
@@ -2231,7 +2309,7 @@
 
   /* ================= fetch snapshots from API ================= */
   function loadSnapshotsFromAPI() {
-    return fetch('./api/snapshots')
+    return apiFetch('./api/snapshots')
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
         return r.json();
@@ -2272,7 +2350,7 @@
 
   /* ================= fetch stock splits from API ================= */
   function loadStockSplits() {
-    return fetch('./api/stock-splits')
+    return apiFetch('./api/stock-splits')
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
         return r.json();
@@ -2299,15 +2377,61 @@
     if(overlay) setTimeout(function(){ overlay.style.opacity="0"; overlay.style.pointerEvents="none"; }, 300);
   }
 
-  Promise.all([loadSnapshotsFromAPI(), loadStockSplits()]).then(() => {
-    rebuild();
-    document.getElementById("tx-date").value=todayISO();
-    loadTransactions();
-    loadAndRenderPrices();
-    hideLoadingOverlay();
-  }).catch(function(){
-    hideLoadingOverlay();
+  function startApp(){
+    return Promise.all([loadSnapshotsFromAPI(), loadStockSplits()]).then(() => {
+      rebuild();
+      document.getElementById("tx-date").value=todayISO();
+      loadTransactions();
+      loadAndRenderPrices();
+      hideLoadingOverlay();
+    }).catch(function(){
+      hideLoadingOverlay();
+    });
+  }
+
+  /* --- auth gate wiring --- */
+  document.getElementById("auth-form").addEventListener("submit",function(e){
+    e.preventDefault();
+    var nt=document.getElementById("auth-note"); nt.className="frm-note"; nt.textContent="";
+    var email=(document.getElementById("auth-email").value||"").trim();
+    if(!email){ nt.textContent="Enter your email address."; return; }
+
+    var btn=document.getElementById("auth-submit");
+    btn.disabled=true; btn.textContent="Sending…";
+    fetch("./api/auth/request-link",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      credentials:"same-origin",
+      body:JSON.stringify({email:email})
+    }).then(function(r){ return r.json(); }).then(function(data){
+      document.getElementById("auth-sent-msg").textContent=data.message||"Check your email for the login link.";
+      document.getElementById("auth-form").hidden=true;
+      document.getElementById("auth-sent").hidden=false;
+    }).catch(function(){
+      nt.className="frm-note err";
+      nt.textContent="Could not send the link. Please try again.";
+    }).finally(function(){
+      btn.disabled=false; btn.textContent="Send me a login link";
+    });
   });
+
+  document.getElementById("auth-back").addEventListener("click",function(){
+    document.getElementById("auth-sent").hidden=true;
+    document.getElementById("auth-form").hidden=false;
+    document.getElementById("auth-email").focus();
+  });
+
+  // Boot: confirm a session before loading anything, otherwise show the gate.
+  fetch("./api/auth/me",{credentials:"same-origin"})
+    .then(function(r){ return r.ok?r.json():null; })
+    .then(function(user){
+      if(!user){ hideLoadingOverlay(); showAuthGate(); return; }
+      currentUser=user;
+      hideAuthGate();
+      renderAuthStatus();
+      return startApp();
+    })
+    .catch(function(){ hideLoadingOverlay(); showAuthGate(); });
 
   /* ================= Contact Form ================= */
   var contactModal=document.getElementById("contact-modal");
@@ -2338,7 +2462,7 @@
       title:document.getElementById("contact-title").value,
       message:document.getElementById("contact-message").value
     };
-    fetch("/api/contact",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formData)})
+    fetch("./api/contact",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formData)})
       .then(function(r){ return r.json(); })
       .then(function(data){
         if(data.success){

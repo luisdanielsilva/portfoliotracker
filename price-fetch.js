@@ -67,13 +67,13 @@ function renderEmailTemplate(ticker, rule, threshold, currentPrice, extra) {
 }
 
 // Average cost per share (EUR) currently held for a ticker, from transactions
-function getAvgCostPerShare(db, ticker) {
+function getAvgCostPerShare(db, ticker, userId) {
   const txStmt = db.prepare(`
     SELECT tx_type, quantity, amount_eur FROM transactions
-    WHERE ticker = ? ORDER BY ts ASC
+    WHERE ticker = ? AND user_id = ? ORDER BY ts ASC
   `);
   let qty = 0, totalAmount = 0;
-  for (const tx of txStmt.all(ticker)) {
+  for (const tx of txStmt.all(ticker, userId)) {
     if (tx.tx_type === 'buy') { qty += tx.quantity; totalAmount += tx.amount_eur; }
     else if (tx.tx_type === 'sell') { qty -= tx.quantity; totalAmount -= tx.amount_eur; }
   }
@@ -84,10 +84,13 @@ function getAvgCostPerShare(db, ticker) {
 async function evaluateAlerts(db, mailer) {
   log('\n📢 Evaluating active alerts...');
 
+  // Join to users so each alert is emailed to the person who created it.
   const getAlertsStmt = db.prepare(`
-    SELECT id, user_id, ticker, rule_type, threshold, last_triggered_at
-    FROM alerts
-    WHERE enabled = 1
+    SELECT a.id, a.user_id, a.ticker, a.rule_type, a.threshold, a.last_triggered_at,
+           u.email AS owner_email
+    FROM alerts a
+    JOIN users u ON u.id = a.user_id
+    WHERE a.enabled = 1
   `);
 
   const getPriceStmt = db.prepare(`
@@ -127,7 +130,7 @@ async function evaluateAlerts(db, mailer) {
       } else if (rule === 'price_below' && currentPrice < threshold) {
         triggered = true;
       } else if (rule === 'dip_from_avg_cost') {
-        avgCostEUR = getAvgCostPerShare(db, alert.ticker);
+        avgCostEUR = getAvgCostPerShare(db, alert.ticker, alert.user_id);
         if (avgCostEUR !== null && currentPrice <= avgCostEUR * (1 - threshold / 100)) {
           triggered = true;
         }
@@ -151,24 +154,25 @@ async function evaluateAlerts(db, mailer) {
         ? `📉 Dip Alert: ${alert.ticker} is down ${threshold}%+ from your avg cost (€${avgCostEUR.toFixed(2)} → €${currentPrice.toFixed(2)})`
         : `🚨 Price Alert: ${alert.ticker} ${rule === 'price_above' ? '>' : '<'} €${threshold.toFixed(2)}`;
 
-      // Send email if mailer is configured
-      // NOTE: recipient is a placeholder (ALERT_EMAIL_TO env var) until per-user email
-      // is configurable from a user profile page.
-      if (mailer) {
+      // Each alert is emailed to the user who created it. ALERT_EMAIL_TO is only a
+      // fallback for rows with no usable owner email.
+      const recipient = alert.owner_email || process.env.ALERT_EMAIL_TO;
+
+      if (mailer && recipient) {
         try {
           const html = renderEmailTemplate(alert.ticker, rule, threshold, currentPrice, {avgCostEUR});
           await mailer.sendMail({
             from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
-            to: process.env.ALERT_EMAIL_TO || 'admin@example.com',
+            to: recipient,
             subject,
             html
           });
-          log(`  ✉ Email sent for alert ${alert.id} (${alert.ticker})`);
+          log(`  ✉ Email sent to ${recipient} for alert ${alert.id} (${alert.ticker})`);
         } catch (emailErr) {
           log(`  ❌ Failed to send email for alert ${alert.id}: ${emailErr.message}`);
         }
       } else {
-        log(`  📌 Alert triggered: ${subject}`);
+        log(`  📌 Alert triggered for ${recipient || 'unknown recipient'}: ${subject}`);
       }
 
       // Update last triggered time

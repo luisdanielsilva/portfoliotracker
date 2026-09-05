@@ -2,9 +2,17 @@
 const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
+const crypto = require('crypto');
+const cookieParser = require('cookie-parser');
+const rateLimit = require('express-rate-limit');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
+
+// Sits behind nginx: trust its X-Forwarded-* headers so req.protocol reflects
+// HTTPS and rate limiting keys off the real client IP rather than the proxy's.
+app.set('trust proxy', 1);
 
 // SQLite database connection
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'data.db');
@@ -44,6 +52,39 @@ db.exec(schema);
   }
 })();
 
+// Migration: drop password_hash / api_key from users (passwordless magic-link auth).
+// transactions and alerts hold FKs to users(id) with ON DELETE CASCADE, so foreign
+// keys MUST be off while the table is swapped out — otherwise DROP TABLE users
+// cascade-deletes every transaction and alert in the database.
+(function migrateUsersPasswordless() {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+  if (!row || !(row.sql.includes('api_key') || row.sql.includes('password_hash'))) return;
+
+  db.pragma('foreign_keys = OFF'); // no-op inside a transaction, so it must be set out here
+  try {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE users_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO users_new (id, email, created_at) SELECT id, email, created_at FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+      CREATE INDEX IF NOT EXISTS idx_email ON users(email);
+      COMMIT;
+    `);
+    const problems = db.pragma('foreign_key_check');
+    if (problems.length) {
+      throw new Error('Foreign key check failed after users migration: ' + JSON.stringify(problems));
+    }
+    console.log('Migrated users table to passwordless shape (dropped password_hash, api_key)');
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+})();
+
 // Compute average cost per share (in EUR) currently held for a ticker, from transactions
 function getAvgCostPerShare(ticker, userId) {
   const txStmt = db.prepare(`
@@ -60,19 +101,191 @@ function getAvgCostPerShare(ticker, userId) {
 }
 
 app.use(express.json());
+app.use(cookieParser());
 app.use(express.static(__dirname));
 
-// Default user ID (Phase 1 MVP - single user)
-const DEFAULT_USER_ID = 1;
+/* ================= passwordless magic-link auth ================= */
 
-// Ensure default user exists
-const defaultUserStmt = db.prepare('SELECT id FROM users WHERE id = ?');
-if (!defaultUserStmt.get(DEFAULT_USER_ID)) {
-  const insertUser = db.prepare(
-    'INSERT INTO users (id, email, api_key) VALUES (?, ?, ?)'
-  );
-  insertUser.run(DEFAULT_USER_ID, 'default@portfoliotracker.local', 'sk_default_phase1_test');
+const SESSION_COOKIE = 'pt_session';
+const LOGIN_TOKEN_TTL_MS = 15 * 60 * 1000;        // 15 minutes
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;  // 30 days
+// Secure cookies require HTTPS. Production sits behind nginx TLS; allow plain
+// HTTP for local testing against localhost:3000 directly.
+const COOKIE_SECURE = process.env.COOKIE_INSECURE !== 'true';
+
+function hashToken(rawToken) {
+  return crypto.createHash('sha256').update(rawToken).digest('hex');
 }
+
+// Mirrors the SMTP-optional pattern in price-fetch.js: if SMTP isn't configured,
+// callers fall back to logging the magic link instead of emailing it.
+function initMailer() {
+  if (!process.env.SMTP_HOST) return null;
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '25'),
+    secure: process.env.SMTP_USE_TLS === 'true',
+    auth: process.env.SMTP_USER ? {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASSWORD
+    } : undefined
+  });
+}
+const authMailer = initMailer();
+
+function logMagicLink(email, link, reason) {
+  console.log(`\n=== MAGIC LINK for ${email} (${reason}) ===\n${link}\n=== expires in 15 min ===\n`);
+}
+
+async function sendMagicLink(email, link) {
+  if (!authMailer) {
+    logMagicLink(email, link, 'SMTP not configured');
+    return;
+  }
+  try {
+    await authMailer.sendMail({
+      from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'login@portfoliotracker.local',
+      to: email,
+      subject: 'Your Portfolio Tracker login link',
+      html: `<p>Click below to sign in. This link works once and expires in 15 minutes.</p>
+             <p><a href="${link}">Sign in to Portfolio Tracker</a></p>
+             <p style="color:#666;font-size:12px">If you didn't request this, you can ignore this email.</p>`
+    });
+  } catch (err) {
+    // Never let a broken mailer swallow the only way in — log it instead.
+    console.error(`Magic-link email to ${email} failed: ${err.message}`);
+    logMagicLink(email, link, 'email send failed');
+  }
+}
+
+// Rate limiters for the link-request endpoint (per the plan's security section)
+const requestLinkIpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "If that's a valid email, a login link is on its way." }
+});
+const emailAttempts = new Map(); // email -> [timestamps]
+function emailRateLimited(email) {
+  const now = Date.now();
+  const windowStart = now - 60 * 60 * 1000;
+  const hits = (emailAttempts.get(email) || []).filter(t => t > windowStart);
+  hits.push(now);
+  emailAttempts.set(email, hits);
+  return hits.length > 5;
+}
+
+// POST /api/auth/request-link - send a magic link (public)
+// Always returns the same response whether the email is new, known, or rate limited.
+app.post('/api/auth/request-link', requestLinkIpLimiter, async (req, res) => {
+  const generic = { message: "If that's a valid email, a login link is on its way." };
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.json(generic);
+    if (emailRateLimited(email)) return res.json(generic);
+
+    let user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (!user) {
+      const info = db.prepare('INSERT INTO users (email) VALUES (?)').run(email);
+      user = { id: info.lastInsertRowid };
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    db.prepare('INSERT INTO login_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)')
+      .run(user.id, hashToken(rawToken), new Date(Date.now() + LOGIN_TOKEN_TTL_MS).toISOString());
+
+    const base = (process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    await sendMagicLink(email, `${base}/api/auth/verify?token=${rawToken}`);
+
+    res.json(generic);
+  } catch (err) {
+    console.error('POST /api/auth/request-link error:', err.message);
+    res.json(generic); // never leak failure detail on this endpoint
+  }
+});
+
+// GET /api/auth/verify?token=... - consume a magic link, start a session (public)
+app.get('/api/auth/verify', (req, res) => {
+  try {
+    const rawToken = String(req.query.token || '');
+    if (!rawToken) return res.status(400).send('Missing token');
+
+    const row = db.prepare(`
+      SELECT id, user_id, expires_at, used_at FROM login_tokens WHERE token_hash = ?
+    `).get(hashToken(rawToken));
+
+    if (!row || row.used_at || new Date(row.expires_at).getTime() < Date.now()) {
+      return res.status(400).send('This login link is invalid or has expired. Please request a new one.');
+    }
+
+    db.prepare('UPDATE login_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
+
+    const sessionId = crypto.randomBytes(32).toString('hex');
+    db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
+      .run(sessionId, row.user_id, new Date(Date.now() + SESSION_TTL_MS).toISOString());
+
+    res.cookie(SESSION_COOKIE, sessionId, {
+      httpOnly: true,
+      secure: COOKIE_SECURE,
+      sameSite: 'lax',
+      maxAge: SESSION_TTL_MS,
+      path: '/'
+    });
+
+    const base = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
+    res.redirect(base ? `${base}/` : '/');
+  } catch (err) {
+    console.error('GET /api/auth/verify error:', err.message);
+    res.status(500).send('Could not complete sign-in.');
+  }
+});
+
+// Routes under /api that stay reachable without a session. Paths are relative to
+// the /api mount point. Contact stays public so someone who can't sign in can
+// still reach support.
+const PUBLIC_API_PATHS = new Set(['/contact']);
+
+// Session cookie -> req.userId. Everything below this point requires a session.
+function authMiddleware(req, res, next) {
+  if (PUBLIC_API_PATHS.has(req.path)) return next();
+
+  const sessionId = req.cookies ? req.cookies[SESSION_COOKIE] : null;
+  if (!sessionId) return res.status(401).json({ error: 'Not authenticated' });
+
+  const row = db.prepare(`
+    SELECT s.user_id, s.expires_at, u.email
+    FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.id = ?
+  `).get(sessionId);
+
+  if (!row) return res.status(401).json({ error: 'Not authenticated' });
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    return res.status(401).json({ error: 'Session expired' });
+  }
+
+  req.userId = row.user_id;
+  req.userEmail = row.email;
+  next();
+}
+
+app.use('/api', authMiddleware);
+
+// --- everything below requires authentication ---
+
+// GET /api/auth/me - who am I (frontend boot gate)
+app.get('/api/auth/me', (req, res) => {
+  res.json({ id: req.userId, email: req.userEmail });
+});
+
+// POST /api/auth/logout - drop the session server-side and clear the cookie
+app.post('/api/auth/logout', (req, res) => {
+  const sessionId = req.cookies ? req.cookies[SESSION_COOKIE] : null;
+  if (sessionId) db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+  res.clearCookie(SESSION_COOKIE, { path: '/' });
+  res.json({ success: true });
+});
 
 // GET /api/transactions - retrieve all transactions
 app.get('/api/transactions', (req, res) => {
@@ -80,7 +293,7 @@ app.get('/api/transactions', (req, res) => {
     const stmt = db.prepare(
       'SELECT id, ticker, quantity, amount_eur as amount, currency, exchange_rate as exchangeRate, tx_type as type, ts FROM transactions WHERE user_id = ? ORDER BY ts DESC'
     );
-    const transactions = stmt.all(DEFAULT_USER_ID);
+    const transactions = stmt.all(req.userId);
     res.json({ transactions });
   } catch (err) {
     console.error('GET /api/transactions error:', err.message);
@@ -105,7 +318,7 @@ app.post('/api/transactions', (req, res) => {
     );
 
     const result = insertStmt.run(
-      DEFAULT_USER_ID,
+      req.userId,
       tx.ticker,
       tx.quantity,
       tx.amountEUR || tx.amount,
@@ -133,7 +346,7 @@ app.put('/api/transactions/:id', (req, res) => {
   try {
     const tx = req.body;
     const checkStmt = db.prepare('SELECT id FROM transactions WHERE id = ? AND user_id = ?');
-    if (!checkStmt.get(req.params.id, DEFAULT_USER_ID)) {
+    if (!checkStmt.get(req.params.id, req.userId)) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
@@ -152,7 +365,7 @@ app.put('/api/transactions/:id', (req, res) => {
       tx.type || 'buy',
       tx.ts,
       req.params.id,
-      DEFAULT_USER_ID
+      req.userId
     );
 
     const selectStmt = db.prepare(
@@ -174,7 +387,7 @@ app.delete('/api/transactions/:id', (req, res) => {
     const checkStmt = db.prepare(
       'SELECT id FROM transactions WHERE id = ? AND user_id = ?'
     );
-    const exists = checkStmt.get(req.params.id, DEFAULT_USER_ID);
+    const exists = checkStmt.get(req.params.id, req.userId);
 
     if (!exists) {
       return res.status(404).json({ error: 'Transaction not found' });
@@ -184,7 +397,7 @@ app.delete('/api/transactions/:id', (req, res) => {
     const deleteStmt = db.prepare(
       'DELETE FROM transactions WHERE id = ? AND user_id = ?'
     );
-    deleteStmt.run(req.params.id, DEFAULT_USER_ID);
+    deleteStmt.run(req.params.id, req.userId);
 
     res.json({ success: true });
   } catch (err) {
@@ -248,11 +461,11 @@ app.get('/api/stock-splits', (req, res) => {
 });
 
 // Generate daily snapshot dates from first transaction to today
-function generateDailySnapshots() {
+function generateDailySnapshots(userId) {
   const txStmt = db.prepare(`
     SELECT MIN(ts) as firstTx FROM transactions WHERE user_id = ?
   `);
-  const result = txStmt.get(DEFAULT_USER_ID);
+  const result = txStmt.get(userId);
 
   if (!result.firstTx) return []; // No transactions
 
@@ -289,7 +502,7 @@ app.get('/api/snapshots', (req, res) => {
       WHERE user_id = ?
       ORDER BY ts ASC
     `);
-    const transactions = txStmt.all(DEFAULT_USER_ID);
+    const transactions = txStmt.all(req.userId);
 
     if (transactions.length === 0) {
       res.json({ snapshots: [] });
@@ -348,7 +561,7 @@ app.get('/api/snapshots', (req, res) => {
     }
 
     // Generate daily snapshots from first transaction to today
-    const snapshotDates = generateDailySnapshots();
+    const snapshotDates = generateDailySnapshots(req.userId);
 
     const snapshots = snapshotDates.map(dateStr => {
       const ts = new Date(dateStr).getTime();
@@ -432,8 +645,8 @@ app.get('/api/avg-cost', (req, res) => {
   try {
     const tickerStmt = db.prepare('SELECT DISTINCT ticker FROM transactions WHERE user_id = ? ORDER BY ticker');
     const priceStmt = db.prepare('SELECT price_eur, price_usd FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1');
-    const result = tickerStmt.all(DEFAULT_USER_ID).map(row => {
-      const cost = getAvgCostPerShare(row.ticker, DEFAULT_USER_ID);
+    const result = tickerStmt.all(req.userId).map(row => {
+      const cost = getAvgCostPerShare(row.ticker, req.userId);
       if (!cost) return null;
       const price = priceStmt.get(row.ticker);
       const currentPriceEUR = price ? price.price_eur : null;
@@ -455,9 +668,9 @@ app.get('/api/avg-cost', (req, res) => {
 });
 
 // Add avg-cost / current-price / dip context to a dip_from_avg_cost alert (mutates and returns it)
-function enrichDipAlert(a) {
+function enrichDipAlert(a, userId) {
   if (a.ruleType !== 'dip_from_avg_cost') return a;
-  const cost = getAvgCostPerShare(a.ticker, DEFAULT_USER_ID);
+  const cost = getAvgCostPerShare(a.ticker, userId);
   if (!cost) return a;
   a.avgCostEUR = cost.avgCostEUR;
   a.triggerPriceEUR = cost.avgCostEUR * (1 - a.threshold / 100);
@@ -479,7 +692,7 @@ app.get('/api/alerts', (req, res) => {
       WHERE user_id = ?
       ORDER BY created_at DESC
     `);
-    const alerts = stmt.all(DEFAULT_USER_ID).map(enrichDipAlert);
+    const alerts = stmt.all(req.userId).map(a => enrichDipAlert(a, req.userId));
     res.json({ alerts });
   } catch (err) {
     console.error('GET /api/alerts error:', err.message);
@@ -502,7 +715,7 @@ app.post('/api/alerts', (req, res) => {
     `);
 
     const result = insertStmt.run(
-      DEFAULT_USER_ID,
+      req.userId,
       alert.ticker.toUpperCase(),
       alert.ruleType,
       parseFloat(alert.threshold)
@@ -512,7 +725,7 @@ app.post('/api/alerts', (req, res) => {
       SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
       FROM alerts WHERE id = ?
     `);
-    const newAlert = enrichDipAlert(selectStmt.get(result.lastInsertRowid));
+    const newAlert = enrichDipAlert(selectStmt.get(result.lastInsertRowid), req.userId);
 
     res.json({ success: true, alert: newAlert });
   } catch (err) {
@@ -528,7 +741,7 @@ app.put('/api/alerts/:id', (req, res) => {
     const { enabled, threshold } = req.body;
 
     const checkStmt = db.prepare('SELECT id FROM alerts WHERE id = ? AND user_id = ?');
-    if (!checkStmt.get(id, DEFAULT_USER_ID)) {
+    if (!checkStmt.get(id, req.userId)) {
       return res.status(404).json({ error: 'Alert not found' });
     }
 
@@ -539,13 +752,13 @@ app.put('/api/alerts/:id', (req, res) => {
       WHERE id = ? AND user_id = ?
     `);
 
-    updateStmt.run(enabled !== undefined ? (enabled ? 1 : 0) : null, threshold || null, id, DEFAULT_USER_ID);
+    updateStmt.run(enabled !== undefined ? (enabled ? 1 : 0) : null, threshold || null, id, req.userId);
 
     const selectStmt = db.prepare(`
       SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
       FROM alerts WHERE id = ?
     `);
-    const alert = enrichDipAlert(selectStmt.get(id));
+    const alert = enrichDipAlert(selectStmt.get(id), req.userId);
 
     res.json({ success: true, alert });
   } catch (err) {
@@ -558,12 +771,12 @@ app.put('/api/alerts/:id', (req, res) => {
 app.delete('/api/alerts/:id', (req, res) => {
   try {
     const checkStmt = db.prepare('SELECT id FROM alerts WHERE id = ? AND user_id = ?');
-    if (!checkStmt.get(req.params.id, DEFAULT_USER_ID)) {
+    if (!checkStmt.get(req.params.id, req.userId)) {
       return res.status(404).json({ error: 'Alert not found' });
     }
 
     const deleteStmt = db.prepare('DELETE FROM alerts WHERE id = ? AND user_id = ?');
-    deleteStmt.run(req.params.id, DEFAULT_USER_ID);
+    deleteStmt.run(req.params.id, req.userId);
 
     res.json({ success: true });
   } catch (err) {
