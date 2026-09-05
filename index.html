@@ -990,9 +990,9 @@
     // Render clean pie chart for portfolio allocation
     var pieContainer=document.getElementById("bars-weight");
     var sorted=per.slice().sort(function(a,b){return b.w-a.w;});
-    var svgW=300, svgH=300, cx=150, cy=150, r=100;
-    var svg='<div style="display:flex;gap:20px;align-items:flex-start;margin-bottom:16px"><div style="position:relative;flex-shrink:0"><svg viewBox="0 0 '+svgW+' '+svgH+'" style="width:300px;height:300px;cursor:pointer" id="pie-chart" role="img" aria-label="Portfolio allocation pie chart">';
-    svg+='<defs><style>.pie-slice{transition:all 0.15s;cursor:pointer}.pie-slice:hover{filter:brightness(1.1);stroke-width:2.5!important}</style></defs>';
+    var svgW=600, svgH=600, cx=300, cy=300, r=200;
+    var svg='<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px"><div style="position:relative;flex-shrink:0"><svg viewBox="0 0 '+svgW+' '+svgH+'" style="width:600px;height:600px;cursor:pointer" id="pie-chart" role="img" aria-label="Portfolio allocation pie chart">';
+    svg+='<defs><style>.pie-slice{transition:all 0.15s;cursor:pointer}.pie-slice:hover{filter:brightness(1.1);stroke-width:3!important}</style></defs>';
     var angle=-Math.PI/2;
     var colors=palette();
     sorted.forEach(function(p,i){
@@ -1002,18 +1002,18 @@
       var large=sliceAngle>Math.PI?1:0;
       var path='M '+cx+' '+cy+' L '+x1.toFixed(1)+' '+y1.toFixed(1)+' A '+r+' '+r+' 0 '+large+' 1 '+x2.toFixed(1)+' '+y2.toFixed(1)+' Z';
       svg+='<g class="pie-group" data-ticker="'+p.short+'" data-pct="'+comma((p.w*100).toFixed(1))+'" data-val="'+nfEur2.format(p.val)+'">';
-      svg+='<path class="pie-slice" d="'+path+'" fill="'+colors[i%8]+'" stroke="var(--surface)" stroke-width="2"/>';
+      svg+='<path class="pie-slice" d="'+path+'" fill="'+colors[i%8]+'" stroke="var(--surface)" stroke-width="3"/>';
       svg+='</g>';
       angle+=sliceAngle;
     });
-    svg+='<circle cx="'+cx+'" cy="'+cy+'" r="60" fill="var(--surface)" stroke="var(--hair)" stroke-width="1"/>';
-    svg+='<text x="'+cx+'" y="'+cy+'" text-anchor="middle" dy="0.3em" style="font-size:13px;font-weight:600;fill:var(--ink)">'+per.length+'</text>';
-    svg+='<text x="'+cx+'" y="'+(cy+16)+'" text-anchor="middle" style="font-size:10px;fill:var(--faint)">holdings</text>';
-    svg+='</svg><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:10;background:var(--surface);border:1px solid var(--hair);border-radius:8px;padding:8px 12px;box-shadow:var(--shadow);white-space:nowrap" id="pie-tip" hidden><div style="font-weight:600;font-size:12px;color:var(--ink)" id="pie-tip-ticker"></div><div style="font-size:11px;color:var(--muted);margin-top:3px"><span id="pie-tip-pct"></span>%</div><div style="font-size:11px;color:var(--muted)">\u20ac<span id="pie-tip-val"></span></div></div></div>';
+    svg+='<circle cx="'+cx+'" cy="'+cy+'" r="120" fill="var(--surface)" stroke="var(--hair)" stroke-width="1"/>';
+    svg+='<text x="'+cx+'" y="'+cy+'" text-anchor="middle" dy="0.3em" style="font-size:28px;font-weight:600;fill:var(--ink)">'+per.length+'</text>';
+    svg+='<text x="'+cx+'" y="'+(cy+32)+'" text-anchor="middle" style="font-size:13px;fill:var(--faint)">holdings</text>';
+    svg+='</svg><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:10;background:var(--surface);border:1px solid var(--hair);border-radius:8px;padding:10px 14px;box-shadow:var(--shadow);white-space:nowrap" id="pie-tip" hidden><div style="font-weight:600;font-size:13px;color:var(--ink)" id="pie-tip-ticker"></div><div style="font-size:12px;color:var(--muted);margin-top:4px"><span id="pie-tip-pct"></span>%</div><div style="font-size:12px;color:var(--muted)">\u20ac<span id="pie-tip-val"></span></div></div></div>';
 
-    svg+='<div style="flex:1;min-width:240px">';
+    svg+='<div style="width:160px;display:flex;flex-direction:column;gap:4px">';
     sorted.forEach(function(p,i){
-      svg+='<div style="font-size:12px;display:flex;align-items:center;gap:8px;padding:8px;margin-bottom:6px;border-radius:6px;background:var(--surface-2);border-left:3px solid '+colors[i%8]+'"><i style="width:11px;height:11px;background:'+colors[i%8]+';border-radius:1px;flex:none"></i><div style="flex:1"><div style="font-weight:500;color:var(--ink)">'+p.short+'</div><div style="font-size:10px;color:var(--muted)">'+comma((p.w*100).toFixed(1))+'% \u00b7 \u20ac'+nfEur2.format(p.val)+'</div></div></div>';
+      svg+='<div style="font-size:11px;padding:6px 8px;border-radius:4px;background:var(--surface-2);border-left:3px solid '+colors[i%8]+';text-align:right"><div style="font-weight:500;color:var(--ink)">'+p.short+'</div><div style="font-size:9px;color:var(--muted)">'+comma((p.w*100).toFixed(1))+'% \u00b7 \u20ac'+nfEur2.format(p.val)+'</div></div>';
     });
     svg+='</div></div>';
 
