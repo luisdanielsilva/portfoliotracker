@@ -10,7 +10,7 @@ module.exports = {
     {
       name: 'portfolio-api',
       script: 'server.js',
-      cwd: '/home/deploy/portfoliotracker',
+      cwd: '/var/www/portfoliotracker',
       instances: 1,
       exec_mode: 'fork',
 
