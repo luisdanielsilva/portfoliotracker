@@ -3,8 +3,9 @@
  * price-fetch.js — Daily price fetching from Yahoo Finance + alert evaluation
  * Fetches closing prices for all tracked tickers and stores in SQLite
  * Evaluates active alerts and sends email notifications
+ * Market-aware: only fetches after all relevant markets close
  * Usage: node price-fetch.js
- * Scheduled via systemd timer (daily at 09:00 UTC)
+ * Scheduled via systemd timer (every 30 min during trading hours)
  */
 
 const fs = require('fs');
@@ -79,6 +80,60 @@ function getAvgCostPerShare(db, ticker, userId) {
   }
   if (qty <= 0) return null;
   return totalAmount / qty;
+}
+
+// Map ticker to exchange (common US tech stocks)
+// Extend as needed for other exchanges
+function getTickerExchange(ticker) {
+  const exchanges = {
+    // US markets (NYSE/NASDAQ)
+    'TSLA': 'us',
+    'AMD': 'us',
+    'MSFT': 'us',
+    'MICROSOFT': 'us',
+    'AAPL': 'us',
+    'GOOGL': 'us',
+    'META': 'us',
+    'NVDA': 'us',
+    // Expand as needed for other exchanges
+    // 'ASML': 'euronext', // Amsterdam
+    // 'LLOY': 'lse',      // London
+  };
+  return exchanges[ticker] || 'us'; // Default to US if unknown
+}
+
+// Check if all relevant markets are closed
+// Returns { isClosed: boolean, reason: string }
+function areMarketsClosedForFetch() {
+  const now = new Date();
+  const utcHour = now.getUTCHours();
+  const utcMinute = now.getUTCMinutes();
+  const dayOfWeek = now.getUTCDay(); // 0=Sunday, 6=Saturday
+
+  // Skip weekends
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    return { isClosed: true, reason: 'Weekend' };
+  }
+
+  // US Markets: 9:30 AM - 4:00 PM ET
+  // ET in UTC: EST = UTC-5, EDT = UTC-4
+  // 4:00 PM EDT = 20:00 UTC, 4:00 PM EST = 21:00 UTC
+  // We'll use 21:00 UTC to safely cover both (and give data time to propagate)
+  // 9:30 AM EDT = 13:30 UTC, 9:30 AM EST = 14:30 UTC
+
+  const usMarketCloseUTC = 21; // 9:00 PM UTC (after 4:00 PM ET close)
+
+  // Fetch is safe to run after US close (21:00 UTC) until next market open (13:30 UTC)
+  if (utcHour < usMarketCloseUTC) {
+    const hoursUntilClose = usMarketCloseUTC - utcHour;
+    const minutesUntilClose = Math.round(hoursUntilClose * 60 - utcMinute);
+    return {
+      isClosed: false,
+      reason: `US markets still trading (closes in ~${minutesUntilClose} min at 21:00 UTC / 4:00 PM ET)`
+    };
+  }
+
+  return { isClosed: true, reason: 'All relevant markets closed' };
 }
 
 async function evaluateAlerts(db, mailer) {
@@ -191,6 +246,15 @@ async function fetchPrices() {
   log('🚀 Starting price fetch job...');
 
   try {
+    // Check if markets are closed before proceeding
+    const { isClosed, reason } = areMarketsClosedForFetch();
+    if (!isClosed) {
+      log(`⏳ Skipping fetch: ${reason}`);
+      log('   Will retry when markets close');
+      process.exit(0);
+    }
+    log(`✓ Markets check passed: ${reason}`);
+
     // Initialize Yahoo Finance (v3 API requires instantiation)
     const yahooFinance = new YahooFinance();
 
