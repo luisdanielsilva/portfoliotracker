@@ -884,8 +884,14 @@ app.delete('/api/alerts/:id', (req, res) => {
   }
 });
 
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
 // POST /api/contact - handle contact form submissions
-app.post('/api/contact', (req, res) => {
+app.post('/api/contact', async (req, res) => {
   try {
     const { type, name, email, title, message } = req.body;
 
@@ -894,12 +900,30 @@ app.post('/api/contact', (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // TODO: Send email using a service like SendGrid, Nodemailer, or AWS SES
-    // For now, just log the message
     console.log(`Contact form submission: Type=${type}, Name=${name}, Email=${email}, Title=${title}`);
-    console.log(`Message: ${message}`);
 
-    res.json({ success: true, message: 'Contact form received. Email functionality will be configured soon.' });
+    const recipient = process.env.ALERT_EMAIL_TO;
+    if (authMailer && recipient) {
+      try {
+        await authMailer.sendMail({
+          from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'contact@portfoliotracker.local',
+          to: recipient,
+          replyTo: email,
+          subject: `[Portfolio Tracker] ${type}: ${title}`,
+          html: `<p><strong>From:</strong> ${escapeHtml(name)} (${escapeHtml(email)})</p>
+                 <p><strong>Type:</strong> ${escapeHtml(type)}</p>
+                 <p><strong>Message:</strong></p>
+                 <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`
+        });
+      } catch (err) {
+        // Never fail the request just because the email didn't send - the submission is still logged above.
+        console.error(`Contact form email failed: ${err.message}`);
+      }
+    } else {
+      console.log(`Message: ${message}`);
+    }
+
+    res.json({ success: true, message: "Thanks for reaching out - we'll get back to you soon." });
   } catch (err) {
     console.error('POST /api/contact error:', err.message);
     res.status(500).json({ error: err.message });
