@@ -11,7 +11,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Database backups and legacy files
-*.backup
+*.backup*
 data.json
 data.json.backup
 
