@@ -37,10 +37,15 @@ function initEmailTransporter() {
     return null;
   }
 
+  const port = parseInt(process.env.SMTP_PORT || '25');
+  // Port 465 = implicit TLS (secure: true)
+  // Port 587 = STARTTLS after connect (secure: false)
+  const secure = port === 465;
+
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '25'),
-    secure: process.env.SMTP_USE_TLS === 'true',
+    port: port,
+    secure: secure,
     auth: process.env.SMTP_USER ? {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASSWORD
