@@ -88,6 +88,25 @@ Exchange Rates below. No longer an open item.)*
   create an account, since signing in *is* registration. If unwanted visitors ever become a
   concern, gate it with an invite code or an allow-list of emails.
 
+
+### ✅ After importing real data
+
+The transactions currently in the database are test values. When real data is imported, run:
+
+```bash
+node verify-portfolio.js          # read-only cross-check of every derived figure
+```
+
+It checks what the app *computes* against what the raw transactions say: a missing price that
+would silently drop a holding from the total, a euro value that does not match the recorded FX
+rate, splits applied to shares bought after the split, and an average cost implausibly far from
+the market price.
+
+This exists because every bug found on 2026-09-09 was caught by noticing a number looked wrong
+— a phantom holding worth 81% of the portfolio, splits tripling post-split purchases, average
+cost ignoring splits. That is not a repeatable process. Run against a backup from before those
+fixes, this tool reports all three unaided.
+
 ### 🎯 Architecture
 
 **Single Source of Truth:** `/var/www/portfoliotracker/`
