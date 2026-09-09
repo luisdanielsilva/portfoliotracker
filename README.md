@@ -13,28 +13,50 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
     gateways that auto-fetch links to scan them (e.g. Microsoft Safe Links) can't burn the
     one-time token before the user clicks it
 - **Transactions:** Buy/sell registration with automatic snapshot derivation (Node.js backend)
-- **Price Alerts:** Multiple rule types (price above/below, % change, dip from avg cost)
+- **Price Alerts:** Multiple rule types (price above/below, % change, dip from avg cost).
+  Everything that fires for one person in a run arrives as a **single digest email**, split into
+  "dips below your average cost" and "price levels you set". Each rule sends at most once per 24h.
+- **Landing page:** Logged-out visitors get a public page explaining the tool (worked DCA example,
+  six feature cards, a How-it-works time track, a preview of the alert email) rather than a bare
+  login form. It lives inside `#auth-gate` in `index.html` and is replaced by the app on sign-in.
 - **Portfolio Data:** 74 historical snapshots (Jun 2023 – Aug 2026) + user transactions
-- **Database:** SQLite with proper schema, migrations, foreign keys
+- **Database:** SQLite with proper schema, migrations, foreign keys. **Not tracked in git** — see
+  Backups below.
 - **Server:** Express.js on Node.js 22, rate-limited auth endpoints, CORS-aware
 - **Email Delivery:** Resend SMTP — magic-link login, price alerts, and the contact form all send real email
 - **Price-Fetch Scheduler:** systemd timer, runs daily at 09:00 UTC, market-aware (skips weekends,
-  waits for US market close before fetching)
+  and skips US trading hours 13:00–20:00 UTC so it only ever records a settled close)
+- **Backups:** `./backup-db.sh` nightly via cron — see Backups below
 
 ### ⏳ Open Items / Backlog
 
-**Ops hygiene** (carried over from the original implementation plan's Phase 6, never done):
+**Known broken:**
+- **Google sign-in returns `redirect_uri_mismatch`.** The redirect URI
+  `https://www.singleuseapps.com/portfoliotracker/api/auth/google/callback` is not registered on
+  the OAuth client in Google Cloud Console (it still has the old luisdanielsilva.com one). Magic
+  links work; Google does not, until that is added.
+
+**Ops hygiene:**
 - No load testing has been done — response times under real concurrent load are unverified
 - No `DEPLOYMENT.md` runbook — deploy/rollback steps aren't written down anywhere
-- No automated `backup-db.sh` — DB backups before risky changes are still manual (copy
-  `data.db` by hand first, as done before the 2026-09-05 auth migration and the 2026-09-09
-  MSFT ticker fix)
+- Nothing watches whether the price-fetch job actually ran. Two separate faults (a stale systemd
+  path, then a time-window bug) each went unnoticed because a skipped run looks like a quiet
+  success in the logs. A "did it run today" check would have caught both immediately.
+
+**Data quality:**
+- There are three identical `TSLA dip_from_avg_cost 5%` alert rows. Nothing stops the UI creating
+  duplicate rules, so an alert can fire more than once in the same digest.
+
+**Security hardening:**
+- `sessions.id` is stored raw — it *is* the cookie value, not a hash of it. Anyone who obtains the
+  database obtains working logins. Storing a hash and comparing on lookup would make a future
+  database leak useless to an attacker.
+- Git remote auth still uses a personal access token embedded in the URL — switch to `gh` CLI
+  auth (device-code flow, since this is a headless VPS) and revoke the old tokens.
 
 **Deferred features:**
 - AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built
   then removed pending a real implementation; not started
-- Git remote auth still uses a personal access token embedded in the URL — switch to `gh` CLI
-  auth (device-code flow, since this is a headless VPS) and revoke the old tokens
 
 ### 🎯 Architecture
 
@@ -87,6 +109,31 @@ again, remember to update `WorkingDirectory`, `DB_PATH`, and `ExecStart` in
 `portfolio-price-fetch.service` too — this was missed during the Sept 7 consolidation and caused
 a silent ~14h outage of price fetching until caught on Sept 9.
 
+### 💾 Backups
+
+`data.db` is **deliberately untracked**. It holds user emails and raw session cookies, and it
+changes on every login and price fetch — a public repo would have leaked working logins, and even
+a private one keeps that history forever. Git is therefore not a backup; this is:
+
+```bash
+./backup-db.sh              # snapshot, verify, compress, prune
+./backup-db.sh --list       # what snapshots exist
+./backup-db.sh --restore /home/deploy/backups/portfoliotracker/data.db.YYYYMMDD-HHMMSS.gz
+```
+
+- Uses SQLite's **online backup API**, not `cp` — the app writes continuously, and copying the
+  file mid-transaction gives a torn snapshot.
+- Every snapshot is integrity-checked and row-counted before it counts as a backup.
+- Written to `~/backups/portfoliotracker/`, gzipped (~40K each), pruned after `KEEP_DAYS` (30),
+  and never pruned down to zero.
+- Runs nightly at 03:30 via the `deploy` user's crontab, logging to `logs/backup.log`.
+- Restore keeps the database it replaces, at `data.db.replaced-<timestamp>`, and reminds you to
+  `pm2 restart portfolio-api` so the app reopens the file.
+
+Override with `DB_PATH`, `BACKUP_DIR` or `KEEP_DAYS` env vars.
+
+**The repository is private.** It must stay that way while any user data is in its history.
+
 ### 🔧 Configuration
 
 Environment variables in `.env`:
@@ -136,10 +183,16 @@ Environment variables in `.env`:
 **Price-Fetch (daily at 09:00 UTC):**
 - Fetches closing prices from Yahoo Finance
 - Stores in SQLite
-- Evaluates price alerts
-- Sends email alerts via Resend
+- Evaluates price alerts and sends one digest email per user via Resend
 - Managed by `portfolio-price-fetch.timer` / `.service` under `/etc/systemd/system/`
-  (check status: `systemctl status portfolio-price-fetch.timer`)
+- Check it is actually armed: `systemctl list-timers portfolio-price-fetch.timer` — an empty
+  listing means no automated fetch at all, which has happened twice
+- The market-hours window wraps midnight: safe after the 21:00 UTC close **and** again before the
+  13:00 UTC open, when the previous close is final. Testing only `hour < close` made the 09:00 run
+  skip every single day, silently.
+
+**Database backup (daily at 03:30 local):** `./backup-db.sh` via the `deploy` user's crontab.
+`crontab -l` to inspect.
 
 ### 📝 Database Schema
 
@@ -173,3 +226,8 @@ Environment variables in `.env`:
 - **Sep 2026:** Node.js upgraded 18 → 22; price-fetch systemd path outage fixed
 - **Sep 2026:** Magic-link verify split into GET (confirm) + POST (consume) to survive
   corporate mail link-scanning
+- **Sep 2026:** Public landing page replaced the login wall; alert emails became a single digest
+- **Sep 2026:** Discovered the scheduled price fetch had never once run — the market-hours check
+  rejected its own timer slot. Fixed.
+- **Sep 2026:** Repository made **private**, session/login tokens purged from the tracked database,
+  and `data.db` untracked in favour of `backup-db.sh`

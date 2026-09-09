@@ -10,6 +10,13 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# The live database. Untracked deliberately: it holds user emails and raw
+# session cookies, and it changes on every login and price fetch. Snapshots
+# come from ./backup-db.sh instead, written outside the repo.
+data.db
+data.db-wal
+data.db-shm
+
 # Database backups and legacy files
 *.backup*
 data.json
