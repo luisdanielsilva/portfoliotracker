@@ -53,23 +53,118 @@ function initEmailTransporter() {
   });
 }
 
-function renderEmailTemplate(ticker, rule, threshold, currentPrice, extra) {
-  let templatePath = path.join(__dirname, 'email-template.html');
-  let html = fs.readFileSync(templatePath, 'utf-8');
+/* ================= alert digest email =================
+ * One email per user per run, listing every rule that fired — dips and price
+ * levels together — rather than one email per alert. Table layout with inline
+ * styles, because that is what mail clients reliably render.
+ */
 
-  const ruleText = rule === 'price_above' ? 'above'
-    : rule === 'price_below' ? 'below'
-    : rule === 'dip_from_avg_cost' ? `down ${threshold}% from your average cost (€${extra.avgCostEUR.toFixed(2)})`
-    : 'changed';
+const MAIL = {
+  ground: '#f6f5f1', surface: '#ffffff', ink: '#1b1d21', muted: '#6b6e76',
+  faint: '#9a9ca2', hair: '#e3e0d7', accent: '#2a78d6', neg: '#c0473e', pos: '#3f8f5b',
+  sans: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
+  mono: "SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace",
+  serif: "Georgia,'Times New Roman',serif"
+};
 
-  html = html
-    .replace(/{{ticker}}/g, ticker)
-    .replace(/{{rule}}/g, ruleText)
-    .replace(/{{threshold}}/g, threshold.toFixed(2))
-    .replace(/{{currentPrice}}/g, currentPrice.toFixed(2))
-    .replace(/{{timestamp}}/g, new Date().toISOString());
+const eur = n => '€' + n.toFixed(2);
 
-  return html;
+function appLink() {
+  return (process.env.APP_BASE_URL || 'https://www.singleuseapps.com/portfoliotracker').replace(/\/$/, '') + '/';
+}
+
+// One row: ticker and headline figure on top, the context underneath.
+function digestRow(item, isLast) {
+  const border = isLast ? '' : `border-bottom:1px solid ${MAIL.hair};`;
+  let headline, detail;
+
+  if (item.kind === 'dip') {
+    headline = `<span style="color:${MAIL.neg}">−${item.dropPct.toFixed(1)}%</span>`;
+    detail = `${eur(item.price)} now · your average cost ${eur(item.avgCost)}<br>`
+      + `Back to break-even at <span style="color:${MAIL.ink};font-family:${MAIL.mono}">${eur(item.avgCost)}</span>`;
+  } else {
+    const above = item.kind === 'price_above';
+    const away = Math.abs((item.price - item.threshold) / item.threshold) * 100;
+    headline = `<span style="color:${above ? MAIL.pos : MAIL.accent}">${above ? 'above' : 'below'} ${eur(item.threshold)}</span>`;
+    detail = `${eur(item.price)} now · ${away.toFixed(1)}% ${above ? 'over' : 'under'} the level you set`;
+  }
+
+  return `<tr><td style="padding:14px 0;${border}">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td style="font:600 15px/1.3 ${MAIL.sans};color:${MAIL.ink}">${item.ticker}</td>
+      <td align="right" style="font:600 14px/1.3 ${MAIL.mono}">${headline}</td>
+    </tr><tr>
+      <td colspan="2" style="padding-top:5px;font:400 13px/1.6 ${MAIL.sans};color:${MAIL.muted}">${detail}</td>
+    </tr></table>
+  </td></tr>`;
+}
+
+function digestSection(title, items) {
+  if (!items.length) return '';
+  return `<tr><td style="padding:24px 0 0;font:600 11px/1 ${MAIL.sans};letter-spacing:.09em;text-transform:uppercase;color:${MAIL.faint}">${title}</td></tr>`
+    + `<tr><td><table width="100%" cellpadding="0" cellspacing="0" border="0">`
+    + items.map((it, i) => digestRow(it, i === items.length - 1)).join('')
+    + `</table></td></tr>`;
+}
+
+function renderAlertDigest(items) {
+  const dips = items.filter(i => i.kind === 'dip');
+  const levels = items.filter(i => i.kind !== 'dip');
+  const when = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  const heading = items.length === 1 ? 'One alert triggered' : `${items.length} alerts triggered`;
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:${MAIL.ground}">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${MAIL.ground};padding:28px 12px">
+<tr><td align="center">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:${MAIL.surface};border:1px solid ${MAIL.hair};border-radius:12px">
+    <tr><td style="padding:26px 26px 0">
+      <div style="font:600 10.5px/1 ${MAIL.sans};letter-spacing:.14em;text-transform:uppercase;color:${MAIL.faint}">Portfolio Tracker</div>
+      <div style="margin:12px 0 3px;font:400 25px/1.2 ${MAIL.serif};color:${MAIL.ink}">${heading}</div>
+      <div style="font:400 13px/1.5 ${MAIL.sans};color:${MAIL.muted}">${when}, after the close</div>
+    </td></tr>
+    <tr><td style="padding:0 26px">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        ${digestSection('Dips below your average cost', dips)}
+        ${digestSection('Price levels you set', levels)}
+      </table>
+    </td></tr>
+    <tr><td style="padding:24px 26px 26px">
+      <a href="${appLink()}" style="display:inline-block;background:${MAIL.accent};color:#ffffff;text-decoration:none;font:500 14px/1 ${MAIL.sans};padding:12px 22px;border-radius:8px">Open Portfolio Tracker</a>
+      <div style="margin-top:18px;padding-top:16px;border-top:1px solid ${MAIL.hair};font:400 12px/1.6 ${MAIL.sans};color:${MAIL.faint}">
+        Each rule emails you at most once in 24 hours. Prices are the latest close, converted to euros.
+        Change or switch off any rule in the app.
+      </div>
+    </td></tr>
+  </table>
+</td></tr></table></body></html>`;
+}
+
+function renderAlertDigestText(items) {
+  const lines = [`${items.length === 1 ? 'One alert' : items.length + ' alerts'} triggered\n`];
+  for (const i of items) {
+    if (i.kind === 'dip') {
+      lines.push(`${i.ticker}  -${i.dropPct.toFixed(1)}% below your average`);
+      lines.push(`  ${eur(i.price)} now, average cost ${eur(i.avgCost)}. Break-even at ${eur(i.avgCost)}.`);
+    } else {
+      const above = i.kind === 'price_above';
+      lines.push(`${i.ticker}  ${above ? 'above' : 'below'} ${eur(i.threshold)}`);
+      lines.push(`  ${eur(i.price)} now.`);
+    }
+  }
+  lines.push(`\nOpen Portfolio Tracker: ${appLink()}`);
+  lines.push('Each rule emails you at most once in 24 hours.');
+  return lines.join('\n');
+}
+
+function alertSubject(items) {
+  if (items.length === 1) {
+    const i = items[0];
+    if (i.kind === 'dip') return `${i.ticker} is ${i.dropPct.toFixed(1)}% below your average cost`;
+    return `${i.ticker} ${i.kind === 'price_above' ? 'rose above' : 'fell below'} ${eur(i.threshold)}`;
+  }
+  return `${items.length} alerts: ${[...new Set(items.map(i => i.ticker))].join(', ')}`;
 }
 
 // Average cost per share (EUR) currently held for a ticker, from transactions
@@ -175,6 +270,7 @@ async function evaluateAlerts(db, mailer) {
 
   const alerts = getAlertsStmt.all();
   let triggeredCount = 0;
+  const byRecipient = new Map(); // email -> triggered items, sent as one digest each
 
   for (const alert of alerts) {
     try {
@@ -217,37 +313,42 @@ async function evaluateAlerts(db, mailer) {
         }
       }
 
-      const subject = rule === 'dip_from_avg_cost'
-        ? `📉 Dip Alert: ${alert.ticker} is down ${threshold}%+ from your avg cost (€${avgCostEUR.toFixed(2)} → €${currentPrice.toFixed(2)})`
-        : `🚨 Price Alert: ${alert.ticker} ${rule === 'price_above' ? '>' : '<'} €${threshold.toFixed(2)}`;
-
-      // Each alert is emailed to the user who created it. ALERT_EMAIL_TO is only a
-      // fallback for rows with no usable owner email.
+      // Collect rather than send: everything that fired for one person goes out
+      // as a single digest below, so three rules never mean three emails.
       const recipient = alert.owner_email || process.env.ALERT_EMAIL_TO;
+      const item = rule === 'dip_from_avg_cost'
+        ? { kind: 'dip', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
+            dropPct: ((avgCostEUR - currentPrice) / avgCostEUR) * 100 }
+        : { kind: rule, ticker: alert.ticker, price: currentPrice, threshold };
 
-      if (mailer && recipient) {
-        try {
-          const html = renderEmailTemplate(alert.ticker, rule, threshold, currentPrice, {avgCostEUR});
-          await mailer.sendMail({
-            from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
-            to: recipient,
-            subject,
-            html
-          });
-          log(`  ✉ Email sent to ${recipient} for alert ${alert.id} (${alert.ticker})`);
-        } catch (emailErr) {
-          log(`  ❌ Failed to send email for alert ${alert.id}: ${emailErr.message}`);
-        }
-      } else {
-        log(`  📌 Alert triggered for ${recipient || 'unknown recipient'}: ${subject}`);
-      }
+      if (!byRecipient.has(recipient)) byRecipient.set(recipient, []);
+      byRecipient.get(recipient).push(item);
 
-      // Update last triggered time
       updateAlertStmt.run(alert.id);
       triggeredCount++;
 
     } catch (err) {
       log(`  ❌ Error evaluating alert ${alert.id}: ${err.message}`);
+    }
+  }
+
+  for (const [recipient, items] of byRecipient) {
+    const subject = alertSubject(items);
+    if (!mailer || !recipient) {
+      log(`  📌 Would email ${recipient || 'unknown recipient'}: ${subject}`);
+      continue;
+    }
+    try {
+      await mailer.sendMail({
+        from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
+        to: recipient,
+        subject,
+        text: renderAlertDigestText(items),
+        html: renderAlertDigest(items)
+      });
+      log(`  ✉ Digest sent to ${recipient} (${items.length} alert${items.length > 1 ? 's' : ''})`);
+    } catch (emailErr) {
+      log(`  ❌ Failed to send digest to ${recipient}: ${emailErr.message}`);
     }
   }
 

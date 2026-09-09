@@ -312,6 +312,29 @@
   .lp-signin .lp-lede{margin-left:auto;margin-right:auto}
   .lp-signin .auth-card{margin:0 auto;text-align:left}
 
+  /* mock of the alert digest email. Uses the app's own tokens rather than the
+     email's hard-coded light palette, so it adapts to dark mode like everything
+     else on the page — it represents the email, it isn't a pixel replica. */
+  .lp-mailfig{max-width:620px;margin-left:auto;margin-right:auto}
+  .lp-mail{border:1px solid var(--hair);border-radius:10px;overflow:hidden;background:var(--surface)}
+  .lp-mail-hdr{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:11px 16px;background:var(--surface-2);border-bottom:1px solid var(--hair)}
+  .lp-mail-from{font-size:12px;font-weight:600}
+  .lp-mail-subj{font-size:12px;color:var(--muted)}
+  .lp-mail-body{padding:22px 20px}
+  .lp-mail-eyebrow{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  .lp-mail-h{font-family:"Newsreader",Georgia,serif;font-size:23px;font-weight:500;margin:10px 0 3px}
+  .lp-mail-when{font-size:12.5px;color:var(--muted)}
+  .lp-mail-sec{margin:22px 0 0;font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+  .lp-mail-row{padding:12px 0;border-bottom:1px solid var(--hair)}
+  .lp-mail-row.lp-last{border-bottom:0}
+  .lp-mail-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .lp-mail-top b{font-size:14px;font-weight:600}
+  .lp-mail-top i{font-style:normal;font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600}
+  .lp-mail-top i.neg{color:var(--neg)} .lp-mail-top i.pos{color:var(--pos)} .lp-mail-top i.acc{color:var(--accent)}
+  .lp-mail-det{display:block;margin-top:5px;font-size:12.5px;color:var(--muted);line-height:1.6}
+  .lp-mail-det b{color:var(--ink);font-family:"IBM Plex Mono",monospace;font-weight:600}
+  .lp-mail-btn{display:inline-block;margin-top:20px;background:var(--accent);color:#fff;font-size:13.5px;font-weight:500;padding:10px 18px;border-radius:8px}
+
   /* rule chips in the alerts card */
   .lp-rules{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
   .lp-rules span{font-size:11px;color:var(--muted);border:1px solid var(--hair);border-radius:999px;padding:3px 9px;background:var(--surface-2)}
@@ -687,6 +710,40 @@
       <p>The email says how far under your own average the price has fallen. Whether you add is entirely yours to judge &mdash; the job here was making sure you knew while it still mattered.</p>
     </li>
   </ol>
+
+  <figure class="lp-figure lp-mailfig">
+    <p class="lp-fig-title">The email you actually get</p>
+    <div class="lp-mail">
+      <div class="lp-mail-hdr">
+        <span class="lp-mail-from">Portfolio Tracker</span>
+        <span class="lp-mail-subj">3 alerts: TSLA, AMD, MSFT</span>
+      </div>
+      <div class="lp-mail-body">
+        <div class="lp-mail-eyebrow">Portfolio Tracker</div>
+        <div class="lp-mail-h">3 alerts triggered</div>
+        <div class="lp-mail-when">Wednesday 9 September, after the close</div>
+
+        <div class="lp-mail-sec">Dips below your average cost</div>
+        <div class="lp-mail-row lp-last">
+          <span class="lp-mail-top"><b>TSLA</b><i class="neg">&minus;12.4%</i></span>
+          <span class="lp-mail-det">&euro;338.71 now &middot; your average cost &euro;386.65<br>Back to break-even at <b>&euro;386.65</b></span>
+        </div>
+
+        <div class="lp-mail-sec">Price levels you set</div>
+        <div class="lp-mail-row">
+          <span class="lp-mail-top"><b>AMD</b><i class="acc">below &euro;480.00</i></span>
+          <span class="lp-mail-det">&euro;465.28 now &middot; 3.1% under the level you set</span>
+        </div>
+        <div class="lp-mail-row lp-last">
+          <span class="lp-mail-top"><b>MSFT</b><i class="pos">above &euro;440.00</i></span>
+          <span class="lp-mail-det">&euro;454.43 now &middot; 3.3% over the level you set</span>
+        </div>
+
+        <span class="lp-mail-btn">Open Portfolio Tracker</span>
+      </div>
+    </div>
+    <figcaption>Both kinds of rule arrive in one message &mdash; dips measured against your own average cost, and the plain price levels you set. Never more than one email per rule per day.</figcaption>
+  </figure>
 
   <section class="lp-signin">
   <h2 class="lp-h2" id="signin">Sign in</h2>
