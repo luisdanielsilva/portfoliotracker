@@ -34,35 +34,38 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
 - No load testing has been done — response times under real concurrent load are unverified
 - No `DEPLOYMENT.md` runbook — deploy/rollback steps aren't written down anywhere
 
-**Accuracy — fetch real daily exchange rates:**
+**Accuracy — historical euro values predate real exchange rates:**
 
-Every euro figure in the app, including the headline portfolio value, is built with a
-**hard-coded 0.92 USD→EUR rate** in `price-fetch.js`. It drifts as the real rate moves, and it
-is wrong for any currency that is not USD. Now that prices carry their own currency, the
-portfolio total should be assembled from the actual rate on each day.
+Live rates are now fetched daily (see Exchange Rates below), but **only prices recorded from
+2026-09-09 onward use them**. Everything before that was converted at a hard-coded 0.92, when
+the real rate was about 0.859 — roughly 7% too generous.
 
-What this needs:
-1. Fetch the daily EUR rate for every currency the held tickers quote in — the same job already
-   runs daily and knows the set of currencies from `prices.currency`. Yahoo exposes FX pairs as
-   tickers (`EURUSD=X`), so no new data source is required.
-2. Store them in the existing `exchange_rates` table (`from_currency`, `to_currency`, `date`),
-   which was created for exactly this and has never been populated.
-3. Convert `price_native → price_eur` using the rate **for that price's date**, not today's, so
-   historical points stop shifting every time the rate moves.
-4. Backfill: existing rows were all converted at 0.92, so historical euro values are
-   approximations. Decide whether to recompute them from stored `price_native` (possible — the
-   native price is now kept) or leave history as-is and only apply real rates going forward.
+The visible consequence: the portfolio-over-time chart has a **one-off step down of about 7%**
+on the day real rates began. That is a change of method, not a market move, and it will sit in
+the history until the older rows are recomputed.
 
-Worth doing before trusting any euro figure precisely; the relative shapes on the charts are
-unaffected.
+Fixing it properly is now possible and not large:
+1. `price_native` is stored for every row, including backfilled history, so the original quoted
+   price is never lost.
+2. Yahoo serves historical FX (`EURUSD=X` via `chart()`), so the rate **for each price's own
+   date** can be recovered rather than applying today's rate to old dates — which would remove
+   the step but silently misprice years of history.
+3. Recompute `price_eur = price_native × rate(date)` for rows before the cutover.
+
+Until then, treat euro figures before 2026-09-09 as approximate. Native prices and the shapes
+of the charts are unaffected either way.
 
 **Security hardening:**
 - Git remote auth still uses a personal access token embedded in the URL — switch to `gh` CLI
   auth (device-code flow, since this is a headless VPS) and revoke the old tokens.
 
-**Deferred features:**
-- AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built
-  then removed pending a real implementation; not started
+**Not planned for now:**
+- AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built then
+  removed. Explicitly parked (2026-09-09); do not pick it up without asking.
+
+**Settled, recorded so it is not re-litigated:**
+- The EUR/USD toggle on the portfolio chart **stays**. Portfolio value defaults to euros; the
+  toggle is an explicit user action, not a default display.
 
 ### 🎯 Architecture
 
@@ -211,6 +214,21 @@ Environment variables in `.env`:
 
 **Job health check (daily at 13:00 local):** `check-job-health.js`, also via crontab — three hours
 after the fetch's own slot. See Monitoring below. `crontab -l` shows both.
+
+### 💱 Exchange Rates
+
+The portfolio total is in euros, so every non-euro price must be converted. The daily job fetches
+the live rate for each currency actually held — Yahoo quotes FX as tickers, so `EUR<CUR>=X` gives
+euros-per-unit and the stored multiplier is its inverse — and writes it to `exchange_rates`
+(`from_currency` → `EUR`, one row per day).
+
+- Rates are fetched **after** the quotes, because the set of currencies is only known once the
+  quotes are in; a price is never stored using a rate fetched for a different currency.
+- If a rate cannot be fetched, the **most recent stored rate** is used rather than a constant from
+  months ago. If there is no stored rate and no fallback, the price is skipped rather than
+  recording a euro figure that cannot be justified.
+- Only USD had a hard-coded fallback (0.92); any other currency with no rate is simply not
+  converted.
 
 ### 🔭 Monitoring
 

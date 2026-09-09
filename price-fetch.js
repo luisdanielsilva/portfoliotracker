@@ -179,6 +179,53 @@ function renderAlertDigestText(items) {
  * run now leaves a row behind, and — while enabled — emails what it did.
  */
 
+/* ================= exchange rates =================
+ * The portfolio total is expressed in euros, so every non-euro price has to be
+ * converted. That used to be a hard-coded 0.92, which was ~7% off the real rate
+ * and simply wrong for any currency that is not USD.
+ *
+ * Yahoo quotes FX as tickers: EURUSD=X is euros-per-... no — it is how many USD
+ * one EUR buys (1.1641). The multiplier this code wants is the inverse.
+ */
+const FALLBACK_USD_TO_EUR = 0.92;
+
+async function fetchExchangeRates(yahooFinance, db, currencies) {
+  const rates = { EUR: 1 };
+  const upsert = db.prepare(`
+    INSERT INTO exchange_rates (from_currency, to_currency, rate, date)
+    VALUES (?, 'EUR', ?, DATE('now'))
+    ON CONFLICT(from_currency, to_currency, date)
+      DO UPDATE SET rate = excluded.rate, updated_at = CURRENT_TIMESTAMP
+  `);
+  // Falling back to the most recent stored rate beats a constant from months ago.
+  const lastKnown = db.prepare(`
+    SELECT rate FROM exchange_rates
+    WHERE from_currency = ? AND to_currency = 'EUR'
+    ORDER BY date DESC LIMIT 1
+  `);
+
+  for (const currency of currencies) {
+    if (currency === 'EUR') continue;
+    try {
+      const quote = await yahooFinance.quote(`EUR${currency}=X`);
+      const eurPerUnit = quote && quote.regularMarketPrice;
+      if (!eurPerUnit) throw new Error('no rate returned');
+
+      const toEur = parseFloat((1 / eurPerUnit).toFixed(6));
+      rates[currency] = toEur;
+      upsert.run(currency, toEur);
+      log(`  💱 1 ${currency} = €${toEur.toFixed(4)}`);
+    } catch (err) {
+      const prev = lastKnown.get(currency);
+      rates[currency] = prev ? prev.rate : (currency === 'USD' ? FALLBACK_USD_TO_EUR : null);
+      log(`  ⚠ ${currency} rate unavailable (${err.message}); `
+        + (prev ? `using last known €${prev.rate.toFixed(4)}` : 'using fallback'));
+    }
+    await new Promise(r => setTimeout(r, 150));
+  }
+  return rates;
+}
+
 function ensureJobRunsTable(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS job_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -529,11 +576,13 @@ async function fetchPrices() {
         updated_at = CURRENT_TIMESTAMP
     `);
 
+    // Quotes first, then rates, then write. The set of currencies to convert is
+    // only known once the quotes are in, and a price should never be stored with
+    // a rate fetched for a different currency.
+    const quotes = [];
     for (const ticker of tickers) {
       try {
         log(`  Fetching ${ticker}...`);
-
-        // Fetch quote from Yahoo Finance
         const quoteData = await yahooFinance.quote(ticker);
 
         if (!quoteData || quoteData.regularMarketPrice === undefined) {
@@ -543,34 +592,42 @@ async function fetchPrices() {
           continue;
         }
 
-        // Take the currency Yahoo reports rather than assuming USD. A European
+        // Take the currency Yahoo reports rather than assuming USD: a European
         // listing is quoted in EUR already, and converting it would scale a
         // correct figure by the USD rate.
-        const priceNative = quoteData.regularMarketPrice;
-        const currency = quoteData.currency || 'USD';
-
-        // TODO: still a fixed rate — see the accuracy note in the README.
-        const usdToEur = 0.92;
-        const priceEur = currency === 'EUR'
-          ? priceNative
-          : parseFloat((priceNative * usdToEur).toFixed(4));
-        const priceUsd = currency === 'USD' ? priceNative : null;
-
-        log(`    ✓ ${ticker}: ${fmtNative(priceNative, currency)}`
-          + (currency === 'EUR' ? '' : ` → €${priceEur.toFixed(2)} EUR`));
-
-        // Upsert into database
-        upsertStmt.run(ticker, priceEur, priceUsd, priceNative, currency);
-        successCount++;
-        results.push({ ticker, ok: true, priceNative, currency, priceEur });
+        quotes.push({
+          ticker,
+          priceNative: quoteData.regularMarketPrice,
+          currency: quoteData.currency || 'USD'
+        });
       } catch (err) {
         log(`    ❌ Error fetching ${ticker}: ${err.message}`);
         failureCount++;
         results.push({ ticker, ok: false, error: err.message });
       }
-
-      // Small delay to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    const neededCurrencies = [...new Set(quotes.map(q => q.currency))];
+    const rates = await fetchExchangeRates(yahooFinance, db, neededCurrencies);
+
+    for (const q of quotes) {
+      const rate = rates[q.currency];
+      if (rate == null) {
+        log(`    ⚠ ${q.ticker}: no ${q.currency}→EUR rate, not storing a euro value we cannot justify`);
+        failureCount++;
+        results.push({ ticker: q.ticker, ok: false, error: `no ${q.currency} rate` });
+        continue;
+      }
+      const priceEur = parseFloat((q.priceNative * rate).toFixed(4));
+      const priceUsd = q.currency === 'USD' ? q.priceNative : null;
+
+      log(`    ✓ ${q.ticker}: ${fmtNative(q.priceNative, q.currency)}`
+        + (q.currency === 'EUR' ? '' : ` → €${priceEur.toFixed(2)}`));
+
+      upsertStmt.run(q.ticker, priceEur, priceUsd, q.priceNative, q.currency);
+      successCount++;
+      results.push({ ticker: q.ticker, ok: true, priceNative: q.priceNative, currency: q.currency, priceEur });
     }
 
     // Log summary
