@@ -1209,7 +1209,9 @@
     'TSLA': 'Tesla', 'VW': 'Volkswagen', 'LHA': 'Deutsche Lufthansa',
     'META': 'Meta Platforms', 'PLTR': 'Palantir', 'NVDA': 'Nvidia',
     'ASML': 'ASML Holding', 'ORCL': 'Oracle', 'AMD': 'AMD',
-    'QCOM': 'Qualcomm', 'NOW': 'ServiceNow', 'MSFT': 'Microsoft', 'SPY': 'SPDR S&P 500 ETF Trust'
+    'QCOM': 'Qualcomm', 'NOW': 'ServiceNow', 'MSFT': 'Microsoft', 'SPY': 'SPDR S&P 500 ETF Trust',
+    // European listings carry an exchange suffix, which is part of the Yahoo symbol
+    'ASML.AS': 'ASML Holding', 'VOW3.DE': 'Volkswagen', 'LHA.DE': 'Deutsche Lufthansa'
   };
 
   // Ticker to currency mapping (USD by default if not in this map)
@@ -2871,8 +2873,30 @@
           .map(snap => {
             const dateStr = snap.date.replace('Z', '').substring(0, 16);
             const holdings = snap.holdings.map(h => {
-              const tickerIdx = BKEY.indexOf(h.ticker.toLowerCase());
-              if (tickerIdx === -1) return null;
+              // BKEY started as a fixed list of the tickers held at the time it was
+              // written. Anything absent used to be dropped here, silently removing
+              // the holding from both the chart and the headline total — an ASML.AS
+              // and a VOW3.DE position worth €3,567 disappeared with no warning.
+              // Register unknown tickers instead, so a newly bought holding shows up
+              // rather than quietly going missing.
+              const key = h.ticker.toLowerCase();
+              let tickerIdx = BKEY.indexOf(key);
+              if (tickerIdx === -1) {
+                const label = TICKER_NAMES[h.ticker.toUpperCase()] || h.ticker.toUpperCase();
+                // Series downstream are keyed by company name, so appending a second
+                // entry called "ASML Holding" for ASML.AS counted that holding twice.
+                // A suffixed symbol is the same company on a different exchange: reuse
+                // its existing slot, and only create one for a genuinely new company.
+                const existing = BNAMES.indexOf(label);
+                if (existing !== -1) {
+                  tickerIdx = existing;
+                } else {
+                  BKEY.push(key);
+                  BNAMES.push(label);
+                  BSHORT.push(label.length > 11 ? label.slice(0, 11) : label);
+                  tickerIdx = BKEY.length - 1;
+                }
+              }
               return [tickerIdx, h.quantity, h.marketValue, null];
             }).filter(h => h !== null);
 
