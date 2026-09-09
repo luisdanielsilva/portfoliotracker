@@ -53,6 +53,9 @@ db.exec(schema);
   }
 })();
 
+// Prices carry the currency the market quotes them in; see db-migrations.js.
+require('./db-migrations').ensurePriceCurrencyColumns(db);
+
 // Migration: stop the same rule being saved twice. Nothing prevented it, and one
 // ticker ended up with three identical "dip 5%" rules — which would have meant the
 // same row three times in a single alert digest. De-duplicate first (keeping the

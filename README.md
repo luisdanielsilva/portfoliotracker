@@ -33,13 +33,11 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
 **Ops hygiene:**
 - No load testing has been done — response times under real concurrent load are unverified
 - No `DEPLOYMENT.md` runbook — deploy/rollback steps aren't written down anywhere
-- Nothing watches whether the price-fetch job actually ran. Two separate faults (a stale systemd
-  path, then a time-window bug) each went unnoticed because a skipped run looks like a quiet
-  success in the logs. A "did it run today" check would have caught both immediately.
 
-**Data quality:**
-- There are three identical `TSLA dip_from_avg_cost 5%` alert rows. Nothing stops the UI creating
-  duplicate rules, so an alert can fire more than once in the same digest.
+**Accuracy:**
+- **USD→EUR uses a hard-coded 0.92 rate** (`price-fetch.js`). Every euro figure in the app is
+  therefore approximate and drifts as the real rate moves. The `exchange_rates` table exists but
+  is empty and nothing populates it.
 
 **Security hardening:**
 - Git remote auth still uses a personal access token embedded in the URL — switch to `gh` CLI
@@ -145,6 +143,10 @@ Environment variables in `.env`:
 - `AUTH_EMAIL_FROM` / `ALERT_EMAIL_FROM` / `ALERT_EMAIL_TO` — sender/recipient addresses for
   magic links, alerts, and the contact form
 - `COOKIE_INSECURE` — For local dev without HTTPS
+- `PRICE_FETCH_REPORT` — set to `false` to stop the per-run status email (default: on)
+- `MAX_RUN_AGE_HOURS` — how stale a successful run may get before the watchdog complains
+  (default 26)
+- `DB_PATH` / `BACKUP_DIR` / `KEEP_DAYS` — also read by `backup-db.sh`
 
 ### 📊 API Endpoints
 
@@ -189,7 +191,32 @@ Environment variables in `.env`:
   skip every single day, silently.
 
 **Database backup (daily at 03:30 local):** `./backup-db.sh` via the `deploy` user's crontab.
-`crontab -l` to inspect.
+
+**Job health check (daily at 13:00 local):** `check-job-health.js`, also via crontab — three hours
+after the fetch's own slot. See Monitoring below. `crontab -l` shows both.
+
+### 🔭 Monitoring
+
+Two outages this week were invisible for hours because a job that never ran and a job that ran
+and skipped look the same in a log. Both halves below exist because of that, and they are
+deliberately independent:
+
+**1. Every run leaves a row.** `job_runs` records `success`, `skipped` or `failed` with a summary.
+A run that skips daily is now distinguishable from one that never fires.
+
+**2. Every run emails what it did.** Market check, per-ticker results, alerts evaluated and
+triggered, duration — sent to `ALERT_EMAIL_TO`. A crash reports before exiting. Turn it off with
+`PRICE_FETCH_REPORT=false` in `.env`; no code change, and the watchdog keeps working regardless.
+
+**3. A watchdog notices silence.** The run email only arrives *when the job runs*, so it cannot
+report the failure that matters most. `check-job-health.js` runs separately and looks for the
+**absence** of a recent success (`MAX_RUN_AGE_HOURS`, default 26), emailing if stale. It calls out
+a run stuck on `skipped` specifically, since that is what the market-hours bug looked like.
+
+```bash
+node check-job-health.js --status   # check without emailing
+node check-job-health.js            # check, email if stale, exit 1 if unhealthy
+```
 
 ### 📝 Database Schema
 
@@ -197,9 +224,14 @@ Environment variables in `.env`:
 - `sessions` — Active login sessions with expiration
 - `login_tokens` — One-time magic-link tokens (hashed, expire after 15 min)
 - `transactions` — Buy/sell events with timestamp and amounts
-- `alerts` — Price alert rules per user
+- `alerts` — Price alert rules per user. A unique index on
+  `(user_id, ticker, rule_type, threshold)` stops the same rule being saved twice — it used to be
+  possible, and one ticker ended up with three identical rules
 - `prices` — Historical daily closing prices (populated by price-fetch)
 - `stock_splits` — Known stock splits, applied when computing historical snapshots
+- `job_runs` — One row per price-fetch run: `success` / `skipped` / `failed` plus a summary. This
+  is what makes "ran and skipped" distinguishable from "never ran"; before it existed, both
+  outages looked identical in the logs
 
 ### 🔐 Security
 

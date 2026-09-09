@@ -13,6 +13,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
+const { ensurePriceCurrencyColumns } = require('./db-migrations');
 require('dotenv').config();
 
 const dbPath = path.join(__dirname, 'data.db');
@@ -68,6 +69,15 @@ const MAIL = {
 };
 
 const eur = n => '€' + n.toFixed(2);
+
+// Prices are shown in the currency the market quotes them in; only aggregated
+// portfolio value is expressed in euros.
+const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£', CHF: 'CHF ', JPY: '¥', CAD: 'CA$', AUD: 'A$' };
+function fmtNative(amount, currency) {
+  if (amount == null) return '—';
+  const sym = CURRENCY_SYMBOL[currency];
+  return sym ? `${sym}${amount.toFixed(2)}` : `${amount.toFixed(2)} ${currency || ''}`.trim();
+}
 
 function appLink() {
   return (process.env.APP_BASE_URL || 'https://www.singleuseapps.com/portfoliotracker').replace(/\/$/, '') + '/';
@@ -200,7 +210,7 @@ function renderRunReport(status, d) {
     <td style="padding:7px 0;font:500 13px/1.5 ${MAIL.mono};color:${MAIL.ink}">${value}</td></tr>`;
 
   const tickerLines = (d.results || []).map(r => `<tr><td colspan="2" style="padding:3px 0;font:400 12.5px/1.5 ${MAIL.mono};color:${r.ok ? MAIL.muted : MAIL.neg}">
-    ${r.ok ? '✓' : '⚠'} ${r.ticker}${r.ok ? ' — ' + eur(r.priceEur) : ' — ' + (r.error || 'no price data')}</td></tr>`).join('');
+    ${r.ok ? '✓' : '⚠'} ${r.ticker}${r.ok ? ' — ' + fmtNative(r.priceNative, r.currency) : ' — ' + (r.error || 'no price data')}</td></tr>`).join('');
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -494,12 +504,16 @@ async function fetchPrices() {
     let successCount = 0;
     let failureCount = 0;
 
+    ensurePriceCurrencyColumns(db);
+
     const upsertStmt = db.prepare(`
-      INSERT INTO prices (ticker, price_eur, price_usd, price_date, source)
-      VALUES (?, ?, ?, DATE('now'), 'yahoo_finance')
+      INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)
+      VALUES (?, ?, ?, ?, ?, DATE('now'), 'yahoo_finance')
       ON CONFLICT(ticker, price_date) DO UPDATE SET
         price_eur = excluded.price_eur,
         price_usd = excluded.price_usd,
+        price_native = excluded.price_native,
+        currency = excluded.currency,
         updated_at = CURRENT_TIMESTAMP
     `);
 
@@ -517,18 +531,26 @@ async function fetchPrices() {
           continue;
         }
 
-        const priceUsd = quoteData.regularMarketPrice;
-        // Default EUR conversion rate (0.92 USD → EUR)
-        // TODO: Phase 3 will fetch actual exchange rates
-        const exchangeRate = 0.92;
-        const priceEur = parseFloat((priceUsd * exchangeRate).toFixed(4));
+        // Take the currency Yahoo reports rather than assuming USD. A European
+        // listing is quoted in EUR already, and converting it would scale a
+        // correct figure by the USD rate.
+        const priceNative = quoteData.regularMarketPrice;
+        const currency = quoteData.currency || 'USD';
 
-        log(`    ✓ ${ticker}: $${priceUsd.toFixed(2)} USD → €${priceEur.toFixed(2)} EUR`);
+        // TODO: still a fixed rate — see the accuracy note in the README.
+        const usdToEur = 0.92;
+        const priceEur = currency === 'EUR'
+          ? priceNative
+          : parseFloat((priceNative * usdToEur).toFixed(4));
+        const priceUsd = currency === 'USD' ? priceNative : null;
+
+        log(`    ✓ ${ticker}: ${fmtNative(priceNative, currency)}`
+          + (currency === 'EUR' ? '' : ` → €${priceEur.toFixed(2)} EUR`));
 
         // Upsert into database
-        upsertStmt.run(ticker, priceEur, priceUsd);
+        upsertStmt.run(ticker, priceEur, priceUsd, priceNative, currency);
         successCount++;
-        results.push({ ticker, ok: true, priceEur });
+        results.push({ ticker, ok: true, priceNative, currency, priceEur });
       } catch (err) {
         log(`    ❌ Error fetching ${ticker}: ${err.message}`);
         failureCount++;
