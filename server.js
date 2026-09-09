@@ -102,6 +102,7 @@ function getAvgCostPerShare(ticker, userId) {
 }
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: false })); // for the magic-link confirm form
 app.use(cookieParser());
 app.use(express.static(__dirname));
 
@@ -236,10 +237,47 @@ app.post('/api/auth/request-link', requestLinkIpLimiter, async (req, res) => {
   }
 });
 
-// GET /api/auth/verify?token=... - consume a magic link, start a session (public)
+// GET /api/auth/verify?token=... - shows a confirm page, does NOT consume the token (public)
+// Corporate mail gateways (e.g. Microsoft Safe Links) auto-fetch every link in an
+// incoming email to scan it, which would burn a one-time token before the user ever
+// clicks it. Splitting into GET (render) + POST (consume) means only a real click on
+// the button below - not an automated scanner - completes sign-in.
 app.get('/api/auth/verify', (req, res) => {
   try {
     const rawToken = String(req.query.token || '');
+    if (!rawToken) return res.status(400).send('Missing token');
+
+    const row = db.prepare(`
+      SELECT id, used_at, expires_at FROM login_tokens WHERE token_hash = ?
+    `).get(hashToken(rawToken));
+
+    if (!row || row.used_at || new Date(row.expires_at).getTime() < Date.now()) {
+      return res.status(400).send('This login link is invalid or has expired. Please request a new one.');
+    }
+
+    res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Sign in to Portfolio Tracker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{font-family:system-ui,sans-serif;max-width:420px;margin:15vh auto;text-align:center;padding:0 20px}
+button{font-size:16px;padding:12px 28px;border-radius:8px;border:none;background:#111;color:#fff;cursor:pointer}
+button:hover{background:#333}</style></head>
+<body>
+  <p>Click below to finish signing in to Portfolio Tracker.</p>
+  <form method="POST" action="./verify">
+    <input type="hidden" name="token" value="${escapeHtml(rawToken)}">
+    <button type="submit">Sign in</button>
+  </form>
+</body></html>`);
+  } catch (err) {
+    console.error('GET /api/auth/verify error:', err.message);
+    res.status(500).send('Could not complete sign-in.');
+  }
+});
+
+// POST /api/auth/verify - actually consumes the token and starts a session (public)
+app.post('/api/auth/verify', (req, res) => {
+  try {
+    const rawToken = String(req.body.token || '');
     if (!rawToken) return res.status(400).send('Missing token');
 
     const row = db.prepare(`
@@ -255,7 +293,7 @@ app.get('/api/auth/verify', (req, res) => {
     startSession(res, row.user_id);
     res.redirect(appUrl());
   } catch (err) {
-    console.error('GET /api/auth/verify error:', err.message);
+    console.error('POST /api/auth/verify error:', err.message);
     res.status(500).send('Could not complete sign-in.');
   }
 });
