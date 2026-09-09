@@ -34,10 +34,27 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
 - No load testing has been done — response times under real concurrent load are unverified
 - No `DEPLOYMENT.md` runbook — deploy/rollback steps aren't written down anywhere
 
-**Accuracy:**
-- **USD→EUR uses a hard-coded 0.92 rate** (`price-fetch.js`). Every euro figure in the app is
-  therefore approximate and drifts as the real rate moves. The `exchange_rates` table exists but
-  is empty and nothing populates it.
+**Accuracy — fetch real daily exchange rates:**
+
+Every euro figure in the app, including the headline portfolio value, is built with a
+**hard-coded 0.92 USD→EUR rate** in `price-fetch.js`. It drifts as the real rate moves, and it
+is wrong for any currency that is not USD. Now that prices carry their own currency, the
+portfolio total should be assembled from the actual rate on each day.
+
+What this needs:
+1. Fetch the daily EUR rate for every currency the held tickers quote in — the same job already
+   runs daily and knows the set of currencies from `prices.currency`. Yahoo exposes FX pairs as
+   tickers (`EURUSD=X`), so no new data source is required.
+2. Store them in the existing `exchange_rates` table (`from_currency`, `to_currency`, `date`),
+   which was created for exactly this and has never been populated.
+3. Convert `price_native → price_eur` using the rate **for that price's date**, not today's, so
+   historical points stop shifting every time the rate moves.
+4. Backfill: existing rows were all converted at 0.92, so historical euro values are
+   approximations. Decide whether to recompute them from stored `price_native` (possible — the
+   native price is now kept) or leave history as-is and only apply real rates going forward.
+
+Worth doing before trusting any euro figure precisely; the relative shapes on the charts are
+unaffected.
 
 **Security hardening:**
 - Git remote auth still uses a personal access token embedded in the URL — switch to `gh` CLI
