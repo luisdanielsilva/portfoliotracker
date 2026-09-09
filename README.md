@@ -66,6 +66,14 @@ of the charts are unaffected either way.
 **Settled, recorded so it is not re-litigated:**
 - The EUR/USD toggle on the portfolio chart **stays**. Portfolio value defaults to euros; the
   toggle is an explicit user action, not a default display.
+- **The site stays out of search results while in development** (2026-09-09). All three public
+  pages — `index.html`, `privacy.html`, `terms.html` — carry `noindex, nofollow`. A `robots.txt`
+  would not help: it is only honoured at the domain root, which this app does not control, so the
+  per-page meta tag is the mechanism. It does not block access, so Google's OAuth review still
+  fetches the policy pages fine.
+- **Not yet decided:** `noindex` hides the app from search, but anyone with the URL can still
+  create an account, since signing in *is* registration. If unwanted visitors ever become a
+  concern, gate it with an invite code or an allow-list of emails.
 
 ### 🎯 Architecture
 
