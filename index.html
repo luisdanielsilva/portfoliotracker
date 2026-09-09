@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta name="description" content="Track your stock portfolio over time: market value against what you invested, average cost per holding, daily closing prices, and email alerts when a position dips.">
+<meta name="description" content="Know when to add to a position. Portfolio Tracker follows your true average cost per holding and emails you when a stock dips below the rules you set — so you average down on a plan, not a hunch.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E">
 <style>
   html{color-scheme:light dark}
@@ -272,21 +272,49 @@
   .lp-h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:clamp(22px,3vw,29px);letter-spacing:-.01em;margin:60px 0 8px}
   .lp-lede{font-size:14px;color:var(--muted);margin:0 0 22px;max-width:58ch}
 
-  /* align-items:start so each card hugs its own content instead of being
-     stretched to the tallest card in its row, which left dead space in the
-     text-only cards */
-  .lp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:14px;align-items:start}
-  .lp-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:18px}
+  /* Six equal cards, 3 x 2. Every card carries a visual, and the visuals are
+     pushed to the bottom with margin-top:auto so they line up across a row
+     regardless of how long each card's text runs. */
+  /* grid-auto-rows:1fr so both rows match, making all six cards one size */
+  .lp-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:14px}
+  @media (max-width:900px){ .lp-grid{grid-template-columns:repeat(2,1fr)} }
+  /* single column: equal rows would stretch every card to the tallest one and
+     leave big gaps, so let them size to their own content again */
+  @media (max-width:620px){ .lp-grid{grid-template-columns:1fr;grid-auto-rows:auto} }
+  .lp-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:18px;display:flex;flex-direction:column}
   .lp-card h3{margin:0 0 7px;font-size:14.5px;font-weight:600;letter-spacing:-.005em}
   .lp-card p{margin:0;font-size:13px;color:var(--muted);line-height:1.55}
-  .lp-mini{margin-top:15px}
+  .lp-mini{margin-top:auto;padding-top:16px}
   .lp-mini svg{display:block;width:100%;height:auto}
   .lp-minileg{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:14px}
   .lp-minileg span{display:inline-flex;align-items:center;gap:6px}
   .lp-minileg i{width:11px;height:3px;border-radius:2px;flex:none}
   .lp-minileg i.dash{height:0;border-top:2px dashed var(--faint)}
 
-  .lp-alert{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--hair);border-radius:9px;background:var(--surface-2);padding:10px 12px;margin-top:15px}
+  .lp-caveat{font-size:13.5px;color:var(--faint);margin-top:-10px}
+  .lp-hero .lp-caveat{margin:0 0 26px}
+
+  /* sign-in section: centered block at the foot of the page */
+  .lp-signin{text-align:center;margin-top:60px}
+  .lp-signin .lp-h2{margin-top:0}
+  .lp-signin .lp-lede{margin-left:auto;margin-right:auto}
+  .lp-signin .auth-card{margin:0 auto;text-align:left}
+
+  /* rule chips in the alerts card */
+  .lp-rules{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .lp-rules span{font-size:11px;color:var(--muted);border:1px solid var(--hair);border-radius:999px;padding:3px 9px;background:var(--surface-2)}
+
+  /* transaction rows mock */
+  .lp-txn{border:1px solid var(--hair);border-radius:9px;overflow:hidden}
+  .lp-txn div{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:11.5px;font-family:"IBM Plex Mono",monospace}
+  .lp-txn div+div{border-top:1px solid var(--hair)}
+  .lp-txn .tag{font-size:9.5px;font-weight:600;letter-spacing:.04em;border-radius:4px;padding:2px 5px;flex:none}
+  .lp-txn .buy{background:var(--accent-soft);color:var(--accent)}
+  .lp-txn .sell{background:var(--surface-2);color:var(--muted)}
+  .lp-txn .tk{font-weight:600;color:var(--ink)}
+  .lp-txn .amt{margin-left:auto;color:var(--muted)}
+
+  .lp-alert{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--hair);border-radius:9px;background:var(--surface-2);padding:10px 12px}
   .lp-alert .adot{width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px}
   .lp-alert .atxt{font-size:12px;line-height:1.45}
   .lp-alert .atxt b{font-weight:600}
@@ -355,11 +383,17 @@
   </nav>
 
   <section class="lp-hero">
-    <h1>See what your portfolio actually did.</h1>
+    <h1>Know when to add to a position.</h1>
     <p class="lp-lede">
-      Register your buys and sells once. Portfolio Tracker fetches closing prices every day and turns
-      that history into the picture you actually want &mdash; what you put in, what it is worth now,
-      what each holding cost you on average, and an email when something dips.
+      Averaging into a stock only works if you actually buy on the dips &mdash; and the dip that matters
+      is the one measured against <em>your</em> average cost, not the headline price. Portfolio Tracker
+      tracks every holding's true average cost as you buy, then watches the market against rules you
+      set: below a price, past a percentage move, or under your own average. When one triggers, you get
+      an email.
+    </p>
+    <p class="lp-lede lp-caveat">
+      It will not call the bottom for you. It makes sure you notice the moment your own conditions are
+      met, so you average down on a plan instead of a hunch.
     </p>
     <div class="lp-cta">
       <a class="lp-btn primary" href="#signin">Get started &mdash; it's free</a>
@@ -416,77 +450,116 @@
   </figure>
 
   <h2 class="lp-h2" id="features">What it does</h2>
-  <p class="lp-lede">Five things, each built around the same transaction history you enter once.</p>
+  <p class="lp-lede">Six things, each built around the same transaction history you enter once.</p>
 
   <div class="lp-grid">
 
     <div class="lp-card">
-      <h3>Portfolio over time</h3>
-      <p>Market value against the total you have invested, from your first buy to today &mdash; so you can see gain, not just balance.</p>
-    </div>
-
-    <div class="lp-card">
-      <h3>Dollar-cost averaging</h3>
-      <p>Track your true average cost per holding as you keep buying, and see it against the live price.</p>
+      <h3>Spot the averaging-down window</h3>
+      <p>Your average cost falls every time you buy lower. The shaded stretch is where the price sat under it &mdash; the window worth adding into.</p>
       <div class="lp-minileg">
         <span><i style="background:var(--s-total)"></i>Price</span>
         <span><i class="dash"></i>Your average cost</span>
       </div>
       <div class="lp-mini">
-        <svg viewBox="0 0 300 104" role="img" aria-label="Example chart: a share price falling and recovering, with the investor's average cost stepping down from 100 to 76 euros as they buy on the dips.">
-          <path d="M8,26.5 H63 V38.2 H117 V48.4 H145 V57.1 H199 V61.5 H254" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
-          <path class="serieline" d="M8,26.5 L35,38.2 L63,58.5 L90,49.8 L117,70.2 L145,78.9 L172,67.3 L199,73.1 L227,52.7 L254,33.8" stroke="var(--s-total)"></path>
+        <svg viewBox="0 0 300 100" role="img" aria-label="Example chart: a share price falling below the investor's average cost and recovering, with four purchases made inside that window, pulling the average cost down from 100 to 76 euros.">
+          <!-- the stretch where the price line sits under the dashed average-cost
+               line: from the first buy through the crossing at about x=211 -->
+          <rect x="8" y="10" width="203" height="80" fill="var(--accent-soft)"></rect>
+          <path d="M8,24.5 H62 V36.2 H116 V46.4 H142 V55.1 H196 V59.5 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+          <path class="serieline" d="M8,24.5 L35,36.2 L62,56.5 L89,47.8 L116,68.2 L142,76.9 L169,65.3 L196,71.1 L223,50.7 L250,31.8" stroke="var(--s-total)"></path>
           <g class="buyring" stroke="var(--s-total)">
-            <circle cx="63" cy="58.5" r="3.2"></circle>
-            <circle cx="117" cy="70.2" r="3.2"></circle>
-            <circle cx="145" cy="78.9" r="3.2"></circle>
-            <circle cx="199" cy="73.1" r="3.2"></circle>
+            <circle cx="62" cy="56.5" r="3.2"></circle>
+            <circle cx="116" cy="68.2" r="3.2"></circle>
+            <circle cx="142" cy="76.9" r="3.2"></circle>
+            <circle cx="196" cy="71.1" r="3.2"></circle>
           </g>
-          <text class="endlbl" x="260" y="37" fill="var(--s-total)">&euro;95</text>
-          <text class="endlbl" x="260" y="65" fill="var(--faint)">&euro;76</text>
+          <text class="endlbl" x="256" y="35" fill="var(--s-total)">&euro;95</text>
+          <text class="endlbl" x="256" y="63" fill="var(--faint)">&euro;76</text>
         </svg>
       </div>
     </div>
 
     <div class="lp-card">
-      <h3>Price and dip alerts</h3>
-      <p>Set a rule per holding &mdash; above a price, below a price, a percentage move, or a dip under your own average cost &mdash; and get an email when it triggers.</p>
-      <div class="lp-alert">
-        <span class="adot" style="background:var(--neg)"></span>
-        <span class="atxt">
-          <b>TSLA fell 12.4% below your average cost</b>
-          <span>Rule: dip from average cost &middot; emailed 2 hours ago</span>
-        </span>
+      <h3>Your rules, not someone else's</h3>
+      <p>Set a rule per holding and let it watch for you. It triggers on your terms and emails you &mdash; no dashboard to sit and stare at.</p>
+      <div class="lp-mini">
+        <div class="lp-rules">
+          <span>below &euro;300</span><span>drops 10%</span><span>under avg cost</span>
+        </div>
+        <div class="lp-alert">
+          <span class="adot" style="background:var(--neg)"></span>
+          <span class="atxt">
+            <b>TSLA fell 12.4% below your average cost</b>
+            <span>Rule: dip from average cost &middot; emailed 2 hours ago</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="lp-card">
+      <h3>Portfolio over time</h3>
+      <p>Market value against the total you have put in, from your first buy to today &mdash; so you read gain, not just balance.</p>
+      <div class="lp-mini">
+        <svg viewBox="0 0 300 100" role="img" aria-label="Example chart: portfolio market value rising above the total invested, which steps up with each purchase.">
+          <path class="iv-band" d="M8,76.3 L26.5,75.5 L45.3,68.8 L63.8,67.4 L82.7,62.7 L101.1,54.3 L119.6,55.9 L138.5,48.3 L156.9,47.7 L175.4,41.7 L194.3,32.6 L212.7,35.7 L231.6,24.7 L250,15.3 L250,30 H231.6 V36.7 H194.3 V43.4 H175.4 V50 H138.5 V56.7 H101.1 V63.3 H82.7 V70 H45.3 V76.7 H8 Z"></path>
+          <path d="M8,76.7 H45.3 V70 H82.7 V63.3 H101.1 V56.7 H138.5 V50 H175.4 V43.4 H194.3 V36.7 H231.6 V30 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+          <path class="serieline" d="M8,76.3 L26.5,75.5 L45.3,68.8 L63.8,67.4 L82.7,62.7 L101.1,54.3 L119.6,55.9 L138.5,48.3 L156.9,47.7 L175.4,41.7 L194.3,32.6 L212.7,35.7 L231.6,24.7 L250,15.3" stroke="var(--s-total)"></path>
+          <text class="endlbl" x="256" y="19" fill="var(--s-total)">&euro;11.2k</text>
+          <text class="endlbl" x="256" y="34" fill="var(--faint)">&euro;9k</text>
+        </svg>
       </div>
     </div>
 
     <div class="lp-card">
       <h3>Portfolio in detail</h3>
-      <p>Every holding broken out by quantity, cost, market value and share of the portfolio.</p>
+      <p>Every holding broken out by quantity, cost, market value and its share of the whole portfolio.</p>
       <div class="lp-mini">
-        <svg viewBox="0 0 300 110" role="img" aria-label="Example bar chart of holdings by market value: TSLA 4,820 euros, MSFT 3,150 euros, AMD 2,100 euros.">
+        <svg viewBox="0 0 300 100" role="img" aria-label="Example bar chart of holdings by market value: TSLA 4,820 euros, MSFT 3,150 euros, AMD 2,100 euros.">
           <g class="axislbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--ink)">
-            <text x="40" y="24">TSLA</text>
-            <text x="40" y="58">MSFT</text>
-            <text x="40" y="92">AMD</text>
+            <text x="40" y="19">TSLA</text>
+            <text x="40" y="49">MSFT</text>
+            <text x="40" y="79">AMD</text>
           </g>
           <g fill="var(--accent)">
-            <path d="M46,14 H196 Q200,14 200,18 V30 Q200,34 196,34 H46 Z"></path>
-            <path d="M46,48 H143 Q147,48 147,52 V64 Q147,68 143,68 H46 Z"></path>
-            <path d="M46,82 H109 Q113,82 113,86 V98 Q113,102 109,102 H46 Z"></path>
+            <path d="M46,10 H196 Q200,10 200,14 V24 Q200,28 196,28 H46 Z"></path>
+            <path d="M46,40 H143 Q147,40 147,44 V54 Q147,58 143,58 H46 Z"></path>
+            <path d="M46,70 H109 Q113,70 113,74 V84 Q113,88 109,88 H46 Z"></path>
           </g>
           <g class="endlbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--muted)">
-            <text x="292" y="24">&euro;4,820</text>
-            <text x="292" y="58">&euro;3,150</text>
-            <text x="292" y="92">&euro;2,100</text>
+            <text x="292" y="19">&euro;4,820</text>
+            <text x="292" y="49">&euro;3,150</text>
+            <text x="292" y="79">&euro;2,100</text>
           </g>
         </svg>
       </div>
     </div>
 
     <div class="lp-card">
-      <h3>Transactions, properly handled</h3>
-      <p>Buys and sells in euros or dollars with the exchange rate you actually got, and stock splits applied to your historical quantities so the past does not silently break.</p>
+      <h3>Drawdowns and peaks</h3>
+      <p>How far below its high water mark the portfolio has been, and how long it took to climb back &mdash; the context a single balance hides.</p>
+      <div class="lp-mini">
+        <svg viewBox="0 0 300 100" role="img" aria-label="Example chart: portfolio drawdown from its peak, dipping to 35 percent down before recovering to zero.">
+          <line class="gridline" x1="8" y1="14" x2="250" y2="14"></line>
+          <path class="uw-area" d="M8,14 L35,14 L62,28.8 L89,19.6 L116,54.7 L142,78.8 L169,47.3 L196,65.8 L223,25.1 L250,14 Z"></path>
+          <path class="uw-line" d="M8,14 L35,14 L62,28.8 L89,19.6 L116,54.7 L142,78.8 L169,47.3 L196,65.8 L223,25.1 L250,14"></path>
+          <circle cx="142" cy="78.8" r="3.2" fill="var(--neg)"></circle>
+          <text class="endlbl" x="256" y="18" fill="var(--faint)">0%</text>
+          <text class="endlbl" x="148" y="92" fill="var(--neg)">&minus;35%</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="lp-card">
+      <h3>Buys and sells in any currency</h3>
+      <p>Record the exchange rate you actually got, not today's. Stock splits are applied to historical quantities so past charts stay honest.</p>
+      <div class="lp-mini">
+        <div class="lp-txn">
+          <div><span class="tag buy">BUY</span><span class="tk">TSLA</span><span>12 @ $248.10</span><span class="amt">&euro;2,740</span></div>
+          <div><span class="tag buy">BUY</span><span class="tk">AMD</span><span>5 @ &euro;465.28</span><span class="amt">&euro;2,326</span></div>
+          <div><span class="tag sell">SELL</span><span class="tk">MSFT</span><span>3 @ $493.95</span><span class="amt">&euro;1,363</span></div>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -498,6 +571,7 @@
     <li><b>Watch and get told</b>Charts update, average cost recalculates, and alerts email you.</li>
   </ol>
 
+  <section class="lp-signin">
   <h2 class="lp-h2" id="signin">Sign in</h2>
   <p class="lp-lede">No password to remember, and no account setup step &mdash; signing in creates your account. Your holdings are private to you.</p>
 
@@ -526,6 +600,7 @@
       <button type="button" class="btn" id="auth-back" style="width:100%">Use a different email</button>
     </div>
   </div>
+  </section>
 
   <footer style="margin-top:44px;text-align:center">Portfolio Tracker &middot; a personal investing tracker. Example figures above use sample data.</footer>
 
