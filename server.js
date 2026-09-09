@@ -670,6 +670,20 @@ app.get('/api/snapshots', (req, res) => {
     const holdings = {}; // ticker -> {qty, totalAmount}
     const transactionSnapshots = [];
 
+    // A split multiplies only the shares held when it happened. Shares bought
+    // afterwards are already quoted in post-split terms. So each transaction is
+    // converted here into "current share units" — its quantity times every split
+    // that came after it — and the running total is then expressed in whatever
+    // date's terms a snapshot needs. Multiplying the accumulated total instead
+    // tripled purchases made years after the split.
+    function toCurrentUnits(ticker, quantity, txDate) {
+      let qty = quantity;
+      for (const split of (splitsByTicker[ticker] || [])) {
+        if (split.date > txDate) qty *= split.ratio;
+      }
+      return qty;
+    }
+
     transactions.forEach(tx => {
       const {ticker, tx_type, quantity, amount_eur, ts} = tx;
 
@@ -677,11 +691,14 @@ app.get('/api/snapshots', (req, res) => {
         holdings[ticker] = {qty: 0, totalAmount: 0};
       }
 
+      const txDate = new Date(ts).toISOString().slice(0, 10);
+      const qtyInCurrentUnits = toCurrentUnits(ticker, quantity, txDate);
+
       if (tx_type === 'buy') {
-        holdings[ticker].qty += quantity;
+        holdings[ticker].qty += qtyInCurrentUnits;
         holdings[ticker].totalAmount += amount_eur;
       } else if (tx_type === 'sell') {
-        holdings[ticker].qty -= quantity;
+        holdings[ticker].qty -= qtyInCurrentUnits;
         holdings[ticker].totalAmount -= amount_eur;
       }
 
@@ -705,14 +722,14 @@ app.get('/api/snapshots', (req, res) => {
       latestPrices[p.ticker] = p.price_eur;
     });
 
-    // Helper: apply splits to quantity as of a given date
-    function applySplits(ticker, quantity, asOfDate) {
-      let qty = quantity;
-      const tickerSplits = splitsByTicker[ticker] || [];
-      for (const split of tickerSplits) {
-        if (asOfDate >= split.date) {
-          qty *= split.ratio;
-        }
+    // Holdings are accumulated in current share units (see toCurrentUnits). A
+    // snapshot dated before a split has to be shown in the share terms of its own
+    // day, so undo any split that had not happened yet by then — otherwise a 2022
+    // snapshot would be drawn using 2026 share counts.
+    function applySplits(ticker, qtyInCurrentUnits, asOfDate) {
+      let qty = qtyInCurrentUnits;
+      for (const split of (splitsByTicker[ticker] || [])) {
+        if (split.date > asOfDate) qty /= split.ratio;
       }
       return qty;
     }
