@@ -21,11 +21,20 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
 - **Price-Fetch Scheduler:** systemd timer, runs daily at 09:00 UTC, market-aware (skips weekends,
   waits for US market close before fetching)
 
-### ⏳ In Progress / Pending
-- **Ops hygiene:** no load testing, no `DEPLOYMENT.md` runbook, no automated `backup-db.sh`
-  (DB backups before risky changes are still manual — copy `data.db` by hand first)
-- **Backlog (deferred, not started):** AI-powered transaction import from screenshots/PDFs;
-  switching git remote auth from an embedded token to `gh` CLI auth
+### ⏳ Open Items / Backlog
+
+**Ops hygiene** (carried over from the original implementation plan's Phase 6, never done):
+- No load testing has been done — response times under real concurrent load are unverified
+- No `DEPLOYMENT.md` runbook — deploy/rollback steps aren't written down anywhere
+- No automated `backup-db.sh` — DB backups before risky changes are still manual (copy
+  `data.db` by hand first, as done before the 2026-09-05 auth migration and the 2026-09-09
+  MSFT ticker fix)
+
+**Deferred features:**
+- AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built
+  then removed pending a real implementation; not started
+- Git remote auth still uses a personal access token embedded in the URL — switch to `gh` CLI
+  auth (device-code flow, since this is a headless VPS) and revoke the old tokens
 
 ### 🎯 Architecture
 
