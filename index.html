@@ -271,9 +271,10 @@
   @media (max-width:640px){
     .lp-figure svg text{display:none}
     /* with the labels gone, the ~100 units the viewBox reserved for them on the
-       right is dead space; widen past the container and clip it off */
-    .lp-figure{overflow:hidden}
-    .lp-figure svg{width:116%}
+       right is dead space; widen past the container and clip it off. Only for
+       figures whose gutter is actually that wide — hence the opt-in class. */
+    .lp-figure.crop-gutter{overflow:hidden}
+    .lp-figure.crop-gutter svg{width:116%}
     .lp-fig-key{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 2px 12px;font-size:12px;color:var(--muted)}
     .lp-fig-key span{display:inline-flex;align-items:center;gap:6px}
     .lp-fig-key i{width:11px;height:3px;border-radius:2px;flex:none}
@@ -331,10 +332,28 @@
   .lp-alert .atxt b{font-weight:600}
   .lp-alert .atxt span{color:var(--muted);display:block;font-size:11.5px}
 
-  .lp-steps{list-style:none;counter-reset:s;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
-  .lp-steps li{counter-increment:s;position:relative;padding-left:34px;font-size:13px;color:var(--muted);line-height:1.55}
-  .lp-steps li::before{content:counter(s);position:absolute;left:0;top:0;width:24px;height:24px;border-radius:50%;background:var(--surface-2);border:1px solid var(--hair);color:var(--ink);font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center}
-  .lp-steps b{color:var(--ink);font-weight:600;display:block;font-size:13.5px;margin-bottom:2px}
+  /* How it works: a time track running left to right, one node per action.
+     Each step sets --c (its actor colour) and --cbg (the badge tint) inline. */
+  .lp-timeline{list-style:none;margin:24px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:22px}
+  .lp-timeline li{position:relative;padding-top:62px}
+  .lp-timeline li::before{content:"";position:absolute;z-index:1;top:33px;left:0;width:16px;height:16px;border-radius:50%;background:var(--c);box-shadow:0 0 0 4px var(--ground)}
+  /* connector drawn per step, reaching the next dot, so the track stops at the
+     last node instead of dangling off the end */
+  .lp-timeline li::after{content:"";position:absolute;z-index:0;top:40px;left:8px;width:calc(100% + 22px);height:2px;background:var(--hair)}
+  .lp-timeline li:last-child::after{display:none}
+  .lp-tl-when{position:absolute;top:0;left:0;font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .lp-tl-actor{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--c);background:var(--cbg);border-radius:999px;padding:2px 9px;margin-bottom:8px}
+  .lp-timeline h4{margin:0 0 5px;font-size:14px;font-weight:600;letter-spacing:-.005em}
+  .lp-timeline p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.55}
+
+  /* below the breakpoint the track turns vertical and runs down the left edge */
+  @media (max-width:820px){
+    .lp-timeline{grid-template-columns:1fr;gap:0}
+    .lp-timeline li{padding:0 0 26px 30px}
+    .lp-timeline li::before{top:2px}
+    .lp-timeline li::after{top:10px;left:7px;width:2px;height:100%}
+    .lp-tl-when{position:static;display:block;margin-bottom:6px}
+  }
 
   .auth-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:28px;max-width:420px;width:100%;margin:0}
   .auth-card h2{margin:0 0 6px;font-size:20px;font-weight:600}
@@ -423,6 +442,60 @@
   </section>
 
   <figure class="lp-figure">
+    <p class="lp-fig-title">What one buy on the dip does</p>
+    <p class="lp-fig-key">
+      <span><i style="background:var(--s-total)"></i>Price</span>
+      <span><i class="dash"></i>Average cost <b>&euro;100 &rarr; &euro;85</b></span>
+    </p>
+    <svg viewBox="0 0 900 300" role="img" aria-label="Example chart: a share bought at 100 euros falls to 70, where a second purchase of the same size drops the average cost to 85 euros. The price recovers to 95, which is a profit against the 85 euro average but would still have been a loss against 100.">
+      <g>
+        <line class="gridline" x1="70" y1="40" x2="790" y2="40"></line>
+        <line class="gridline" x1="70" y1="82" x2="790" y2="82"></line>
+        <line class="gridline" x1="70" y1="124" x2="790" y2="124"></line>
+        <line class="gridline" x1="70" y1="166" x2="790" y2="166"></line>
+        <line class="gridline" x1="70" y1="208" x2="790" y2="208"></line>
+        <line class="gridline" x1="70" y1="250" x2="790" y2="250"></line>
+      </g>
+      <!-- the price range made profitable by the second buy: bounded above by the
+           old EUR 100 break-even gridline, below by the new EUR 85 average cost -->
+      <rect x="397" y="82" width="393" height="63" fill="var(--accent-soft)"></rect>
+      <g class="axislbl" text-anchor="end" dominant-baseline="middle">
+        <text x="60" y="40">&euro;110</text>
+        <text x="60" y="82">&euro;100</text>
+        <text x="60" y="124">&euro;90</text>
+        <text x="60" y="166">&euro;80</text>
+        <text x="60" y="208">&euro;70</text>
+        <text x="60" y="250">&euro;60</text>
+      </g>
+      <g class="xlbl">
+        <text x="70" y="272">first buy</text>
+        <text x="397" y="272">the dip</text>
+        <text x="790" y="272">today</text>
+      </g>
+      <path d="M70,82 H397 V145 H790" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+      <path class="serieline" d="M70,82 L135,98.8 L201,132.4 L266,170.2 L332,199.6 L397,208 L463,191.2 L528,203.8 L594,174.4 L659,149.2 L725,124 L790,103" stroke="var(--s-total)"></path>
+      <g class="buyring" stroke="var(--s-total)">
+        <circle cx="70" cy="82" r="4.5"></circle>
+        <circle cx="397" cy="208" r="4.5"></circle>
+      </g>
+      <g style="font-size:11.5px;font-family:'IBM Plex Sans',system-ui,sans-serif" fill="var(--muted)">
+        <text x="80" y="72">Bought 10 @ &euro;100</text>
+        <text x="407" y="228">Bought 10 more @ &euro;70</text>
+        <text x="412" y="101" fill="var(--accent)">Profit at &euro;85. At &euro;100 this was still a loss.</text>
+      </g>
+      <g class="endlbl">
+        <text x="798" y="103" fill="var(--s-total)">&euro;95</text>
+        <text x="798" y="145" fill="var(--faint)">&euro;85</text>
+      </g>
+      <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
+        <text x="798" y="116" fill="var(--muted)">price today</text>
+        <text x="798" y="158" fill="var(--faint)">your average</text>
+      </g>
+    </svg>
+    <figcaption>Example data. The shaded band is the price range where that second buy is the difference between a profit and a loss.</figcaption>
+  </figure>
+
+  <figure class="lp-figure crop-gutter">
     <p class="lp-fig-title">Portfolio over time</p>
     <p class="lp-fig-key">
       <span><i style="background:var(--s-total)"></i>Market value <b>&euro;11,200</b></span>
@@ -586,10 +659,33 @@
   </div>
 
   <h2 class="lp-h2">How it works</h2>
-  <ol class="lp-steps">
-    <li><b>Register a transaction</b>Ticker, quantity, amount, currency and rate. Buy or sell.</li>
-    <li><b>Prices arrive on their own</b>Closing prices are fetched daily, after the US market closes.</li>
-    <li><b>Watch and get told</b>Charts update, average cost recalculates, and alerts email you.</li>
+  <p class="lp-lede">One thing you type in, then three that happen without you. Blue is you; green runs on a schedule; red is the moment it interrupts you.</p>
+
+  <ol class="lp-timeline">
+    <li style="--c:var(--s-total);--cbg:var(--accent-soft)">
+      <span class="lp-tl-when">The day you trade</span>
+      <span class="lp-tl-actor">You</span>
+      <h4>Register the transaction</h4>
+      <p>Ticker, quantity, what you paid, the currency, and the exchange rate you actually got. This is the only thing you ever type in &mdash; every number on every chart is derived from it.</p>
+    </li>
+    <li style="--c:var(--s-ex);--cbg:rgba(27,175,122,.13)">
+      <span class="lp-tl-when">Once a day, market shut</span>
+      <span class="lp-tl-actor">Automatic</span>
+      <h4>The closing prices come in</h4>
+      <p>A job wakes while the US market is closed, takes the latest close for every ticker you hold, converts it to euros, and recomputes your average cost, market value and drawdown. Weekends are skipped.</p>
+    </li>
+    <li style="--c:var(--neg);--cbg:rgba(192,71,62,.13)">
+      <span class="lp-tl-when">The moment a rule is met</span>
+      <span class="lp-tl-actor">Alert</span>
+      <h4>You get told &mdash; once</h4>
+      <p>Every rule is re-checked against the fresh prices, and a crossing sends an email. Each rule fires at most once in 24 hours, so a long slide downward never floods your inbox.</p>
+    </li>
+    <li style="--c:var(--s-total);--cbg:var(--accent-soft)">
+      <span class="lp-tl-when">Your call</span>
+      <span class="lp-tl-actor">You</span>
+      <h4>Decide, with the number in front of you</h4>
+      <p>The email says how far under your own average the price has fallen. Whether you add is entirely yours to judge &mdash; the job here was making sure you knew while it still mattered.</p>
+    </li>
   </ol>
 
   <section class="lp-signin">
