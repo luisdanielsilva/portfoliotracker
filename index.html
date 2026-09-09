@@ -1034,7 +1034,7 @@
             </select>
           </div>
           <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Threshold (€)</label>
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" id="al-threshold-label">Threshold</label>
             <input type="number" id="al-threshold" placeholder="500" step="0.01" style="font-size:12px">
           </div>
         </div>
@@ -1219,7 +1219,8 @@
   };
 
   var BASE_RAW = []; // Will be populated from API
-  var LATEST_PRICES = {}; // ticker -> {priceEUR, priceUSD, date, updatedAt}
+  var LATEST_PRICES = {}; // ticker -> {priceEUR, priceUSD, priceNative, currency, date, updatedAt}
+  var LATEST_PRICE_CURRENCY = {}; // ticker -> the currency its market quotes in
   var CURRENT_MARKET_VALUE = null; // calculated from latest holdings + prices
   var CURRENT_COST_BASIS = null; // cost basis of current portfolio
   var STOCK_SPLITS = []; // {ticker, date, ratio, description}
@@ -1231,6 +1232,14 @@
   function eur(v){ return "\u20ac\u00a0"+nfEur2.format(v); }
   function usd(v){ return "$\u00a0"+nfEur2.format(v); }
   function showCurrencyValue(ticker,v){ return (TICKER_CURRENCY[ticker]==="USD"?usd(v):eur(v)); }
+  // Market prices are shown in the currency their exchange quotes; only aggregated
+  // portfolio value is expressed in euros.
+  var CURRENCY_SYMBOL={USD:"$",EUR:"€",GBP:"£",CHF:"CHF ",JPY:"¥",CAD:"CA$",AUD:"A$"};
+  function fmtNative(v,cur){
+    if(v==null) return "—";
+    var s=CURRENCY_SYMBOL[cur];
+    return s?s+" "+nfEur2.format(v):nfEur2.format(v)+" "+(cur||"");
+  }
   function idx1(v){ return (Math.round(v*10)/10).toFixed(1); }
   function comma(x){ return String(x).replace(".",","); }
   function d0(v){ return (v>=0?"+":"\u2212")+"\u20ac"+nfEur0.format(Math.abs(Math.round(v))); }
@@ -2288,8 +2297,14 @@
         }
         desc+="<br>Last triggered: "+lastTriggered;
       } else {
+        // A price level is shown in the currency its market quotes, matching the
+        // threshold the user set. (Dips above stay in euros: they are measured
+        // against the cost basis, which is what actually left the account.)
         var ruleText=a.ruleType==="price_above"?"above":a.ruleType==="price_below"?"below":"changed";
-        desc="Price "+ruleText+" €"+a.threshold.toFixed(2)+" • Last: "+lastTriggered;
+        var cur=a.currency||a.marketCurrency||"USD";
+        desc="Price "+ruleText+" "+fmtNative(a.threshold,cur);
+        if(a.currentPriceNative!=null) desc+=" · now "+fmtNative(a.currentPriceNative,cur);
+        desc+=" • Last: "+lastTriggered;
       }
       return `
         <div style="background:var(--surface-2);border:1px solid var(--hair);border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
@@ -2415,8 +2430,22 @@
     });
   }
 
+  // The threshold is entered in the currency the ticker's market quotes, so say
+  // which one rather than leaving the user to guess — it used to always claim €.
+  function updateThresholdLabel(){
+    var lbl=document.getElementById("al-threshold-label");
+    if(!lbl) return;
+    var rule=document.getElementById("al-rule").value;
+    if(rule==="change_pct"){ lbl.textContent="Threshold (%)"; return; }
+    var ticker=(document.getElementById("al-ticker").value||"").toUpperCase().trim();
+    var cur=LATEST_PRICE_CURRENCY[ticker];
+    lbl.textContent=cur?("Threshold ("+cur+")"):"Threshold";
+  }
+
   if(document.getElementById("al-create")){
     document.getElementById("al-create").addEventListener("click",createAlert);
+    document.getElementById("al-ticker").addEventListener("input",updateThresholdLabel);
+    document.getElementById("al-rule").addEventListener("change",updateThresholdLabel);
     document.getElementById("tab-add").addEventListener("click",function(){
       loadAlerts();
       loadAvgCostAndDipForm();
@@ -2437,13 +2466,18 @@
         }
 
         LATEST_PRICES={};
+        LATEST_PRICE_CURRENCY={};
         data.prices.forEach(p=>{
-          LATEST_PRICES[p.ticker.toUpperCase()]={
+          var t=p.ticker.toUpperCase();
+          LATEST_PRICES[t]={
             priceEUR:p.priceEUR,
             priceUSD:p.priceUSD,
+            priceNative:p.priceNative,
+            currency:p.currency,
             date:p.date,
             updatedAt:p.updatedAt
           };
+          if(p.currency) LATEST_PRICE_CURRENCY[t]=p.currency;
         });
 
         // Calculate current exchange rate from latest prices
@@ -2498,10 +2532,17 @@
     var lastUpdate=priceArray.length>0?new Date(priceArray[0].updatedAt):null;
     var lastUpdateStr=lastUpdate?lastUpdate.toLocaleDateString()+" "+lastUpdate.toLocaleTimeString():"—";
 
-    var html='<thead><tr><th>Ticker</th><th>Price (EUR)</th><th>Price (USD)</th><th>Date</th></tr></thead><tbody>'+
-      priceArray.map(p=>
-        '<tr><td><b>'+esc(p.ticker)+'</b></td><td>€'+nfEur2.format(p.priceEUR)+'</td><td>$'+nfEur2.format(p.priceUSD)+'</td><td>'+new Date(p.date).toLocaleDateString()+'</td></tr>'
-      ).join('');
+    // Quoted price in the market's own currency; the euro column is the converted
+    // figure the portfolio total is built from, so both are worth showing here.
+    var html='<thead><tr><th>Ticker</th><th>Price</th><th>In EUR</th><th>Date</th></tr></thead><tbody>'+
+      priceArray.map(p=>{
+        var cur=p.currency||"USD";
+        var native=p.priceNative!=null?p.priceNative:p.priceUSD;
+        return '<tr><td><b>'+esc(p.ticker)+'</b></td>'+
+          '<td>'+fmtNative(native,cur)+'</td>'+
+          '<td>'+(cur==="EUR"?'<span style="color:var(--faint)">—</span>':'€ '+nfEur2.format(p.priceEUR))+'</td>'+
+          '<td>'+new Date(p.date).toLocaleDateString()+'</td></tr>';
+      }).join('');
 
     if(missingTickers.length>0){
       html+='<tr style="background:var(--surface-2)"><td colspan="4" style="text-align:center;color:var(--faint);font-size:12px;padding:12px">⚠️ No price data for: '+missingTickers.join(', ')+'</td></tr>';
