@@ -30,9 +30,39 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
 
 ### ⏳ Open Items / Backlog
 
+**Testing — on hold, and CI-only when resumed:**
+
+There are no automated tests. A suite was planned (see below) and deliberately parked
+(2026-09-09). **When it resumes it must run in GitHub Actions CI, not locally** — the user
+wants tests that gate code quality in a pipeline, not pre-commit hooks or cron jobs. Do not
+propose local-only test running again.
+
+Note this does not prevent a bad edit reaching production: editing a file here *is* deploying,
+since pm2 restarts on save and CI only runs after a push. CI is a quality gate on the
+repository, not a deployment gate. A real deployment gate would need a staging copy.
+
+The planned coverage, grounded in bugs actually found:
+- `areMarketsClosedForFetch()` across all 24h × weekday/weekend — would have caught the bug
+  where the scheduled job never ran once
+- Currency conversion: native→EUR, a EUR-quoted stock not double-converted, a missing rate
+  skipping rather than inventing a value
+- Average cost across buys, sells, mixed currencies, and full exit
+- Alert semantics: price rules against the native price, dips against the EUR cost basis,
+  the 24h throttle
+- Migrations on a temp database, run twice to prove idempotency, including that threshold
+  restatement preserves meaning
+
+**Blockers to doing it at all** (both must be fixed first):
+1. `price-fetch.js` and `check-job-health.js` call their entry point at module scope, so
+   `require()`-ing them runs the real job. They need `if (require.main === module)` guards and
+   `module.exports`.
+2. `getAvgCostPerShare` is implemented **twice** — `server.js` and `price-fetch.js` — with
+   different signatures and return types. The arithmetic agrees today and nothing enforces it.
+   It is the number the app displays *and* the number dip alerts fire on. Extract to a shared
+   module before testing it, or the tests only prove one copy is right.
+
 **Ops hygiene:**
 - No load testing has been done — response times under real concurrent load are unverified
-- No `DEPLOYMENT.md` runbook — deploy/rollback steps aren't written down anywhere
 
 **Accuracy — historical euro values predate real exchange rates:**
 
