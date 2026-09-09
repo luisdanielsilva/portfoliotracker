@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Portfolio Tracker</title>
+<meta name="description" content="What Portfolio Tracker stores, who it shares data with, and how to have it deleted.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+  :root{--ground:#f6f5f1;--surface:#fffffe;--hair:#e3e0d7;--ink:#1b1d21;--muted:#6b6e76;--faint:#9a9ca2;--accent:#2a78d6}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ground:#141412;--surface:#1e1e1b;--hair:#34332d;--ink:#ecebe2;--muted:#9c9d93;--faint:#6f6f66;--accent:#3987e5}}
+  *{box-sizing:border-box}
+  html{color-scheme:light dark}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:720px;margin:0 auto;padding:40px 24px 80px}
+  a{color:var(--accent)}
+  .back{font-size:13px;color:var(--muted);text-decoration:none;display:inline-block;margin-bottom:28px}
+  .back:hover{color:var(--ink)}
+  h1{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:clamp(28px,4vw,38px);line-height:1.15;letter-spacing:-.015em;margin:0 0 8px}
+  .updated{font-size:13px;color:var(--faint);margin:0 0 32px}
+  h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:21px;margin:36px 0 10px}
+  p,li{font-size:14.5px;color:var(--muted)}
+  li{margin:6px 0}
+  strong{color:var(--ink);font-weight:600}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--muted)}
+  th{color:var(--ink);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  .note{background:var(--surface);border:1px solid var(--hair);border-radius:10px;padding:14px 16px;font-size:13.5px;color:var(--muted);margin:20px 0}
+  footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--hair);font-size:12.5px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="./">&larr; Portfolio Tracker</a>
+
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated 9 September 2026</p>
+
+  <p>Portfolio Tracker is a personal project run by Luís Silva. It exists to track a stock
+  portfolio over time. This page describes exactly what it stores, who else sees it, and how to
+  have it removed. It is deliberately short, because the app does comparatively little with your
+  data.</p>
+
+  <h2>What is stored</h2>
+  <table>
+    <tr><th>Data</th><th>Why</th></tr>
+    <tr><td>Your email address</td><td>It is your account identity. Sign-in works by emailing you a link, or through Google.</td></tr>
+    <tr><td>Transactions you enter</td><td>Ticker, quantity, amount, currency, exchange rate and date. Everything the app shows is calculated from these.</td></tr>
+    <tr><td>Alert rules you create</td><td>To know when to email you, and when it last did so.</td></tr>
+    <tr><td>A session cookie</td><td>To keep you signed in. One cookie, <code>pt_session</code>, HttpOnly, valid 30 days.</td></tr>
+    <tr><td>Contact form messages</td><td>The name, email and message you submit, so a reply can be sent.</td></tr>
+  </table>
+
+  <h2>What is not stored</h2>
+  <ul>
+    <li>No analytics, no tracking pixels, no advertising, no third-party cookies. The site loads no
+      tracking scripts of any kind.</li>
+    <li>No passwords — there are none to store.</li>
+    <li>No payment details. The app is free and takes no payments.</li>
+    <li>Your data is never sold, rented, or shared for marketing.</li>
+  </ul>
+
+  <h2>Who else sees it</h2>
+  <table>
+    <tr><th>Service</th><th>What it receives</th></tr>
+    <tr><td>Hetzner (hosting, EU)</td><td>The server the app and its database run on.</td></tr>
+    <tr><td>Resend (email delivery)</td><td>Your email address and the contents of messages sent to you — login links and alert emails.</td></tr>
+    <tr><td>Google (sign-in)</td><td>Only if you choose "Continue with Google". Google confirms your identity; the app receives your email address. The app never sees your Google password.</td></tr>
+    <tr><td>Yahoo Finance (prices)</td><td>Ticker symbols only. No personal data is sent — it is asked what a share costs, not who is asking.</td></tr>
+    <tr><td>Google Fonts</td><td>Your browser fetches the page's fonts from Google's servers, which means Google can see your IP address when you load the page.</td></tr>
+  </table>
+
+  <h2>How it is protected</h2>
+  <ul>
+    <li>All traffic is over HTTPS.</li>
+    <li>The session cookie is HttpOnly, so page scripts cannot read it.</li>
+    <li>Session and login tokens are stored <strong>hashed</strong>. Someone who obtained a copy of
+      the database could not use it to sign in as you.</li>
+    <li>Login links are single-use and expire after 15 minutes.</li>
+  </ul>
+
+  <h2>How long it is kept</h2>
+  <p>Your account and transactions are kept until you ask for them to be deleted. Login links
+  expire after 15 minutes and sessions after 30 days. Database backups are kept for 30 days and
+  then deleted, so data can persist in a backup for up to a month after you delete it.</p>
+
+  <h2>Your choices</h2>
+  <p>You can ask for a copy of your data, correct it, or have your account and everything in it
+  permanently deleted. Email <a href="mailto:luisdanielsilva@gmail.com">luisdanielsilva@gmail.com</a>
+  and it will be done. You do not need to give a reason.</p>
+
+  <div class="note">
+    If you are in the EU or UK, the GDPR gives you these rights by law, along with the right to
+    complain to your national data protection authority. The lawful basis for storing your email
+    address is performing the service you asked for; for everything else, it is the data you chose
+    to enter.
+  </div>
+
+  <h2>Changes</h2>
+  <p>If this policy changes in a way that affects what is collected or who receives it, the date at
+  the top changes and signed-in users are emailed.</p>
+
+  <h2>Contact</h2>
+  <p><a href="mailto:luisdanielsilva@gmail.com">luisdanielsilva@gmail.com</a></p>
+
+  <footer>
+    Portfolio Tracker &middot; <a href="./">Home</a> &middot; <a href="./terms.html">Terms of Service</a>
+  </footer>
+</div>
+</body>
+</html>
