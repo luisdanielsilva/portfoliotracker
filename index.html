@@ -2855,8 +2855,12 @@
       })
       .then(data => {
         if (!data.snapshots || data.snapshots.length === 0) {
-          console.warn('No snapshots from API, using empty array');
-          showError('No snapshot data found');
+          // A new account has no transactions yet. That is the normal starting
+          // state, not a failure — showing a red error to someone who has just
+          // signed up is both alarming and unhelpful, so point them at the step
+          // they actually need to take.
+          console.info('No snapshots yet — account has no transactions');
+          toast('Add your first transaction to start building your portfolio history');
           return [];
         }
 
