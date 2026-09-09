@@ -55,6 +55,7 @@ db.exec(schema);
 
 // Prices carry the currency the market quotes them in; see db-migrations.js.
 require('./db-migrations').ensurePriceCurrencyColumns(db);
+require('./db-migrations').ensureAlertCurrency(db);
 
 // Migration: stop the same rule being saved twice. Nothing prevented it, and one
 // ticker ended up with three identical "dip 5%" rules — which would have meant the
@@ -573,7 +574,8 @@ app.delete('/api/transactions/:id', (req, res) => {
 app.get('/api/prices', (req, res) => {
   try {
     const stmt = db.prepare(`
-      SELECT ticker, price_eur as priceEUR, price_usd as priceUSD, price_date as date, source, updated_at as updatedAt
+      SELECT ticker, price_eur as priceEUR, price_usd as priceUSD,
+             price_native as priceNative, currency, price_date as date, source, updated_at as updatedAt
       FROM prices
       WHERE (ticker, price_date) IN (
         SELECT ticker, MAX(price_date) FROM prices GROUP BY ticker
@@ -593,7 +595,8 @@ app.get('/api/price-history/:ticker', (req, res) => {
   try {
     const ticker = req.params.ticker.toUpperCase();
     const stmt = db.prepare(`
-      SELECT ticker, price_eur as priceEUR, price_usd as priceUSD, price_date as date
+      SELECT ticker, price_eur as priceEUR, price_usd as priceUSD,
+             price_native as priceNative, currency, price_date as date
       FROM prices
       WHERE ticker = ?
       ORDER BY price_date ASC
@@ -806,7 +809,7 @@ app.get('/api/snapshots', (req, res) => {
 app.get('/api/avg-cost', (req, res) => {
   try {
     const tickerStmt = db.prepare('SELECT DISTINCT ticker FROM transactions WHERE user_id = ? ORDER BY ticker');
-    const priceStmt = db.prepare('SELECT price_eur, price_usd FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1');
+    const priceStmt = db.prepare('SELECT price_eur, price_usd, price_native, currency FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1');
     const result = tickerStmt.all(req.userId).map(row => {
       const cost = getAvgCostPerShare(row.ticker, req.userId);
       if (!cost) return null;
@@ -819,6 +822,8 @@ app.get('/api/avg-cost', (req, res) => {
         avgCostEUR: cost.avgCostEUR,
         currentPriceEUR,
         currentPriceUSD: price ? price.price_usd : null,
+        currentPriceNative: price ? price.price_native : null,
+        currency: price ? price.currency : null,
         dipPct
       };
     }).filter(Boolean);
@@ -836,10 +841,12 @@ function enrichDipAlert(a, userId) {
   if (!cost) return a;
   a.avgCostEUR = cost.avgCostEUR;
   a.triggerPriceEUR = cost.avgCostEUR * (1 - a.threshold / 100);
-  const priceRow = db.prepare('SELECT price_eur, price_usd FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1').get(a.ticker);
+  const priceRow = db.prepare('SELECT price_eur, price_usd, price_native, currency FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1').get(a.ticker);
   if (priceRow) {
     a.currentPriceEUR = priceRow.price_eur;
     a.currentPriceUSD = priceRow.price_usd;
+    a.currentPriceNative = priceRow.price_native;
+    a.marketCurrency = priceRow.currency;
     a.currentDipPct = (priceRow.price_eur / cost.avgCostEUR - 1) * 100;
   }
   return a;
@@ -849,7 +856,8 @@ function enrichDipAlert(a, userId) {
 app.get('/api/alerts', (req, res) => {
   try {
     const stmt = db.prepare(`
-      SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
+      SELECT id, ticker, rule_type as ruleType, threshold, currency, enabled,
+             last_triggered_at as lastTriggeredAt, created_at as createdAt
       FROM alerts
       WHERE user_id = ?
       ORDER BY created_at DESC
@@ -872,17 +880,29 @@ app.post('/api/alerts', (req, res) => {
     }
 
     const insertStmt = db.prepare(`
-      INSERT INTO alerts (user_id, ticker, rule_type, threshold, enabled)
-      VALUES (?, ?, ?, ?, 1)
+      INSERT INTO alerts (user_id, ticker, rule_type, threshold, currency, enabled)
+      VALUES (?, ?, ?, ?, ?, 1)
     `);
+
+    // A price threshold is in the currency its market quotes, so it reads the same
+    // way as the price on screen. Percentage rules carry no currency — a dip is
+    // measured against the euro cost basis.
+    const ticker = alert.ticker.toUpperCase();
+    const isPriceRule = alert.ruleType === 'price_above' || alert.ruleType === 'price_below';
+    let currency = null;
+    if (isPriceRule) {
+      const p = db.prepare('SELECT currency FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1').get(ticker);
+      currency = (p && p.currency) || 'USD';
+    }
 
     let result;
     try {
       result = insertStmt.run(
         req.userId,
-        alert.ticker.toUpperCase(),
+        ticker,
         alert.ruleType,
-        parseFloat(alert.threshold)
+        parseFloat(alert.threshold),
+        currency
       );
     } catch (e) {
       // Blocked by idx_alert_unique: the identical rule already exists.
@@ -893,7 +913,8 @@ app.post('/api/alerts', (req, res) => {
     }
 
     const selectStmt = db.prepare(`
-      SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
+      SELECT id, ticker, rule_type as ruleType, threshold, currency, enabled,
+             last_triggered_at as lastTriggeredAt, created_at as createdAt
       FROM alerts WHERE id = ?
     `);
     const newAlert = enrichDipAlert(selectStmt.get(result.lastInsertRowid), req.userId);
@@ -926,7 +947,8 @@ app.put('/api/alerts/:id', (req, res) => {
     updateStmt.run(enabled !== undefined ? (enabled ? 1 : 0) : null, threshold || null, id, req.userId);
 
     const selectStmt = db.prepare(`
-      SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
+      SELECT id, ticker, rule_type as ruleType, threshold, currency, enabled,
+             last_triggered_at as lastTriggeredAt, created_at as createdAt
       FROM alerts WHERE id = ?
     `);
     const alert = enrichDipAlert(selectStmt.get(id), req.userId);

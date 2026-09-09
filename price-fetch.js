@@ -13,7 +13,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
-const { ensurePriceCurrencyColumns } = require('./db-migrations');
+const { ensurePriceCurrencyColumns, ensureAlertCurrency } = require('./db-migrations');
 require('dotenv').config();
 
 const dbPath = path.join(__dirname, 'data.db');
@@ -89,14 +89,17 @@ function digestRow(item, isLast) {
   let headline, detail;
 
   if (item.kind === 'dip') {
+    // Measured against what you paid, which is tracked in euros.
     headline = `<span style="color:${MAIL.neg}">−${item.dropPct.toFixed(1)}%</span>`;
     detail = `${eur(item.price)} now · your average cost ${eur(item.avgCost)}<br>`
       + `Back to break-even at <span style="color:${MAIL.ink};font-family:${MAIL.mono}">${eur(item.avgCost)}</span>`;
   } else {
+    // A price level, shown in the currency its market quotes.
     const above = item.kind === 'price_above';
     const away = Math.abs((item.price - item.threshold) / item.threshold) * 100;
-    headline = `<span style="color:${above ? MAIL.pos : MAIL.accent}">${above ? 'above' : 'below'} ${eur(item.threshold)}</span>`;
-    detail = `${eur(item.price)} now · ${away.toFixed(1)}% ${above ? 'over' : 'under'} the level you set`;
+    const cur = item.currency || 'USD';
+    headline = `<span style="color:${above ? MAIL.pos : MAIL.accent}">${above ? 'above' : 'below'} ${fmtNative(item.threshold, cur)}</span>`;
+    detail = `${fmtNative(item.price, cur)} now · ${away.toFixed(1)}% ${above ? 'over' : 'under'} the level you set`;
   }
 
   return `<tr><td style="padding:14px 0;${border}">
@@ -143,7 +146,8 @@ function renderAlertDigest(items) {
     <tr><td style="padding:24px 26px 26px">
       <a href="${appLink()}" style="display:inline-block;background:${MAIL.accent};color:#ffffff;text-decoration:none;font:500 14px/1 ${MAIL.sans};padding:12px 22px;border-radius:8px">Open Portfolio Tracker</a>
       <div style="margin-top:18px;padding-top:16px;border-top:1px solid ${MAIL.hair};font:400 12px/1.6 ${MAIL.sans};color:${MAIL.faint}">
-        Each rule emails you at most once in 24 hours. Prices are the latest close, converted to euros.
+        Each rule emails you at most once in 24 hours. Prices are the latest close, shown in the
+        currency their market quotes; dips are measured against your average cost in euros.
         Change or switch off any rule in the app.
       </div>
     </td></tr>
@@ -159,8 +163,9 @@ function renderAlertDigestText(items) {
       lines.push(`  ${eur(i.price)} now, average cost ${eur(i.avgCost)}. Break-even at ${eur(i.avgCost)}.`);
     } else {
       const above = i.kind === 'price_above';
-      lines.push(`${i.ticker}  ${above ? 'above' : 'below'} ${eur(i.threshold)}`);
-      lines.push(`  ${eur(i.price)} now.`);
+      const cur = i.currency || 'USD';
+      lines.push(`${i.ticker}  ${above ? 'above' : 'below'} ${fmtNative(i.threshold, cur)}`);
+      lines.push(`  ${fmtNative(i.price, cur)} now.`);
     }
   }
   lines.push(`\nOpen Portfolio Tracker: ${appLink()}`);
@@ -265,7 +270,7 @@ function alertSubject(items) {
   if (items.length === 1) {
     const i = items[0];
     if (i.kind === 'dip') return `${i.ticker} is ${i.dropPct.toFixed(1)}% below your average cost`;
-    return `${i.ticker} ${i.kind === 'price_above' ? 'rose above' : 'fell below'} ${eur(i.threshold)}`;
+    return `${i.ticker} ${i.kind === 'price_above' ? 'rose above' : 'fell below'} ${fmtNative(i.threshold, i.currency || 'USD')}`;
   }
   return `${items.length} alerts: ${[...new Set(items.map(i => i.ticker))].join(', ')}`;
 }
@@ -351,7 +356,7 @@ async function evaluateAlerts(db, mailer) {
 
   // Join to users so each alert is emailed to the person who created it.
   const getAlertsStmt = db.prepare(`
-    SELECT a.id, a.user_id, a.ticker, a.rule_type, a.threshold, a.last_triggered_at,
+    SELECT a.id, a.user_id, a.ticker, a.rule_type, a.threshold, a.currency, a.last_triggered_at,
            u.email AS owner_email
     FROM alerts a
     JOIN users u ON u.id = a.user_id
@@ -359,7 +364,7 @@ async function evaluateAlerts(db, mailer) {
   `);
 
   const getPriceStmt = db.prepare(`
-    SELECT price_eur FROM prices
+    SELECT price_eur, price_native, currency FROM prices
     WHERE ticker = ?
     ORDER BY price_date DESC
     LIMIT 1
@@ -384,16 +389,21 @@ async function evaluateAlerts(db, mailer) {
         continue;
       }
 
-      const currentPrice = price.price_eur;
       const threshold = alert.threshold;
       const rule = alert.rule_type;
       let triggered = false;
       let avgCostEUR = null;
 
-      // Check if alert should trigger
-      if (rule === 'price_above' && currentPrice > threshold) {
+      // A price threshold is compared in the market's own currency, which is what
+      // the user set it in. A dip is measured against the euro cost basis, because
+      // that is the currency the money actually went out in.
+      const marketCurrency = price.currency || 'USD';
+      const nativePrice = price.price_native != null ? price.price_native : price.price_eur;
+      const currentPrice = price.price_eur;
+
+      if (rule === 'price_above' && nativePrice > threshold) {
         triggered = true;
-      } else if (rule === 'price_below' && currentPrice < threshold) {
+      } else if (rule === 'price_below' && nativePrice < threshold) {
         triggered = true;
       } else if (rule === 'dip_from_avg_cost') {
         avgCostEUR = getAvgCostPerShare(db, alert.ticker, alert.user_id);
@@ -422,7 +432,8 @@ async function evaluateAlerts(db, mailer) {
       const item = rule === 'dip_from_avg_cost'
         ? { kind: 'dip', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
             dropPct: ((avgCostEUR - currentPrice) / avgCostEUR) * 100 }
-        : { kind: rule, ticker: alert.ticker, price: currentPrice, threshold };
+        : { kind: rule, ticker: alert.ticker, price: nativePrice, threshold,
+            currency: alert.currency || marketCurrency };
 
       if (!byRecipient.has(recipient)) byRecipient.set(recipient, []);
       byRecipient.get(recipient).push(item);
@@ -505,6 +516,7 @@ async function fetchPrices() {
     let failureCount = 0;
 
     ensurePriceCurrencyColumns(db);
+    ensureAlertCurrency(db);
 
     const upsertStmt = db.prepare(`
       INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)

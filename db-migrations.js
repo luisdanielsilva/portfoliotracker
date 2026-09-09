@@ -33,4 +33,44 @@ function ensurePriceCurrencyColumns(db) {
   }
 }
 
-module.exports = { ensurePriceCurrencyColumns, columnNames };
+/**
+ * Give price thresholds a currency, and restate existing ones so they keep
+ * meaning what their author meant.
+ *
+ * Thresholds used to be compared against the euro-converted price, so "TSLA
+ * above 350" meant €350. Now that prices are shown and compared in the market's
+ * own currency, leaving the number alone would silently redefine that rule as
+ * $350 — roughly an 8% shift, and it could fire immediately. Each existing
+ * threshold is therefore converted using the ratio actually observed in the
+ * price row, not a fresh rate, so the rule keeps its original meaning.
+ *
+ * Percentage rules (dip_from_avg_cost, change_pct) have no currency: the
+ * threshold is a percentage, and a dip is measured against the euro cost basis.
+ */
+function ensureAlertCurrency(db) {
+  if (columnNames(db, 'alerts').includes('currency')) return;
+  db.exec('ALTER TABLE alerts ADD COLUMN currency TEXT');
+
+  const priceOf = db.prepare(
+    'SELECT currency, price_eur, price_native FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1'
+  );
+  const update = db.prepare('UPDATE alerts SET threshold = ?, currency = ? WHERE id = ?');
+  const rows = db.prepare(
+    "SELECT id, ticker, threshold FROM alerts WHERE rule_type IN ('price_above','price_below')"
+  ).all();
+
+  for (const row of rows) {
+    const p = priceOf.get(row.ticker);
+    const currency = p && p.currency ? p.currency : 'USD';
+    let threshold = row.threshold;
+    if (currency !== 'EUR' && p && p.price_eur > 0 && p.price_native > 0) {
+      threshold = parseFloat((row.threshold * (p.price_native / p.price_eur)).toFixed(4));
+    }
+    update.run(threshold, currency, row.id);
+    if (threshold !== row.threshold) {
+      console.log(`Alert ${row.id} (${row.ticker}): threshold €${row.threshold} restated as ${threshold} ${currency}`);
+    }
+  }
+}
+
+module.exports = { ensurePriceCurrencyColumns, ensureAlertCurrency, columnNames };
