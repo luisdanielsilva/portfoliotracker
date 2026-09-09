@@ -127,18 +127,25 @@ function areMarketsClosedForFetch() {
   // 9:30 AM EDT = 13:30 UTC, 9:30 AM EST = 14:30 UTC
 
   const usMarketCloseUTC = 21; // 9:00 PM UTC (after 4:00 PM ET close)
+  const usMarketOpenUTC = 13;  // opens 13:30 UTC at the earliest; stop short of the half hour
 
-  // Fetch is safe to run after US close (21:00 UTC) until next market open (13:30 UTC)
-  if (utcHour < usMarketCloseUTC) {
-    const hoursUntilClose = usMarketCloseUTC - utcHour;
-    const minutesUntilClose = Math.round(hoursUntilClose * 60 - utcMinute);
-    return {
-      isClosed: false,
-      reason: `US markets still trading (closes in ~${minutesUntilClose} min at 21:00 UTC / 4:00 PM ET)`
-    };
+  // The safe window wraps around midnight: from the close at 21:00 UTC through to the
+  // next open. The pre-open hours count as closed because the previous session's close
+  // is already final — which is what the daily 09:00 UTC timer depends on. Testing only
+  // `utcHour < close` treated 09:00 as "still trading" and skipped every scheduled run.
+  if (utcHour >= usMarketCloseUTC) {
+    return { isClosed: true, reason: 'US markets closed for the day' };
+  }
+  if (utcHour < usMarketOpenUTC) {
+    return { isClosed: true, reason: 'Before US open — the last close is final' };
   }
 
-  return { isClosed: true, reason: 'All relevant markets closed' };
+  const hoursUntilClose = usMarketCloseUTC - utcHour;
+  const minutesUntilClose = Math.round(hoursUntilClose * 60 - utcMinute);
+  return {
+    isClosed: false,
+    reason: `US markets still trading (closes in ~${minutesUntilClose} min at 21:00 UTC / 4:00 PM ET)`
+  };
 }
 
 async function evaluateAlerts(db, mailer) {
