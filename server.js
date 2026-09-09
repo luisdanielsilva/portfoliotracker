@@ -105,19 +105,11 @@ require('./db-migrations').ensureAlertCurrency(db);
   }
 })();
 
-// Compute average cost per share (in EUR) currently held for a ticker, from transactions
+// Average cost per share (EUR) — shared with the price-fetch job so the figure the
+// app shows and the figure dip alerts fire on cannot drift apart. See portfolio.js.
+const { getAvgCostPerShare: avgCostFor } = require('./portfolio');
 function getAvgCostPerShare(ticker, userId) {
-  const txStmt = db.prepare(`
-    SELECT tx_type, quantity, amount_eur FROM transactions
-    WHERE user_id = ? AND ticker = ? ORDER BY ts ASC
-  `);
-  let qty = 0, totalAmount = 0;
-  for (const tx of txStmt.all(userId, ticker)) {
-    if (tx.tx_type === 'buy') { qty += tx.quantity; totalAmount += tx.amount_eur; }
-    else if (tx.tx_type === 'sell') { qty -= tx.quantity; totalAmount -= tx.amount_eur; }
-  }
-  if (qty <= 0) return null;
-  return { avgCostEUR: totalAmount / qty, quantity: qty };
+  return avgCostFor(db, userId, ticker);
 }
 
 app.use(express.json());

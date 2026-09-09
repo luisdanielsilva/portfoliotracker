@@ -322,19 +322,12 @@ function alertSubject(items) {
   return `${items.length} alerts: ${[...new Set(items.map(i => i.ticker))].join(', ')}`;
 }
 
-// Average cost per share (EUR) currently held for a ticker, from transactions
+// Average cost per share (EUR) — shared with the server so the figure a dip alert
+// fires on and the figure the app displays cannot drift apart. See portfolio.js.
+const { getAvgCostPerShare: avgCostFor } = require('./portfolio');
 function getAvgCostPerShare(db, ticker, userId) {
-  const txStmt = db.prepare(`
-    SELECT tx_type, quantity, amount_eur FROM transactions
-    WHERE ticker = ? AND user_id = ? ORDER BY ts ASC
-  `);
-  let qty = 0, totalAmount = 0;
-  for (const tx of txStmt.all(ticker, userId)) {
-    if (tx.tx_type === 'buy') { qty += tx.quantity; totalAmount += tx.amount_eur; }
-    else if (tx.tx_type === 'sell') { qty -= tx.quantity; totalAmount -= tx.amount_eur; }
-  }
-  if (qty <= 0) return null;
-  return totalAmount / qty;
+  const cost = avgCostFor(db, userId, ticker);
+  return cost ? cost.avgCostEUR : null;
 }
 
 // Map ticker to exchange (common US tech stocks)
