@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta name="description" content="Personal stock portfolio tracker — 74 snapshots, Jun 2023 to Aug 2026.">
+<meta name="description" content="Track your stock portfolio over time: market value against what you invested, average cost per holding, daily closing prices, and email alerts when a position dips.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E">
 <style>
   html{color-scheme:light dark}
@@ -12,7 +12,7 @@
   img{max-width:100%}
   [hidden]{display:none!important}
 </style>
-<title>Portfolio Snapshots</title>
+<title>Portfolio Tracker</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -230,8 +230,54 @@
   .contact-btn{padding:10px 20px;background:var(--accent);color:white;border:none;border-radius:6px;font-weight:500;cursor:pointer;font-size:14px;transition:opacity 0.2s}
   .contact-btn:hover{opacity:0.9}
 
-  .auth-gate{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:var(--ground);padding:24px}
-  .auth-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:28px;max-width:400px;width:100%}
+  /* ---- public landing page: shown in place of the app until a session exists ---- */
+  .auth-gate{position:fixed;inset:0;z-index:2000;overflow-y:auto;background:var(--ground);display:block;padding:0}
+  .lp{max-width:1000px;margin:0 auto;padding:0 24px 72px}
+  .lp-nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 0;flex-wrap:wrap}
+  .lp-brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14.5px;letter-spacing:-.01em}
+  .lp-brand .lp-mark{font-size:19px;line-height:1}
+  .lp-navlink{font-size:13px;font-weight:500;color:var(--muted);text-decoration:none;padding:7px 14px;border:1px solid var(--hair);border-radius:8px;background:var(--surface)}
+  .lp-navlink:hover{color:var(--ink);background:var(--surface-2)}
+
+  .lp-hero{padding:40px 0 0}
+  .lp-hero h1{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:clamp(31px,5vw,46px);line-height:1.1;letter-spacing:-.015em;margin:0 0 16px;text-wrap:balance;max-width:20ch}
+  .lp-hero .lp-lede{font-size:15.5px;color:var(--muted);margin:0 0 26px;max-width:58ch}
+  .lp-cta{display:flex;flex-wrap:wrap;gap:10px}
+  .lp-btn{font:inherit;font-size:14px;font-weight:500;padding:11px 20px;border-radius:9px;border:1px solid var(--hair);background:var(--surface);color:var(--ink);text-decoration:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+  .lp-btn:hover{background:var(--surface-2)}
+  .lp-btn.primary{background:var(--accent);border-color:transparent;color:#fff}
+  .lp-btn.primary:hover{background:var(--accent);opacity:.92}
+
+  .lp-figure{background:var(--surface);border:1px solid var(--hair);border-radius:14px;box-shadow:var(--shadow);padding:18px 18px 14px;margin:34px 0 0}
+  .lp-fig-title{font-size:11.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 2px 14px}
+  .lp-figure figcaption{margin:12px 2px 0;font-size:11.5px;color:var(--faint)}
+
+  .lp-h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:clamp(22px,3vw,29px);letter-spacing:-.01em;margin:60px 0 8px}
+  .lp-lede{font-size:14px;color:var(--muted);margin:0 0 22px;max-width:58ch}
+
+  .lp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:14px}
+  .lp-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:18px}
+  .lp-card h3{margin:0 0 7px;font-size:14.5px;font-weight:600;letter-spacing:-.005em}
+  .lp-card p{margin:0;font-size:13px;color:var(--muted);line-height:1.55}
+  .lp-mini{margin-top:15px}
+  .lp-mini svg{display:block;width:100%;height:auto}
+  .lp-minileg{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:14px}
+  .lp-minileg span{display:inline-flex;align-items:center;gap:6px}
+  .lp-minileg i{width:11px;height:3px;border-radius:2px;flex:none}
+  .lp-minileg i.dash{height:0;border-top:2px dashed var(--faint)}
+
+  .lp-alert{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--hair);border-radius:9px;background:var(--surface-2);padding:10px 12px;margin-top:15px}
+  .lp-alert .adot{width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px}
+  .lp-alert .atxt{font-size:12px;line-height:1.45}
+  .lp-alert .atxt b{font-weight:600}
+  .lp-alert .atxt span{color:var(--muted);display:block;font-size:11.5px}
+
+  .lp-steps{list-style:none;counter-reset:s;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .lp-steps li{counter-increment:s;position:relative;padding-left:34px;font-size:13px;color:var(--muted);line-height:1.55}
+  .lp-steps li::before{content:counter(s);position:absolute;left:0;top:0;width:24px;height:24px;border-radius:50%;background:var(--surface-2);border:1px solid var(--hair);color:var(--ink);font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center}
+  .lp-steps b{color:var(--ink);font-weight:600;display:block;font-size:13.5px;margin-bottom:2px}
+
+  .auth-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:28px;max-width:420px;width:100%;margin:0 auto}
   .auth-card h2{margin:0 0 6px;font-size:20px;font-weight:600}
   .auth-sub{margin:0 0 18px;font-size:13px;color:var(--muted);line-height:1.5}
   .google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;text-decoration:none;padding:10px 14px;font-size:13.5px;font-weight:500}
@@ -274,12 +320,159 @@
 </head>
 <body>
 
-<!-- Auth gate: covers the whole app until a session exists. Not dismissible. -->
+<!-- Public landing page: replaces the app until a session exists. -->
 <div id="auth-gate" class="auth-gate" hidden>
-  <div class="auth-card">
-    <h2>Portfolio Tracker</h2>
-    <p class="auth-sub">Sign in to see your portfolio. No password to remember.</p>
+ <div class="lp">
 
+  <nav class="lp-nav">
+    <div class="lp-brand"><span class="lp-mark">&#128200;</span> Portfolio Tracker</div>
+    <a class="lp-navlink" href="#signin">Sign in</a>
+  </nav>
+
+  <section class="lp-hero">
+    <h1>See what your portfolio actually did.</h1>
+    <p class="lp-lede">
+      Register your buys and sells once. Portfolio Tracker fetches closing prices every day and turns
+      that history into the picture you actually want &mdash; what you put in, what it is worth now,
+      what each holding cost you on average, and an email when something dips.
+    </p>
+    <div class="lp-cta">
+      <a class="lp-btn primary" href="#signin">Get started &mdash; it's free</a>
+      <a class="lp-btn" href="#features">See what it does</a>
+    </div>
+  </section>
+
+  <figure class="lp-figure">
+    <p class="lp-fig-title">Portfolio over time</p>
+    <svg viewBox="0 0 720 250" role="img" aria-label="Example line chart: portfolio market value rising from about 2,000 to 11,200 euros, staying above the total amount invested, which steps up to 9,000 euros.">
+      <g>
+        <line class="gridline" x1="56" y1="20" x2="620" y2="20"></line>
+        <line class="gridline" x1="56" y1="67.5" x2="620" y2="67.5"></line>
+        <line class="gridline" x1="56" y1="115" x2="620" y2="115"></line>
+        <line class="gridline" x1="56" y1="162.5" x2="620" y2="162.5"></line>
+        <line class="gridline" x1="56" y1="210" x2="620" y2="210"></line>
+      </g>
+      <g class="axislbl" text-anchor="end" dominant-baseline="middle">
+        <text x="48" y="20">&euro;12k</text>
+        <text x="48" y="67.5">&euro;9k</text>
+        <text x="48" y="115">&euro;6k</text>
+        <text x="48" y="162.5">&euro;3k</text>
+        <text x="48" y="210">&euro;0</text>
+      </g>
+      <g class="xlbl">
+        <text x="56" y="228">2023</text>
+        <text x="230" y="228">2024</text>
+        <text x="403" y="228">2025</text>
+        <text x="620" y="228">2026</text>
+      </g>
+      <!-- gain band: market value above invested -->
+      <path class="iv-band" d="M56,177.5 L99,175.5 L143,159.7 L186,156.2 L230,145.1 L273,125.3 L316,128.9 L360,111 L403,109.5 L446,95.2 L490,73.8 L533,81 L577,54.8 L620,32.7 L620,67.5 H577 V83.3 H490 V99.2 H446 V115 H360 V130.8 H273 V146.7 H230 V162.5 H143 V178.3 H56 Z"></path>
+      <path d="M56,178.3 H143 V162.5 H230 V146.7 H273 V130.8 H360 V115 H446 V99.2 H490 V83.3 H577 V67.5 H620" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+      <path class="serieline" d="M56,177.5 L99,175.5 L143,159.7 L186,156.2 L230,145.1 L273,125.3 L316,128.9 L360,111 L403,109.5 L446,95.2 L490,73.8 L533,81 L577,54.8 L620,32.7" stroke="var(--s-total)"></path>
+      <g class="buyring" stroke="var(--s-total)">
+        <circle cx="143" cy="159.7" r="3.5"></circle>
+        <circle cx="360" cy="111" r="3.5"></circle>
+        <circle cx="577" cy="54.8" r="3.5"></circle>
+      </g>
+      <g class="endlbl">
+        <text x="630" y="29" fill="var(--s-total)">&euro;11,200</text>
+        <text x="630" y="64" fill="var(--faint)">&euro;9,000</text>
+      </g>
+      <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
+        <text x="630" y="42" fill="var(--muted)">Market value</text>
+        <text x="630" y="77" fill="var(--faint)">Invested</text>
+      </g>
+    </svg>
+    <figcaption>Example data. The shaded band is gain over what you put in; rings mark purchases.</figcaption>
+  </figure>
+
+  <h2 class="lp-h2" id="features">What it does</h2>
+  <p class="lp-lede">Five things, each built around the same transaction history you enter once.</p>
+
+  <div class="lp-grid">
+
+    <div class="lp-card">
+      <h3>Portfolio over time</h3>
+      <p>Market value against the total you have invested, from your first buy to today &mdash; so you can see gain, not just balance.</p>
+    </div>
+
+    <div class="lp-card">
+      <h3>Dollar-cost averaging</h3>
+      <p>Track your true average cost per holding as you keep buying, and see it against the live price.</p>
+      <div class="lp-minileg">
+        <span><i style="background:var(--s-total)"></i>Price</span>
+        <span><i class="dash"></i>Your average cost</span>
+      </div>
+      <div class="lp-mini">
+        <svg viewBox="0 0 300 104" role="img" aria-label="Example chart: a share price falling and recovering, with the investor's average cost stepping down from 100 to 76 euros as they buy on the dips.">
+          <path d="M8,26.5 H63 V38.2 H117 V48.4 H145 V57.1 H199 V61.5 H254" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+          <path class="serieline" d="M8,26.5 L35,38.2 L63,58.5 L90,49.8 L117,70.2 L145,78.9 L172,67.3 L199,73.1 L227,52.7 L254,33.8" stroke="var(--s-total)"></path>
+          <g class="buyring" stroke="var(--s-total)">
+            <circle cx="63" cy="58.5" r="3.2"></circle>
+            <circle cx="117" cy="70.2" r="3.2"></circle>
+            <circle cx="145" cy="78.9" r="3.2"></circle>
+            <circle cx="199" cy="73.1" r="3.2"></circle>
+          </g>
+          <text class="endlbl" x="260" y="37" fill="var(--s-total)">&euro;95</text>
+          <text class="endlbl" x="260" y="65" fill="var(--faint)">&euro;76</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="lp-card">
+      <h3>Price and dip alerts</h3>
+      <p>Set a rule per holding &mdash; above a price, below a price, a percentage move, or a dip under your own average cost &mdash; and get an email when it triggers.</p>
+      <div class="lp-alert">
+        <span class="adot" style="background:var(--neg)"></span>
+        <span class="atxt">
+          <b>TSLA fell 12.4% below your average cost</b>
+          <span>Rule: dip from average cost &middot; emailed 2 hours ago</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="lp-card">
+      <h3>Portfolio in detail</h3>
+      <p>Every holding broken out by quantity, cost, market value and share of the portfolio.</p>
+      <div class="lp-mini">
+        <svg viewBox="0 0 300 110" role="img" aria-label="Example bar chart of holdings by market value: TSLA 4,820 euros, MSFT 3,150 euros, AMD 2,100 euros.">
+          <g class="axislbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--ink)">
+            <text x="40" y="24">TSLA</text>
+            <text x="40" y="58">MSFT</text>
+            <text x="40" y="92">AMD</text>
+          </g>
+          <g fill="var(--accent)">
+            <path d="M46,14 H196 Q200,14 200,18 V30 Q200,34 196,34 H46 Z"></path>
+            <path d="M46,48 H143 Q147,48 147,52 V64 Q147,68 143,68 H46 Z"></path>
+            <path d="M46,82 H109 Q113,82 113,86 V98 Q113,102 109,102 H46 Z"></path>
+          </g>
+          <g class="endlbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--muted)">
+            <text x="292" y="24">&euro;4,820</text>
+            <text x="292" y="58">&euro;3,150</text>
+            <text x="292" y="92">&euro;2,100</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="lp-card">
+      <h3>Transactions, properly handled</h3>
+      <p>Buys and sells in euros or dollars with the exchange rate you actually got, and stock splits applied to your historical quantities so the past does not silently break.</p>
+    </div>
+
+  </div>
+
+  <h2 class="lp-h2">How it works</h2>
+  <ol class="lp-steps">
+    <li><b>Register a transaction</b>Ticker, quantity, amount, currency and rate. Buy or sell.</li>
+    <li><b>Prices arrive on their own</b>Closing prices are fetched daily, after the US market closes.</li>
+    <li><b>Watch and get told</b>Charts update, average cost recalculates, and alerts email you.</li>
+  </ol>
+
+  <h2 class="lp-h2" id="signin">Sign in</h2>
+  <p class="lp-lede">No password to remember, and no account setup step &mdash; signing in creates your account. Your holdings are private to you.</p>
+
+  <div class="auth-card">
     <div id="auth-google-wrap" hidden>
       <a href="./api/auth/google" class="btn google-btn" id="auth-google">
         <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
@@ -304,6 +497,10 @@
       <button type="button" class="btn" id="auth-back" style="width:100%">Use a different email</button>
     </div>
   </div>
+
+  <footer style="margin-top:44px;text-align:center">Portfolio Tracker &middot; a personal investing tracker. Example figures above use sample data.</footer>
+
+ </div>
 </div>
 
 <div class="wrap">
