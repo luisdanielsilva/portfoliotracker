@@ -52,39 +52,20 @@ The planned coverage, grounded in bugs actually found:
 - Migrations on a temp database, run twice to prove idempotency, including that threshold
   restatement preserves meaning
 
-**Blockers to doing it at all** (both must be fixed first):
-1. `price-fetch.js` and `check-job-health.js` call their entry point at module scope, so
-   `require()`-ing them runs the real job. They need `if (require.main === module)` guards and
-   `module.exports`.
-2. `getAvgCostPerShare` is implemented **twice** — `server.js` and `price-fetch.js` — with
-   different signatures and return types. The arithmetic agrees today and nothing enforces it.
-   It is the number the app displays *and* the number dip alerts fire on. Extract to a shared
-   module before testing it, or the tests only prove one copy is right.
+**Blocker still to clear before writing tests:**
+- `price-fetch.js` and `check-job-health.js` call their entry point at module scope, so
+  `require()`-ing them runs the real job. They need `if (require.main === module)` guards and
+  `module.exports`. (`portfolio.js` and `db-migrations.js` are already importable.)
+
+*Cleared 2026-09-09:* `getAvgCostPerShare` was implemented twice with different signatures; it
+now lives once in `portfolio.js` and both callers use it.
 
 
 **Ops hygiene:**
 - No load testing has been done — response times under real concurrent load are unverified
 
-**Accuracy — historical euro values predate real exchange rates:**
-
-Live rates are now fetched daily (see Exchange Rates below), but **only prices recorded from
-2026-09-09 onward use them**. Everything before that was converted at a hard-coded 0.92, when
-the real rate was about 0.859 — roughly 7% too generous.
-
-The visible consequence: the portfolio-over-time chart has a **one-off step down of about 7%**
-on the day real rates began. That is a change of method, not a market move, and it will sit in
-the history until the older rows are recomputed.
-
-Fixing it properly is now possible and not large:
-1. `price_native` is stored for every row, including backfilled history, so the original quoted
-   price is never lost.
-2. Yahoo serves historical FX (`EURUSD=X` via `chart()`), so the rate **for each price's own
-   date** can be recovered rather than applying today's rate to old dates — which would remove
-   the step but silently misprice years of history.
-3. Recompute `price_eur = price_native × rate(date)` for rows before the cutover.
-
-Until then, treat euro figures before 2026-09-09 as approximate. Native prices and the shapes
-of the charts are unaffected either way.
+*(Historical euro values were recomputed from real per-date FX on 2026-09-09 — see
+Exchange Rates below. No longer an open item.)*
 
 **Open registration:**
 - `noindex` keeps the site out of search results, but **signing in is registration** — anyone with
@@ -269,6 +250,31 @@ euros-per-unit and the stored multiplier is its inverse — and writes it to `ex
   recording a euro figure that cannot be justified.
 - Only USD had a hard-coded fallback (0.92); any other currency with no rate is simply not
   converted.
+
+**History was recomputed on 2026-09-09** (`recompute-eur.js`). Euro values had been produced two
+different ways, neither of them real FX:
+
+- the bulk-imported rows used a rate drifting smoothly 0.95 → 0.82 across four years — a linear
+  interpolation, close to reality at the ends and materially wrong in the middle (2025-02-03 used
+  a rate that understated TSLA by 12.3%);
+- rows written by price-fetch before that day used a flat 0.92.
+
+Because `price_native` is stored for every row, the original quoted price was never lost and the
+conversion could simply be redone. All 1,208 rows were recomputed at the **rate for their own
+date**, and the 1,144 daily rates fetched were written to `exchange_rates` so the numbers can be
+audited rather than being an unexplainable one-off adjustment.
+
+Effect: the headline value moved €55,898.98 → €52,234.98 (−6.6%), and derived analytics shifted
+with it — max drawdown went −65.5% → −67.3% and its start date moved by a month. Those are
+corrections, not market moves.
+
+```bash
+node recompute-eur.js --dry-run   # preview, writes nothing
+node recompute-eur.js             # apply (take a backup first)
+```
+
+Re-running it is safe and idempotent: it recomputes from `price_native` every time, so it does
+not compound. It would be the tool to use if a rate source were ever found to be wrong.
 
 ### 🔭 Monitoring
 
