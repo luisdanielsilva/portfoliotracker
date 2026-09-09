@@ -1223,6 +1223,11 @@
   }
   var chartT0=T0, chartT1=T1; // Chart display time range
   function renderMain(){
+    // ALL is only populated by rebuild(), which needs loaded data. The default
+    // time-period button is clicked at script load and the OS theme listener can
+    // fire at any time, so both can reach here before (or without) a signed-in
+    // session — there is simply nothing to draw yet.
+    if(!ALL) return;
     while(svg.firstChild) svg.removeChild(svg.firstChild);
 
     // Get adjusted time range for X-axis
@@ -1307,6 +1312,7 @@
     timeline.innerHTML=html;
   }
   function renderPicker(){
+    if(!ALL) return;
     var p=document.getElementById("picker"); p.innerHTML="";
     ALL.forEach(function(s){
       var on=selected.indexOf(s.key)>-1;
