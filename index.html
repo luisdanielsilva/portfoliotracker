@@ -235,7 +235,7 @@
   .lp{max-width:1000px;margin:0 auto;padding:0 24px 72px}
   .lp-nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 0;flex-wrap:wrap}
   .lp-brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14.5px;letter-spacing:-.01em}
-  .lp-brand .lp-mark{font-size:19px;line-height:1}
+  .lp-brand .lp-mark{flex:none;display:block}
   .lp-navlink{font-size:13px;font-weight:500;color:var(--muted);text-decoration:none;padding:7px 14px;border:1px solid var(--hair);border-radius:8px;background:var(--surface)}
   .lp-navlink:hover{color:var(--ink);background:var(--surface-2)}
 
@@ -251,11 +251,31 @@
   .lp-figure{background:var(--surface);border:1px solid var(--hair);border-radius:14px;box-shadow:var(--shadow);padding:18px 18px 14px;margin:34px 0 0}
   .lp-fig-title{font-size:11.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 2px 14px}
   .lp-figure figcaption{margin:12px 2px 0;font-size:11.5px;color:var(--faint)}
+  /* The hero chart's 720-unit viewBox scales to under half size on a phone,
+     which shrinks its in-chart labels to ~5px. Below 640px we drop the SVG
+     text entirely and carry the two numbers that matter in real HTML instead,
+     leaving the chart to read as a shape. */
+  .lp-fig-key{display:none}
+  @media (max-width:640px){
+    .lp-figure svg text{display:none}
+    /* with the labels gone, the ~100 units the viewBox reserved for them on the
+       right is dead space; widen past the container and clip it off */
+    .lp-figure{overflow:hidden}
+    .lp-figure svg{width:116%}
+    .lp-fig-key{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 2px 12px;font-size:12px;color:var(--muted)}
+    .lp-fig-key span{display:inline-flex;align-items:center;gap:6px}
+    .lp-fig-key i{width:11px;height:3px;border-radius:2px;flex:none}
+    .lp-fig-key i.dash{height:0;border-top:2px dashed var(--faint)}
+    .lp-fig-key b{color:var(--ink);font-family:"IBM Plex Mono",monospace;font-weight:600}
+  }
 
   .lp-h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:clamp(22px,3vw,29px);letter-spacing:-.01em;margin:60px 0 8px}
   .lp-lede{font-size:14px;color:var(--muted);margin:0 0 22px;max-width:58ch}
 
-  .lp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:14px}
+  /* align-items:start so each card hugs its own content instead of being
+     stretched to the tallest card in its row, which left dead space in the
+     text-only cards */
+  .lp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:14px;align-items:start}
   .lp-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:18px}
   .lp-card h3{margin:0 0 7px;font-size:14.5px;font-weight:600;letter-spacing:-.005em}
   .lp-card p{margin:0;font-size:13px;color:var(--muted);line-height:1.55}
@@ -277,7 +297,7 @@
   .lp-steps li::before{content:counter(s);position:absolute;left:0;top:0;width:24px;height:24px;border-radius:50%;background:var(--surface-2);border:1px solid var(--hair);color:var(--ink);font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center}
   .lp-steps b{color:var(--ink);font-weight:600;display:block;font-size:13.5px;margin-bottom:2px}
 
-  .auth-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:28px;max-width:420px;width:100%;margin:0 auto}
+  .auth-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:28px;max-width:420px;width:100%;margin:0}
   .auth-card h2{margin:0 0 6px;font-size:20px;font-weight:600}
   .auth-sub{margin:0 0 18px;font-size:13px;color:var(--muted);line-height:1.5}
   .google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;text-decoration:none;padding:10px 14px;font-size:13.5px;font-weight:500}
@@ -325,7 +345,12 @@
  <div class="lp">
 
   <nav class="lp-nav">
-    <div class="lp-brand"><span class="lp-mark">&#128200;</span> Portfolio Tracker</div>
+    <div class="lp-brand">
+      <svg class="lp-mark" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <path d="M2 13.5 L6.5 8.5 L10 11 L16 4" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+      Portfolio Tracker
+    </div>
     <a class="lp-navlink" href="#signin">Sign in</a>
   </nav>
 
@@ -344,6 +369,10 @@
 
   <figure class="lp-figure">
     <p class="lp-fig-title">Portfolio over time</p>
+    <p class="lp-fig-key">
+      <span><i style="background:var(--s-total)"></i>Market value <b>&euro;11,200</b></span>
+      <span><i class="dash"></i>Invested <b>&euro;9,000</b></span>
+    </p>
     <svg viewBox="0 0 720 250" role="img" aria-label="Example line chart: portfolio market value rising from about 2,000 to 11,200 euros, staying above the total amount invested, which steps up to 9,000 euros.">
       <g>
         <line class="gridline" x1="56" y1="20" x2="620" y2="20"></line>
