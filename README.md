@@ -61,6 +61,11 @@ The planned coverage, grounded in bugs actually found:
    It is the number the app displays *and* the number dip alerts fire on. Extract to a shared
    module before testing it, or the tests only prove one copy is right.
 
+**Code quality:**
+- `getAvgCostPerShare` is implemented **twice** (`server.js` and `price-fetch.js`) with different
+  signatures and return types. It is the number the app displays *and* the number dip alerts fire
+  on, so a divergence would be silent and would matter. Extract to a shared module.
+
 **Ops hygiene:**
 - No load testing has been done — response times under real concurrent load are unverified
 
@@ -85,9 +90,10 @@ Fixing it properly is now possible and not large:
 Until then, treat euro figures before 2026-09-09 as approximate. Native prices and the shapes
 of the charts are unaffected either way.
 
-**Security hardening:**
-- Git remote auth still uses a personal access token embedded in the URL — switch to `gh` CLI
-  auth (device-code flow, since this is a headless VPS) and revoke the old tokens.
+**Open registration:**
+- `noindex` keeps the site out of search results, but **signing in is registration** — anyone with
+  the URL can create an account. Gate with an invite code or an email allow-list if that ever
+  matters.
 
 **Not planned for now:**
 - AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built then
