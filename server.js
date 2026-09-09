@@ -126,18 +126,23 @@ function appUrl() {
 }
 
 // Issue a session for a user id and set the cookie. Shared by every sign-in path.
+//
+// The cookie carries the raw secret; the database stores only its SHA-256, the
+// same way login_tokens are handled. The rows are therefore useless to anyone who
+// reads the database — a backup, a snapshot, a stray copy — because the value a
+// browser must present cannot be derived from what is stored.
 function startSession(res, userId) {
-  const sessionId = crypto.randomBytes(32).toString('hex');
+  const rawSessionId = crypto.randomBytes(32).toString('hex');
   db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
-    .run(sessionId, userId, new Date(Date.now() + SESSION_TTL_MS).toISOString());
-  res.cookie(SESSION_COOKIE, sessionId, {
+    .run(hashToken(rawSessionId), userId, new Date(Date.now() + SESSION_TTL_MS).toISOString());
+  res.cookie(SESSION_COOKIE, rawSessionId, {
     httpOnly: true,
     secure: COOKIE_SECURE,
     sameSite: 'lax',
     maxAge: SESSION_TTL_MS,
     path: '/'
   });
-  return sessionId;
+  return rawSessionId;
 }
 
 // One account per email address, regardless of which sign-in path created it.
@@ -387,18 +392,20 @@ const PUBLIC_API_PATHS = new Set(['/contact']);
 function authMiddleware(req, res, next) {
   if (PUBLIC_API_PATHS.has(req.path)) return next();
 
-  const sessionId = req.cookies ? req.cookies[SESSION_COOKIE] : null;
-  if (!sessionId) return res.status(401).json({ error: 'Not authenticated' });
+  const rawSessionId = req.cookies ? req.cookies[SESSION_COOKIE] : null;
+  if (!rawSessionId) return res.status(401).json({ error: 'Not authenticated' });
 
+  // Look the session up by the hash of the cookie, never the cookie itself.
+  const sessionKey = hashToken(rawSessionId);
   const row = db.prepare(`
     SELECT s.user_id, s.expires_at, u.email
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.id = ?
-  `).get(sessionId);
+  `).get(sessionKey);
 
   if (!row) return res.status(401).json({ error: 'Not authenticated' });
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionKey);
     return res.status(401).json({ error: 'Session expired' });
   }
 
@@ -418,8 +425,8 @@ app.get('/api/auth/me', (req, res) => {
 
 // POST /api/auth/logout - drop the session server-side and clear the cookie
 app.post('/api/auth/logout', (req, res) => {
-  const sessionId = req.cookies ? req.cookies[SESSION_COOKIE] : null;
-  if (sessionId) db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+  const rawSessionId = req.cookies ? req.cookies[SESSION_COOKIE] : null;
+  if (rawSessionId) db.prepare('DELETE FROM sessions WHERE id = ?').run(hashToken(rawSessionId));
   res.clearCookie(SESSION_COOKIE, { path: '/' });
   res.json({ success: true });
 });

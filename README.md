@@ -48,9 +48,6 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
   duplicate rules, so an alert can fire more than once in the same digest.
 
 **Security hardening:**
-- `sessions.id` is stored raw — it *is* the cookie value, not a hash of it. Anyone who obtains the
-  database obtains working logins. Storing a hash and comparing on lookup would make a future
-  database leak useless to an attacker.
 - Git remote auth still uses a personal access token embedded in the URL — switch to `gh` CLI
   auth (device-code flow, since this is a headless VPS) and revoke the old tokens.
 
@@ -207,6 +204,9 @@ Environment variables in `.env`:
 ### 🔐 Security
 
 - Secure HttpOnly cookies for sessions
+- **Session cookies are stored hashed.** `sessions.id` holds the SHA-256 of the cookie, never the
+  cookie itself, so reading the database (a backup, a snapshot, a stray copy) yields nothing that
+  can be presented to log in
 - CSRF protection on Google OAuth flow
 - Rate limiting on auth endpoints (15 requests/15 min per IP)
 - Magic-link tokens are single-use and only consumed on an explicit POST (not a passive GET),
