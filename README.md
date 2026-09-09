@@ -30,12 +30,6 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
 
 ### ⏳ Open Items / Backlog
 
-**Known broken:**
-- **Google sign-in returns `redirect_uri_mismatch`.** The redirect URI
-  `https://www.singleuseapps.com/portfoliotracker/api/auth/google/callback` is not registered on
-  the OAuth client in Google Cloud Console (it still has the old luisdanielsilva.com one). Magic
-  links work; Google does not, until that is added.
-
 **Ops hygiene:**
 - No load testing has been done — response times under real concurrent load are unverified
 - No `DEPLOYMENT.md` runbook — deploy/rollback steps aren't written down anywhere
@@ -138,7 +132,13 @@ Environment variables in `.env`:
 - `API_PORT` — Server port (default 3000)
 - `APP_BASE_URL` — canonical public URL (`https://www.singleuseapps.com/portfoliotracker`),
   used to build magic-link URLs and the Google OAuth redirect URI
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — OAuth config (already set)
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — OAuth config (already set). The client lives in a
+  Google Cloud project owned by the main account; the consent screen is **published** with only
+  the non-sensitive `openid` and `email` scopes, so it needed no Google verification review.
+  `singleuseapps.com` must stay in the client's **Authorized domains**, and
+  `<APP_BASE_URL>/api/auth/google/callback` in its **Authorized redirect URIs** — an exact string
+  match. Changing `APP_BASE_URL` therefore means updating the redirect URI in the console too, or
+  sign-in breaks with `redirect_uri_mismatch`.
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` — Resend SMTP config (already set).
   `secure` is derived from the port (`465` → true, else false) — the legacy `SMTP_USE_TLS` var is
   no longer read by the code.
