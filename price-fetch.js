@@ -158,6 +158,99 @@ function renderAlertDigestText(items) {
   return lines.join('\n');
 }
 
+/* ================= job run log + daily status report =================
+ * Two separate faults (a stale systemd path, then a market-hours bug) each hid
+ * for hours because a job that never ran looks exactly like a quiet one. Every
+ * run now leaves a row behind, and — while enabled — emails what it did.
+ */
+
+function ensureJobRunsTable(db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS job_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('success','skipped','failed')),
+    summary TEXT,
+    ran_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_job_runs_job_time ON job_runs(job, ran_at DESC)');
+}
+
+function recordRun(db, status, summary) {
+  try {
+    ensureJobRunsTable(db);
+    db.prepare('INSERT INTO job_runs (job, status, summary) VALUES (?, ?, ?)')
+      .run('price-fetch', status, JSON.stringify(summary || {}));
+  } catch (e) {
+    log(`  ⚠ could not record job run: ${e.message}`);
+  }
+}
+
+// Set PRICE_FETCH_REPORT=false in .env to stop the per-run status email without
+// touching code. The job-health watcher keeps working either way.
+const RUN_REPORT_ENABLED = process.env.PRICE_FETCH_REPORT !== 'false';
+
+function renderRunReport(status, d) {
+  const tone = status === 'success' ? MAIL.pos : status === 'skipped' ? MAIL.muted : MAIL.neg;
+  const heading = status === 'success' ? 'Prices updated'
+    : status === 'skipped' ? 'Run skipped'
+    : 'Run failed';
+
+  const row = (label, value) => `<tr>
+    <td style="padding:7px 0;font:400 13px/1.5 ${MAIL.sans};color:${MAIL.muted};width:42%">${label}</td>
+    <td style="padding:7px 0;font:500 13px/1.5 ${MAIL.mono};color:${MAIL.ink}">${value}</td></tr>`;
+
+  const tickerLines = (d.results || []).map(r => `<tr><td colspan="2" style="padding:3px 0;font:400 12.5px/1.5 ${MAIL.mono};color:${r.ok ? MAIL.muted : MAIL.neg}">
+    ${r.ok ? '✓' : '⚠'} ${r.ticker}${r.ok ? ' — ' + eur(r.priceEur) : ' — ' + (r.error || 'no price data')}</td></tr>`).join('');
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:${MAIL.ground}">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${MAIL.ground};padding:28px 12px"><tr><td align="center">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;background:${MAIL.surface};border:1px solid ${MAIL.hair};border-radius:12px">
+    <tr><td style="padding:24px 24px 0">
+      <div style="font:600 10.5px/1 ${MAIL.sans};letter-spacing:.14em;text-transform:uppercase;color:${MAIL.faint}">Portfolio Tracker · daily job</div>
+      <div style="margin:10px 0 3px;font:400 22px/1.2 ${MAIL.serif};color:${tone}">${heading}</div>
+      <div style="font:400 12.5px/1.5 ${MAIL.sans};color:${MAIL.muted}">${new Date().toLocaleString('en-GB', { dateStyle: 'full', timeStyle: 'short' })}</div>
+    </td></tr>
+    <tr><td style="padding:14px 24px 0">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        ${row('Market check', d.reason || '—')}
+        ${status === 'success' ? row('Prices fetched', `${d.successCount} of ${d.tickerCount}`) : ''}
+        ${status === 'success' ? row('Alerts evaluated', String(d.alertsChecked ?? 0)) : ''}
+        ${status === 'success' ? row('Alerts triggered', String(d.alertsTriggered ?? 0)) : ''}
+        ${d.error ? row('Error', d.error) : ''}
+        ${row('Duration', d.durationMs != null ? (d.durationMs / 1000).toFixed(1) + 's' : '—')}
+      </table>
+    </td></tr>
+    ${tickerLines ? `<tr><td style="padding:12px 24px 0"><div style="padding-top:12px;border-top:1px solid ${MAIL.hair}">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">${tickerLines}</table></div></td></tr>` : ''}
+    <tr><td style="padding:18px 24px 24px">
+      <div style="padding-top:14px;border-top:1px solid ${MAIL.hair};font:400 11.5px/1.6 ${MAIL.sans};color:${MAIL.faint}">
+        Sent after every run so a silent failure is visible. Turn it off with
+        <span style="font-family:${MAIL.mono}">PRICE_FETCH_REPORT=false</span> in .env.
+      </div>
+    </td></tr>
+  </table>
+</td></tr></table></body></html>`;
+}
+
+async function sendRunReport(mailer, status, d) {
+  if (!RUN_REPORT_ENABLED) return;
+  const to = process.env.ALERT_EMAIL_TO;
+  if (!mailer || !to) { log('  📌 run report not sent (no mailer or ALERT_EMAIL_TO)'); return; }
+  const subject = status === 'success'
+    ? `Prices updated — ${d.successCount}/${d.tickerCount} tickers, ${d.alertsTriggered ?? 0} alert(s)`
+    : status === 'skipped' ? `Price fetch skipped — ${d.reason}`
+    : `Price fetch FAILED — ${d.error}`;
+  try {
+    await mailer.sendMail({ from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
+      to, subject, html: renderRunReport(status, d) });
+    log(`  ✉ run report sent to ${to}`);
+  } catch (e) {
+    log(`  ❌ run report failed: ${e.message}`);
+  }
+}
+
 function alertSubject(items) {
   if (items.length === 1) {
     const i = items[0];
@@ -353,17 +446,28 @@ async function evaluateAlerts(db, mailer) {
   }
 
   log(`✅ Alert evaluation complete: ${triggeredCount} triggered`);
+  return { checked: alerts.length, triggered: triggeredCount, digests: byRecipient.size };
 }
 
 async function fetchPrices() {
+  const startedAt = Date.now();
   log('🚀 Starting price fetch job...');
 
+  // Opened before the market check so a skipped run is recorded too — a run that
+  // skips every day is the exact failure this log exists to make visible.
+  let db = null;
+  const results = [];
   try {
-    // Check if markets are closed before proceeding
+    db = new Database(dbPath);
+    db.pragma('foreign_keys = ON');
+
     const { isClosed, reason } = areMarketsClosedForFetch();
     if (!isClosed) {
       log(`⏳ Skipping fetch: ${reason}`);
       log('   Will retry when markets close');
+      recordRun(db, 'skipped', { reason });
+      await sendRunReport(initEmailTransporter(), 'skipped', { reason, durationMs: Date.now() - startedAt });
+      db.close();
       process.exit(0);
     }
     log(`✓ Markets check passed: ${reason}`);
@@ -371,16 +475,15 @@ async function fetchPrices() {
     // Initialize Yahoo Finance (v3 API requires instantiation)
     const yahooFinance = new YahooFinance();
 
-    // Connect to database
-    const db = new Database(dbPath);
-    db.pragma('foreign_keys = ON');
-
     // Get unique tickers from transactions
     const tickerStmt = db.prepare('SELECT DISTINCT ticker FROM transactions ORDER BY ticker');
     const tickers = tickerStmt.all().map(row => row.ticker);
 
     if (tickers.length === 0) {
       log('ℹ No tickers found in transactions table, skipping fetch');
+      recordRun(db, 'skipped', { reason: 'no tickers held' });
+      await sendRunReport(initEmailTransporter(), 'skipped',
+        { reason: 'no tickers held', durationMs: Date.now() - startedAt });
       db.close();
       process.exit(0);
     }
@@ -410,6 +513,7 @@ async function fetchPrices() {
         if (!quoteData || quoteData.regularMarketPrice === undefined) {
           log(`    ⚠ No price data for ${ticker}`);
           failureCount++;
+          results.push({ ticker, ok: false, error: 'no price data (check the symbol)' });
           continue;
         }
 
@@ -424,9 +528,11 @@ async function fetchPrices() {
         // Upsert into database
         upsertStmt.run(ticker, priceEur, priceUsd);
         successCount++;
+        results.push({ ticker, ok: true, priceEur });
       } catch (err) {
         log(`    ❌ Error fetching ${ticker}: ${err.message}`);
         failureCount++;
+        results.push({ ticker, ok: false, error: err.message });
       }
 
       // Small delay to avoid rate limiting
@@ -450,13 +556,27 @@ async function fetchPrices() {
 
     // Evaluate alerts
     const mailer = initEmailTransporter();
-    await evaluateAlerts(db, mailer);
+    const alertStats = await evaluateAlerts(db, mailer);
+
+    const summary = {
+      reason, tickerCount: tickers.length, successCount, failureCount,
+      alertsChecked: alertStats.checked, alertsTriggered: alertStats.triggered,
+      results, durationMs: Date.now() - startedAt
+    };
+    recordRun(db, 'success', summary);
+    await sendRunReport(mailer, 'success', summary);
 
     db.close();
     process.exit(0);
   } catch (err) {
     log(`❌ Fatal error: ${err.message}`);
     console.error(err);
+    // Record and report the failure before exiting — a crash is precisely what
+    // needs to reach someone, and the logs alone were not enough last time.
+    if (db) { recordRun(db, 'failed', { error: err.message, results }); try { db.close(); } catch (_) {} }
+    try {
+      await sendRunReport(initEmailTransporter(), 'failed', { error: err.message, results, durationMs: Date.now() - startedAt });
+    } catch (_) {}
     process.exit(1);
   }
 }

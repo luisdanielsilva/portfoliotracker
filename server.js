@@ -53,6 +53,21 @@ db.exec(schema);
   }
 })();
 
+// Migration: stop the same rule being saved twice. Nothing prevented it, and one
+// ticker ended up with three identical "dip 5%" rules — which would have meant the
+// same row three times in a single alert digest. De-duplicate first (keeping the
+// oldest of each group), because the index cannot be created while duplicates exist;
+// doing it in this order also keeps a restored older backup bootable.
+(function migrateAlertsUnique() {
+  const removed = db.prepare(`
+    DELETE FROM alerts WHERE id NOT IN (
+      SELECT MIN(id) FROM alerts GROUP BY user_id, ticker, rule_type, threshold
+    )
+  `).run().changes;
+  if (removed) console.log(`Removed ${removed} duplicate alert rule(s)`);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_unique ON alerts(user_id, ticker, rule_type, threshold)');
+})();
+
 // Migration: drop password_hash / api_key from users (passwordless magic-link auth).
 // transactions and alerts hold FKs to users(id) with ON DELETE CASCADE, so foreign
 // keys MUST be off while the table is swapped out — otherwise DROP TABLE users
@@ -858,12 +873,21 @@ app.post('/api/alerts', (req, res) => {
       VALUES (?, ?, ?, ?, 1)
     `);
 
-    const result = insertStmt.run(
-      req.userId,
-      alert.ticker.toUpperCase(),
-      alert.ruleType,
-      parseFloat(alert.threshold)
-    );
+    let result;
+    try {
+      result = insertStmt.run(
+        req.userId,
+        alert.ticker.toUpperCase(),
+        alert.ruleType,
+        parseFloat(alert.threshold)
+      );
+    } catch (e) {
+      // Blocked by idx_alert_unique: the identical rule already exists.
+      if (String(e.message).includes('UNIQUE constraint failed')) {
+        return res.status(409).json({ error: 'You already have that exact alert for this ticker.' });
+      }
+      throw e;
+    }
 
     const selectStmt = db.prepare(`
       SELECT id, ticker, rule_type as ruleType, threshold, enabled, last_triggered_at as lastTriggeredAt, created_at as createdAt
