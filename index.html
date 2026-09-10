@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta name="description" content="Know when to add to a position. Portfolio Tracker follows your true average cost per holding and emails you when a stock dips below the rules you set — so you average down on a plan, not a hunch.">
+<meta name="description" content="Know when to add, and when to take some off. Portfolio Tracker follows your true average cost and each holding’s 12-month high, and emails you when a stock crosses a level you set — below your cost, past your target, or down from its own peak.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E">
 <style>
   html{color-scheme:light dark}
@@ -510,17 +510,19 @@
   </nav>
 
   <section class="lp-hero">
-    <h1>Buy the dip on a rule, not a feeling.</h1>
+    <h1>Buy the dips. Sell near the tops. On a rule, not a feeling.</h1>
 
     <div class="lp-herogrid">
       <div>
         <p class="lp-lede">
           Ten shares at &euro;100, then ten more at &euro;70, and your average cost is &euro;85 &mdash; the
           stock only has to climb back to &euro;85 to put you in profit, not &euro;100. Portfolio Tracker
-          keeps that number current for every holding and emails you the moment one falls under a level
-          you set, so you add on your own plan instead of spotting the dip three weeks late.
+          keeps that number current for every holding and works from it in both directions: it emails
+          you when a stock falls under your cost, when you are up 75% on what you actually paid, and
+          when a holding is 20% off its own 12-month high &mdash; so you act on your own plan instead of
+          noticing three weeks late.
         </p>
-        <p class="lp-caveat">It won't call the bottom. It makes sure you don't miss your own signal.</p>
+        <p class="lp-caveat">It won't call the bottom or the top. It makes sure you don't miss your own signal.</p>
         <div class="lp-cta">
           <a class="lp-btn primary" href="#signin">Get started &mdash; it's free</a>
           <a class="lp-btn" href="#features">See what it does</a>
@@ -529,8 +531,9 @@
 
       <div>
         <div class="lp-stats">
-          <div><b class="hi">&euro;100 &rarr; &euro;85</b><span>Your average cost after one buy on the dip</span></div>
-          <div><b>15% lower</b><span>The climb back you need &mdash; profit at &euro;85, not &euro;100</span></div>
+          <div><b class="hi">&euro;100 &rarr; &euro;85</b><span>Buying the dip once cuts your average cost &mdash; and your break-even with it</span></div>
+          <div><b>+75% on cost</b><span>A take-profit level that follows what you actually paid, instead of a price that goes stale</span></div>
+          <div><b>&minus;20% off its high</b><span>The trailing level that says a run has broken, measured against the stock's own peak</span></div>
           <div><b>Every close</b><span>Prices refreshed and every rule re-checked, daily</span></div>
         </div>
         <p class="lp-statnote">Example: ten shares at &euro;100, then ten more at &euro;70.</p>
@@ -590,6 +593,75 @@
       </g>
     </svg>
     <figcaption>Example data. The shaded band is the price range where that second buy is the difference between a profit and a loss.</figcaption>
+  </figure>
+
+  <figure class="lp-figure">
+    <p class="lp-fig-title">What a rule near the top does</p>
+    <p class="lp-fig-key">
+      <span><i style="background:var(--s-total)"></i>Price</span>
+      <span><i class="dash"></i>Your average cost <b>&euro;85</b></span>
+      <span><i style="background:var(--s-tsla)"></i>Target <b>&euro;149</b></span>
+      <span><i style="background:var(--neg)"></i>Trailing <b>&euro;128</b></span>
+    </p>
+    <svg viewBox="0 0 900 300" role="img" aria-label="Example chart: the same holding, averaged in at 85 euros, runs up to 160. A take-profit rule set 75 percent above cost fires at 149 on the way up. A trailing rule set 20 percent below the stock's own high steps up behind the price and fires at 128 when the run breaks.">
+      <g>
+        <line class="gridline" x1="70" y1="40" x2="790" y2="40"></line>
+        <line class="gridline" x1="70" y1="82" x2="790" y2="82"></line>
+        <line class="gridline" x1="70" y1="124" x2="790" y2="124"></line>
+        <line class="gridline" x1="70" y1="166" x2="790" y2="166"></line>
+        <line class="gridline" x1="70" y1="208" x2="790" y2="208"></line>
+        <line class="gridline" x1="70" y1="250" x2="790" y2="250"></line>
+      </g>
+      <!-- what the stock is allowed to give back from its peak before the trailing
+           rule says the run has broken: EUR 160 down to EUR 128 -->
+      <rect x="594" y="61" width="196" height="67.2" fill="rgba(192,71,62,.10)"></rect>
+      <g class="axislbl" text-anchor="end" dominant-baseline="middle">
+        <text x="60" y="40">&euro;170</text>
+        <text x="60" y="82">&euro;150</text>
+        <text x="60" y="124">&euro;130</text>
+        <text x="60" y="166">&euro;110</text>
+        <text x="60" y="208">&euro;90</text>
+        <text x="60" y="250">&euro;70</text>
+      </g>
+      <g class="xlbl">
+        <text x="70" y="272">averaged in</text>
+        <text x="397" y="272">the run</text>
+        <text x="790" y="272">today</text>
+      </g>
+      <!-- your average cost: flat, because it only moves when you trade -->
+      <path d="M70,218.5 H790" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+      <!-- take-profit level: +75% on that average -->
+      <path d="M70,84.1 H790" fill="none" stroke="var(--s-tsla)" stroke-width="1.5" stroke-dasharray="7 4"></path>
+      <!-- trailing level: 20% under the highest price so far, so it climbs in steps -->
+      <path d="M70,237.4 H135 V227.3 H266 V208.8 H332 V188.7 H397 V166.8 H463 V146.7 H528 V131.6 H594 V128.2 H790" fill="none" stroke="var(--neg)" stroke-width="1.5"></path>
+      <path class="serieline" d="M70,197.5 L135,184.9 L201,189.1 L266,161.8 L332,136.6 L397,109.3 L463,84.1 L528,65.2 L594,61 L659,92.5 L725,136.6 L790,149.2" stroke="var(--s-total)"></path>
+      <g class="buyring" stroke="var(--s-tsla)">
+        <circle cx="463" cy="84.1" r="4.5"></circle>
+      </g>
+      <g class="buyring" stroke="var(--neg)">
+        <circle cx="725" cy="136.6" r="4.5"></circle>
+      </g>
+      <g style="font-size:11.5px;font-family:'IBM Plex Sans',system-ui,sans-serif" fill="var(--muted)">
+        <text x="80" y="210">Your average cost &euro;85</text>
+        <text x="240" y="76" fill="var(--s-tsla)">+75% on your cost &mdash; emailed here</text>
+        <text x="604" y="52" fill="var(--muted)">peak &euro;160</text>
+        <text x="452" y="176" fill="var(--neg)">&minus;20% off its high &mdash; climbs with the price</text>
+        <text x="700" y="160" text-anchor="middle" fill="var(--neg)">the run breaks &mdash; emailed here</text>
+      </g>
+      <g class="endlbl">
+        <text x="798" y="84.1" fill="var(--s-tsla)">&euro;149</text>
+        <text x="798" y="128.2" fill="var(--neg)">&euro;128</text>
+        <text x="798" y="153" fill="var(--s-total)">&euro;118</text>
+        <text x="798" y="218.5" fill="var(--faint)">&euro;85</text>
+      </g>
+      <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
+        <text x="798" y="97" fill="var(--muted)">your target</text>
+        <text x="798" y="141" fill="var(--muted)">trailing</text>
+        <text x="798" y="166" fill="var(--muted)">price today</text>
+        <text x="798" y="231" fill="var(--faint)">your average</text>
+      </g>
+    </svg>
+    <figcaption>Example data, the same holding as above once it ran. Your average cost only moves when you trade, so a target tied to it stays meaningful; the trailing level climbs on its own behind the price. The shaded band is what the stock is allowed to give back from its peak before you hear about it. One rule fires on the way up, the other on the way down &mdash; neither decides anything for you.</figcaption>
   </figure>
 
   <figure class="lp-figure crop-gutter">
@@ -672,17 +744,24 @@
     </div>
 
     <div class="lp-card">
-      <h3>Your rules, not someone else's</h3>
-      <p>Set a rule per holding and let it watch for you. It triggers on your terms and emails you &mdash; no dashboard to sit and stare at.</p>
+      <h3>Four rules, both directions</h3>
+      <p>Down on your cost, up on your cost, down from a holding's own 12-month high, or a plain price level. They watch and email you &mdash; no dashboard to sit and stare at.</p>
       <div class="lp-mini">
         <div class="lp-rules">
-          <span>below &euro;300</span><span>drops 10%</span><span>under avg cost</span>
+          <span>&minus;15% on cost</span><span>+75% on cost</span><span>&minus;20% off its high</span><span>below &euro;300</span>
         </div>
         <div class="lp-alert">
-          <span class="adot" style="background:var(--neg)"></span>
+          <span class="adot" style="background:var(--pos)"></span>
           <span class="atxt">
             <b>TSLA fell 12.4% below your average cost</b>
             <span>Rule: dip from average cost &middot; emailed 2 hours ago</span>
+          </span>
+        </div>
+        <div class="lp-alert" style="margin-top:7px">
+          <span class="adot" style="background:var(--s-tsla)"></span>
+          <span class="atxt">
+            <b>NVDA is up 81% on what you paid</b>
+            <span>Rule: target +75% on cost</span>
           </span>
         </div>
       </div>
@@ -727,8 +806,8 @@
     </div>
 
     <div class="lp-card">
-      <h3>Drawdowns and peaks</h3>
-      <p>How far below its high water mark the portfolio has been, and how long it took to climb back &mdash; the context a single balance hides.</p>
+      <h3>Peaks and drawdowns</h3>
+      <p>How far below its high water mark the portfolio has been, and how long it took to climb back. The same measure per holding is what a trailing rule fires on.</p>
       <div class="lp-mini">
         <svg viewBox="0 0 300 100" role="img" aria-label="Example chart: portfolio drawdown from its peak, dipping to 35 percent down before recovering to zero.">
           <line class="gridline" x1="8" y1="14" x2="250" y2="14"></line>
@@ -756,7 +835,7 @@
   </div>
 
   <h2 class="lp-h2">How it works</h2>
-  <p class="lp-lede">One thing you type in, then three that happen without you. Blue is you; green runs on a schedule; red is the moment it interrupts you.</p>
+  <p class="lp-lede">One thing you type in, then three that happen without you &mdash; the same four steps whether the price is falling or running. Blue is you; green runs on a schedule; red is the moment it interrupts you.</p>
 
   <ol class="lp-timeline">
     <li style="--c:var(--s-total);--cbg:var(--accent-soft)">
@@ -775,13 +854,13 @@
       <span class="lp-tl-when">The moment a rule is met</span>
       <span class="lp-tl-actor">Alert</span>
       <h4>You get told &mdash; once</h4>
-      <p>Every rule is re-checked against the fresh prices, and a crossing sends an email. Each rule fires at most once in 24 hours, so a long slide downward never floods your inbox.</p>
+      <p>Every rule is re-checked against the fresh prices &mdash; against your average cost, against your target, against the holding's own 12-month high &mdash; and a crossing sends an email. Everything that fired arrives as one message, and each rule fires at most once in 24 hours, so neither a long slide nor a long run floods your inbox.</p>
     </li>
     <li style="--c:var(--s-total);--cbg:var(--accent-soft)">
       <span class="lp-tl-when">Your call</span>
       <span class="lp-tl-actor">You</span>
       <h4>Decide, with the number in front of you</h4>
-      <p>The email says how far under your own average the price has fallen. Whether you add is entirely yours to judge &mdash; the job here was making sure you knew while it still mattered.</p>
+      <p>The email carries the figure the decision turns on: how far under your average the price has fallen, how far above it you are, or how far the stock has come off its own high. Whether you add, trim or sit still is entirely yours to judge &mdash; the job here was making sure you knew while it still mattered.</p>
     </li>
   </ol>
 
@@ -790,11 +869,11 @@
     <div class="lp-mail">
       <div class="lp-mail-hdr">
         <span class="lp-mail-from">Portfolio Tracker</span>
-        <span class="lp-mail-subj">3 alerts: TSLA, AMD, MSFT</span>
+        <span class="lp-mail-subj">4 alerts: TSLA, NVDA, ORCL, AMD</span>
       </div>
       <div class="lp-mail-body">
         <div class="lp-mail-eyebrow">Portfolio Tracker</div>
-        <div class="lp-mail-h">3 alerts triggered</div>
+        <div class="lp-mail-h">4 alerts triggered</div>
         <div class="lp-mail-when">Wednesday 9 September, after the close</div>
 
         <div class="lp-mail-sec">Dips below your average cost</div>
@@ -803,20 +882,28 @@
           <span class="lp-mail-det">&euro;338.71 now &middot; your average cost &euro;386.65<br>Back to break-even at <b>&euro;386.65</b></span>
         </div>
 
-        <div class="lp-mail-sec">Price levels you set</div>
-        <div class="lp-mail-row">
-          <span class="lp-mail-top"><b>AMD</b><i class="acc">below &euro;480.00</i></span>
-          <span class="lp-mail-det">&euro;465.28 now &middot; 3.1% under the level you set</span>
-        </div>
+        <div class="lp-mail-sec">Up on what you paid</div>
         <div class="lp-mail-row lp-last">
-          <span class="lp-mail-top"><b>MSFT</b><i class="pos">above &euro;440.00</i></span>
-          <span class="lp-mail-det">&euro;454.43 now &middot; 3.3% over the level you set</span>
+          <span class="lp-mail-top"><b>NVDA</b><i class="pos">+81.2%</i></span>
+          <span class="lp-mail-det">&euro;253.90 now &middot; your average cost &euro;140.15<br>Past your <b>+75%</b> target</span>
+        </div>
+
+        <div class="lp-mail-sec">Down from their recent high</div>
+        <div class="lp-mail-row lp-last">
+          <span class="lp-mail-top"><b>ORCL</b><i class="neg">&minus;34.1%</i></span>
+          <span class="lp-mail-det">$216.40 now &middot; 52-week high $328.33<br>Past your <b>&minus;30%</b> trailing level</span>
+        </div>
+
+        <div class="lp-mail-sec">Price levels you set</div>
+        <div class="lp-mail-row lp-last">
+          <span class="lp-mail-top"><b>AMD</b><i class="acc">below $480.00</i></span>
+          <span class="lp-mail-det">$465.28 now &middot; 3.1% under the level you set</span>
         </div>
 
         <span class="lp-mail-btn">Open Portfolio Tracker</span>
       </div>
     </div>
-    <figcaption>Both kinds of rule arrive in one message &mdash; dips measured against your own average cost, and the plain price levels you set. Never more than one email per rule per day.</figcaption>
+    <figcaption>Everything that fired arrives in one message, grouped by what it means: below your own average cost, above it, off a holding’s own 12-month high, or through a price level you set. Prices are shown in the currency their market quotes. Never more than one email per rule per day.</figcaption>
   </figure>
 
   <section class="lp-signin">
@@ -867,7 +954,9 @@
       <span class="delta" id="h-delta"></span>
     </div>
     <p class="sub">
-      Track your investment portfolio over time with daily snapshots, historical prices, and performance analytics.
+      Track your investment portfolio over time with daily snapshots, historical prices, and performance analytics,
+      and set rules in both directions &mdash; below your average cost when a holding is worth adding to, above it when
+      it is worth taking something off, and off a holding&rsquo;s own 12-month high when a run has broken.
       Add transactions from the <b>Add transactions and alerts</b> tab to build your portfolio history.
       Your holdings are private to your account &mdash; only you can see them.
     </p>
@@ -983,7 +1072,7 @@
   <!-- ===== VIEW: DCA (dollar-cost-averaging opportunity finder) ===== -->
   <section id="view-dca" hidden>
     <div class="panel">
-      <p class="microcopy" style="margin:0 0 12px">Find good moments to add to a position: how far below its own trailing average a stock is trading right now, and how often that&rsquo;s happened over the last year.</p>
+      <p class="microcopy" style="margin:0 0 12px">Where a holding sits against its own recent norm, in both directions: how far below its trailing average it is trading &mdash; the case for adding &mdash; and how far above, which is where taking something off is worth thinking about. Plus how often each has happened over the last year, so you can judge whether today&rsquo;s level is unusual or routine.</p>
       <div class="segmented" role="group" aria-label="Select stock" id="dca-tickers" style="margin-bottom:16px"></div>
       <div class="kpi-grid" id="dca-kpi"></div>
       <h3 class="ind-h" id="dca-h1">Price vs. trailing average</h3>
@@ -993,19 +1082,19 @@
         <div class="tip" id="dca-price-tip"></div>
       </div>
       <h3 class="ind-h" id="dca-bb-h">Bollinger Bands</h3>
-      <p class="microcopy" style="margin:0 0 10px">20-day moving average &plusmn; 2 standard deviations. Price near or below the lower band has historically been statistically cheap relative to its own recent volatility &mdash; a classic DCA signal.</p>
+      <p class="microcopy" style="margin:0 0 10px">20-day moving average &plusmn; 2 standard deviations. Price at or below the lower band is cheap relative to this stock&rsquo;s own recent volatility &mdash; the classic averaging-down signal; at or above the upper band it is stretched the other way. Both are statements about its own habits, not a forecast.</p>
       <div class="chartbox">
         <svg class="chart" id="dca-bb" viewBox="0 0 960 320" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Bollinger Bands over time"></svg>
         <div class="tip" id="dca-bb-tip"></div>
       </div>
       <h3 class="ind-h">Deviation from average &mdash; how far below (or above) the norm</h3>
-      <p class="microcopy" style="margin:0 0 10px">% difference between the daily price and its trailing average. Below zero (shaded) = trading cheaper than usual = a candidate moment to reinforce.</p>
+      <p class="microcopy" style="margin:0 0 10px">% difference between the daily price and its trailing average. Below zero (shaded) is cheaper than usual &mdash; a candidate moment to reinforce. Above zero is dearer than usual, which is the half of the picture a dip-only view leaves out.</p>
       <div class="chartbox">
         <svg class="chart" id="dca-dev" viewBox="0 0 960 300" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Deviation from trailing average over time"></svg>
         <div class="tip" id="dca-tip"></div>
       </div>
       <h3 class="ind-h">Notable dips</h3>
-      <p class="microcopy" style="margin:0 0 12px">The deepest below-average stretches in the window, most recent first.</p>
+      <p class="microcopy" style="margin:0 0 12px">The deepest below-average stretches in the window, most recent first. This table is deliberately one-sided &mdash; it is the buying-opportunity log. For the other direction, the alert map under <b>Add transactions and alerts</b> shows where a target or trailing rule would have fired.</p>
       <div class="tablewrap"><table id="dca-table"></table></div>
     </div>
   </section>
@@ -3435,6 +3524,9 @@
     var belowVals=winDev.filter(function(d){ return d<0; });
     var avgDiscount=belowVals.length?belowVals.reduce(function(a,b){return a+b;},0)/belowVals.length:0;
     var deepestIdx=w0; for(var i=w0;i<=m;i++) if(dev[i]<dev[deepestIdx]) deepestIdx=i;
+    // the same statistic in the other direction: a stretch well above the trailing
+    // average is where a take-profit rule would have been earning its keep
+    var highestIdx=w0; for(var i=w0;i<=m;i++) if(dev[i]>dev[highestIdx]) highestIdx=i;
 
     function kpi(k){ return '<div class="kpi"><div class="k-label">'+k.l+'</div><div class="k-val">'+k.v+'</div>'+(k.s?'<div class="k-sub '+(k.c||"")+'">'+k.s+'</div>':'')+'</div>'; }
     document.getElementById("dca-kpi").innerHTML=[
@@ -3443,7 +3535,8 @@
       {l:"Current deviation", v:dp(dev[m]), c:dev[m]<0?"pos":"neg", s:dev[m]<0?"trading below its own average":"trading above its own average"},
       {l:"Days below average", v:belowCount+" / "+winDev.length, s:comma((belowPct*100).toFixed(0))+"% of the last "+ntv()+" days"},
       {l:"Average discount when below", v:belowVals.length?dp(avgDiscount):"—", s:"typical dip size in the window"},
-      {l:"Deepest discount", v:dp(dev[deepestIdx]), c:"pos", s:hist[deepestIdx].date}
+      {l:"Deepest discount", v:dp(dev[deepestIdx]), c:"pos", s:hist[deepestIdx].date},
+      {l:"Highest premium", v:dp(dev[highestIdx]), c:"neg", s:hist[highestIdx].date}
     ].map(kpi).join("");
     function ntv(){ return Math.round((ts[m]-winTs[0])/864e5); }
 

@@ -37,9 +37,12 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
   flattening it — the row below still gives the level and the distance. A trailing rule's line
   moves, because it recomputes its own 365-day high at each date; triggering is always tested in
   the rule's own currency even though the drawing is in the market's.
-- **Landing page:** Logged-out visitors get a public page explaining the tool (worked DCA example,
-  six feature cards, a How-it-works time track, a preview of the alert email) rather than a bare
-  login form. It lives inside `#auth-gate` in `index.html` and is replaced by the app on sign-in.
+- **Landing page:** Logged-out visitors get a public page explaining the tool (two worked examples
+  — one buying the dip, one selling near the top — six feature cards, a How-it-works time track,
+  and a preview of the alert email) rather than a bare login form. It lives inside `#auth-gate` in
+  `index.html` and is replaced by the app on sign-in. **Its mock of the alert email is a hand-built
+  copy of `renderAlertDigest()`** — change one and check the other, or the page starts advertising
+  an email nobody receives.
 - **Portfolio Data:** 74 historical snapshots (Jun 2023 – Aug 2026) + user transactions
 - **Database:** SQLite with proper schema, migrations, foreign keys. **Not tracked in git** — see
   Backups below.
@@ -85,7 +88,7 @@ The planned coverage, grounded in bugs actually found:
 now lives once in `portfolio.js` and both callers use it.
 
 
-**The sell side — mostly built, framing still one-sided:**
+**The sell side — done (2026-09-10):**
 
 The stated purpose is twofold: average *in* below your cost, and sell *near the tops*. Everything
 built before 2026-09-10 served only the first. Now:
@@ -96,8 +99,14 @@ built before 2026-09-10 served only the first. Now:
    `recentHigh()` in `db-migrations.js` reads the high of the trailing 365 days.
 3. ✅ `drop_from_high` — the trailing signal, which is what the removed `change_pct` should have
    been. Against the current holdings at a 20% threshold, five of ten would fire.
-4. ⏳ **Framing.** The digest now has sell-side sections, but the landing page headline and the
-   DCA tab still speak only of dips. The public copy is the remaining half of this item.
+4. ✅ **Framing.** The headline is "Buy the dips. Sell near the tops. On a rule, not a feeling.";
+   the hero states all three rule types with figures; a second worked example ("What a rule near
+   the top does") shows a target firing on the way up and a trailing level firing when the run
+   breaks; the feature card is "Four rules, both directions"; the how-it-works steps and the
+   landing page's mock of the alert email match what the digest actually sends. The DCA tab reads
+   in both directions and gained a "Highest premium" figure to mirror "Deepest discount". Its
+   "Notable dips" table stays one-sided on purpose — it is the buying-opportunity log, and it says
+   so, pointing at the alert map for the other direction.
 
 **Price history — backfilled 2026-09-10 (was an open item):**
 
@@ -428,3 +437,7 @@ node check-job-health.js            # check, email if stale, exit 1 if unhealthy
   value rather than accumulated cost
 - **Sep 2026:** Sell side built — `gain_from_avg_cost` and `drop_from_high` rules, digest sections
   for both, and a per-alert sparkline showing the gap each rule is watching
+- **Sep 2026:** Alert map — a full chart of one holding with every rule drawn on it, and markers
+  where each would have fired
+- **Sep 2026:** Public copy reframed for both directions; the tool had been described as a
+  dip-buying tool for a week after it stopped being one
