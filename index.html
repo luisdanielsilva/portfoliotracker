@@ -1027,10 +1027,12 @@
           </div>
           <div style="display:flex;flex-direction:column">
             <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Rule</label>
+            <!-- "% change" was offered here but evaluateAlerts never handled it, so a
+                 rule created that way sat in the database and never fired. Removed
+                 rather than left as a trap; re-add it only alongside an evaluator. -->
             <select id="al-rule" style="font-size:12px">
               <option value="price_above">Price above</option>
               <option value="price_below">Price below</option>
-              <option value="change_pct">% change</option>
             </select>
           </div>
           <div style="display:flex;flex-direction:column">
@@ -2438,7 +2440,6 @@
     var lbl=document.getElementById("al-threshold-label");
     if(!lbl) return;
     var rule=document.getElementById("al-rule").value;
-    if(rule==="change_pct"){ lbl.textContent="Threshold (%)"; return; }
     var ticker=(document.getElementById("al-ticker").value||"").toUpperCase().trim();
     var cur=LATEST_PRICE_CURRENCY[ticker];
     lbl.textContent=cur?("Threshold ("+cur+")"):"Threshold";
