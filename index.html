@@ -1009,6 +1009,21 @@
             </select>
           </div>
         </div>
+        <!-- Only shown for a ticker with no price history yet. Without a backfill its
+             past is blank: earlier snapshots fall back to cost basis, and there is no
+             high to judge "near the top" against. -->
+        <div id="tx-hist-row" hidden style="margin-bottom:10px;background:var(--surface-2);border:1px solid var(--hair);border-radius:8px;padding:10px 12px">
+          <div style="font-size:11.5px;color:var(--muted);margin-bottom:7px">
+            <b id="tx-hist-ticker" style="color:var(--ink)"></b> is new here. How much price history should it load?
+          </div>
+          <div class="segmented" role="group" aria-label="History depth" id="tx-hist-presets">
+            <button type="button" data-years="0.5">6 months</button>
+            <button type="button" data-years="1">1 year</button>
+            <button type="button" data-years="2" aria-pressed="true">2 years</button>
+            <button type="button" data-years="5">5 years</button>
+          </div>
+          <div style="font-size:11px;color:var(--faint);margin-top:6px">Used for the value chart, drawdowns, and how far a price sits from its high.</div>
+        </div>
         <div id="tx-rate-row" hidden style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
           <div style="display:flex;flex-direction:column">
             <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Exchange rate (1 USD = ? EUR)</label>
@@ -2267,11 +2282,37 @@
       document.getElementById("tx-amount").value="";
       document.getElementById("tx-rate").value="";
       toast(txType.charAt(0).toUpperCase()+txType.slice(1)+" "+qty+" "+ticker);
+      // A ticker priced for the first time has no past until it is fetched.
+      if(!LATEST_PRICES[ticker]){
+        toast("Loading "+histYears+"y of history for "+ticker+"\u2026");
+        apiFetch("./api/backfill",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({ticker:ticker,years:histYears})})
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if(d && d.success){
+              toast(ticker+": "+d.added+" days of history loaded");
+              document.getElementById("tx-hist-row").hidden=true;
+              if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
+            } else { showError((d&&d.error)||"Could not load history for "+ticker); }
+          })
+          .catch(function(e2){ showError("History load failed: "+e2.message); });
+      }
     }).catch(function(e){
       nt.className="frm-note err";
       nt.textContent="Server error: "+e.message;
     });
   });
+
+  // Depth of history to pull for a ticker the app has never priced before.
+  var histYears=2;
+  function refreshHistPrompt(){
+    var row=document.getElementById("tx-hist-row");
+    if(!row) return;
+    var t=(document.getElementById("tx-ticker").value||"").toUpperCase().trim();
+    var known=!!LATEST_PRICES[t];
+    row.hidden=!(t.length>=1 && !known);
+    if(!row.hidden) document.getElementById("tx-hist-ticker").textContent=t;
+  }
 
   /* ================= alerts ================= */
   var alerts=[];
@@ -2625,6 +2666,17 @@
         document.getElementById("dip-custom").hidden=(dipPreset!=="custom");
         if(dipPreset==="custom") document.getElementById("dip-custom").focus();
         renderDipPreview();
+      });
+    });
+  }
+
+  if(document.getElementById("tx-hist-presets")){
+    document.getElementById("tx-ticker").addEventListener("input",refreshHistPrompt);
+    Array.prototype.forEach.call(document.querySelectorAll("#tx-hist-presets button"),function(b){
+      b.addEventListener("click",function(){
+        histYears=parseFloat(b.dataset.years);
+        Array.prototype.forEach.call(document.querySelectorAll("#tx-hist-presets button"),function(x){
+          x.setAttribute("aria-pressed", x===b?"true":"false"); });
       });
     });
   }

@@ -584,6 +584,29 @@ app.get('/api/prices', (req, res) => {
 });
 
 // GET /api/price-history/:ticker - retrieve full daily price history for a ticker
+// POST /api/backfill { ticker, years } — pull daily history for a ticker.
+//
+// A ticker only starts accumulating prices the day it is first fetched, so a newly
+// added holding has no past. Without one, snapshots before today fall back to cost
+// basis and there is no high to measure "near the top" against. This lets the app
+// fill that in at the moment a ticker is added, with the depth the user chooses.
+app.post('/api/backfill', async (req, res) => {
+  try {
+    const ticker = String(req.body.ticker || '').toUpperCase().trim();
+    const years = Math.min(Math.max(parseFloat(req.body.years) || 2, 0.25), 10);
+    if (!ticker) return res.status(400).json({ error: 'ticker is required' });
+
+    const YahooFinance = require('yahoo-finance2').default;
+    const { backfillTicker } = require('./backfill-history');
+    const result = await backfillTicker(db, new YahooFinance(), ticker, years);
+
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('POST /api/backfill error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/price-history?tickers=A,B,C&days=180 — compact series for several tickers
 // at once. The alert list draws a sparkline per rule; fetching each ticker separately
 // would mean a round trip per row for data that is a few hundred numbers in total.
