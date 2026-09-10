@@ -584,6 +584,31 @@ app.get('/api/prices', (req, res) => {
 });
 
 // GET /api/price-history/:ticker - retrieve full daily price history for a ticker
+// GET /api/price-history?tickers=A,B,C&days=180 — compact series for several tickers
+// at once. The alert list draws a sparkline per rule; fetching each ticker separately
+// would mean a round trip per row for data that is a few hundred numbers in total.
+app.get('/api/price-history', (req, res) => {
+  try {
+    const tickers = String(req.query.tickers || '')
+      .split(',').map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 40);
+    if (!tickers.length) return res.json({ series: {} });
+
+    const days = Math.min(parseInt(req.query.days, 10) || 180, 3650);
+    const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+
+    const stmt = db.prepare(`
+      SELECT price_date AS d, price_eur AS eur, price_native AS native, currency
+      FROM prices WHERE ticker = ? AND price_date >= ? ORDER BY price_date ASC
+    `);
+    const series = {};
+    for (const ticker of tickers) series[ticker] = stmt.all(ticker, from);
+    res.json({ series, from, days });
+  } catch (err) {
+    console.error('GET /api/price-history error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/price-history/:ticker', (req, res) => {
   try {
     const ticker = req.params.ticker.toUpperCase();

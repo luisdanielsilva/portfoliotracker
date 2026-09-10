@@ -394,7 +394,7 @@
 
   /* alert list: a table that uses the width, so the numbers that matter are
      readable at a glance instead of packed into small grey prose */
-  .al-row{display:grid;grid-template-columns:minmax(90px,.8fr) minmax(150px,1.4fr) minmax(90px,.8fr) minmax(90px,.8fr) minmax(130px,1fr) auto;
+  .al-row{display:grid;grid-template-columns:minmax(80px,.7fr) minmax(140px,1.2fr) minmax(85px,.7fr) minmax(85px,.7fr) minmax(115px,.9fr) 170px auto;
           gap:14px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--hair)}
   .al-row:last-child{border-bottom:0}
   .al-row.off{opacity:.5}
@@ -417,6 +417,8 @@
   .al-bar{height:4px;border-radius:2px;background:var(--hair);margin-top:5px;overflow:hidden}
   .al-bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
   .al-move.near ~ .al-bar i,.al-head2:has(.near) .al-bar i{background:var(--neg)}
+  .al-spark{display:block;width:170px;height:46px}
+  .al-sparkcell{line-height:0}
   .al-act{display:flex;gap:6px;justify-self:end}
   @media (max-width:820px){
     .al-head{display:none}
@@ -426,6 +428,8 @@
     .al-num::before{content:attr(data-l);font-family:"IBM Plex Sans",sans-serif;font-size:10px;
                     text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-right:6px}
     .al-head2{grid-column:1/-1}
+    .al-sparkcell{grid-column:1/-1}
+    .al-spark{width:100%}
     .al-act{grid-column:2;grid-row:1}
   }
 
@@ -2324,6 +2328,57 @@
       (current!=null?"<br>Current price: "+fmt(current)+" ("+dp(current/avgCost-1)+" vs. your cost)"+(already?" — <span class='pos'>would trigger right away</span>":""):"");
   }
 
+  /* Alert sparkline: what the rule is watching for, drawn.
+     Six months of price, a dashed line at your average cost, a solid line at the
+     level that fires, and the gap between today's price and that level shaded —
+     so "a 15% dip on TSLA" is something you can see rather than infer from two
+     numbers. The scale always includes the trigger, otherwise a distant target
+     would simply not appear on the chart. */
+  var ALERT_HISTORY={}; // ticker -> [{d,eur,native,currency}]
+
+  function loadAlertHistory(tickers){
+    if(!tickers.length) return Promise.resolve();
+    return apiFetch('./api/price-history?days=180&tickers='+encodeURIComponent(tickers.join(',')))
+      .then(function(r){ return r.ok?r.json():{series:{}}; })
+      .then(function(d){ Object.assign(ALERT_HISTORY,d.series||{}); })
+      .catch(function(){ /* the list still works without pictures */ });
+  }
+
+  function alertSpark(ticker, costBased, trigger, avgCost){
+    var raw=ALERT_HISTORY[ticker]||[];
+    if(raw.length<2||trigger==null) return '';
+    // cost-based rules are reasoned about in euros; price levels in the market's own
+    var vals=raw.map(function(p){ return costBased?p.eur:(p.native!=null?p.native:p.eur); })
+                .filter(function(v){ return v!=null; });
+    if(vals.length<2) return '';
+
+    var W=170,H=46,PAD=3;
+    var lo=Math.min.apply(null,vals), hi=Math.max.apply(null,vals);
+    lo=Math.min(lo,trigger); hi=Math.max(hi,trigger);          // always show the target
+    if(avgCost!=null){ lo=Math.min(lo,avgCost); hi=Math.max(hi,avgCost); }
+    if(hi-lo<1e-9) hi=lo+1;
+    var y=function(v){ return PAD+(1-(v-lo)/(hi-lo))*(H-2*PAD); };
+    var x=function(i){ return (i/(vals.length-1))*W; };
+
+    var d=vals.map(function(v,i){ return (i?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1); }).join(' ');
+    var last=vals[vals.length-1], yNow=y(last), yTrig=y(trigger);
+
+    var gap='<rect x="0" y="'+Math.min(yNow,yTrig).toFixed(1)+'" width="'+W+'" height="'
+      +Math.abs(yTrig-yNow).toFixed(1)+'" fill="var(--accent-soft)"></rect>';
+    var avgLine=avgCost!=null
+      ? '<line x1="0" y1="'+y(avgCost).toFixed(1)+'" x2="'+W+'" y2="'+y(avgCost).toFixed(1)
+        +'" stroke="var(--faint)" stroke-width="1" stroke-dasharray="3 3"></line>' : '';
+    var trigLine='<line x1="0" y1="'+yTrig.toFixed(1)+'" x2="'+W+'" y2="'+yTrig.toFixed(1)
+      +'" stroke="var(--neg)" stroke-width="1.5"></line>';
+
+    return '<svg class="al-spark" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" '
+      +'aria-label="Six months of price against the level this alert fires at">'
+      +gap+avgLine+trigLine
+      +'<path d="'+d+'" fill="none" stroke="var(--s-total)" stroke-width="1.6" stroke-linejoin="round"></path>'
+      +'<circle cx="'+(W-1)+'" cy="'+yNow.toFixed(1)+'" r="2.6" fill="var(--s-total)"></circle>'
+      +'</svg>';
+  }
+
   // Target alerts are the sell-side mirror of dip alerts: same shape, same preview,
   // measured against the same cost basis — only the direction differs.
   var gainPreset="25";
@@ -2381,7 +2436,9 @@
       })
       .then(data=>{
         alerts=data.alerts||[];
-        renderAlerts();
+        // sparklines need the price series; render regardless if it fails
+        var tickers=[...new Set(alerts.map(a=>a.ticker))];
+        return loadAlertHistory(tickers).then(function(){ renderAlerts(); });
       })
       .catch(err=>{
         console.error('Failed to load alerts:',err.message);
@@ -2427,7 +2484,7 @@
 
     var head='<div class="al-row al-head">'
       +'<div>Ticker</div><div>Rule</div><div class="al-num">Fires at</div>'
-      +'<div class="al-num">Now</div><div>Headroom</div><div></div></div>';
+      +'<div class="al-num">Now</div><div>Headroom</div><div>Watching</div><div></div></div>';
 
     list.innerHTML=head+rows.map(r=>{
       var a=r.a;
@@ -2454,6 +2511,7 @@
         +'<div class="al-num al-trig" data-l="fires at">'+(r.trigger!=null?fmtNative(r.trigger,r.cur):"—")+'</div>'
         +'<div class="al-num" data-l="now">'+(r.now!=null?fmtNative(r.now,r.cur):"—")+'</div>'
         +'<div class="al-head2">'+head2+bar+'</div>'
+        +'<div class="al-sparkcell">'+alertSpark(a.ticker,r.isDip||r.isGain,r.trigger,a.avgCostEUR)+'</div>'
         +'<div class="al-act">'
           +'<button class="mini" data-action="toggle" data-id="'+a.id+'" title="Last triggered: '+last+'">'+(a.enabled?"On":"Off")+'</button>'
           +'<button class="mini" data-action="delete" data-id="'+a.id+'">Delete</button>'
