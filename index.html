@@ -68,20 +68,30 @@
   .sub{color:var(--muted);font-size:14px;max-width:64ch;margin:12px 0 0}
 
   .tabs-sticky{position:sticky;top:0;z-index:100;display:flex;justify-content:center;background:var(--ground);padding:12px 24px;box-shadow:0 2px 8px rgba(0,0,0,0.08)}
-  .tabs{display:inline-flex;flex-wrap:wrap;border:1px solid var(--hair);border-radius:10px;overflow:hidden;margin:0;background:var(--ground);padding:0}
-  .tabs button{font:inherit;font-size:13.5px;font-weight:500;padding:9px 16px;border:0;cursor:pointer;background:var(--surface);color:var(--muted)}
+  /* The strip spans the same width as the panels below it — .wrap is 1000px including its
+     24px padding, so 952px lines its edges up with the content instead of leaving it
+     hanging in the middle of the page. Buttons share the extra width equally, which keeps
+     them in their natural order of length rather than forcing DCA as wide as the longest.
+
+     min-width:max-content is what makes this degrade rather than break: a button never
+     shrinks below its own label, so once five long labels stop fitting, the row overflows
+     and scrolls sideways. It used to wrap instead, and the rounded container clipped each
+     row differently — a ragged, stepped right edge, and three rows of a sticky bar that
+     already costs a phone 65px of viewport. */
+  .tabs{display:flex;flex-wrap:nowrap;width:100%;max-width:952px;min-width:0;
+        border:1px solid var(--hair);border-radius:10px;margin:0;background:var(--ground);padding:0;
+        overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+        scroll-behavior:smooth}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{font:inherit;font-size:13.5px;font-weight:500;padding:9px 16px;border:0;cursor:pointer;
+               background:var(--surface);color:var(--muted);
+               flex:1 1 auto;min-width:max-content;white-space:nowrap;text-align:center}
   .tabs button[aria-selected="true"]{background:var(--accent);color:#fff}
   .tabs button+button{border-left:1px solid var(--hair)}
-  /* Five long labels do not fit a narrow screen. Wrapping them left a ragged, stepped
-     right edge and grew a sticky bar that already costs a phone 65px of viewport; the row
-     now scrolls sideways instead, so it stays one clean rectangle at every width. */
-  @media (max-width:1080px){
-    .tabs-sticky{padding-left:16px;padding-right:16px}
-    .tabs{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;min-width:0;max-width:100%;
-          scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-behavior:smooth}
-    .tabs::-webkit-scrollbar{display:none}
-    .tabs button{flex:none;white-space:nowrap}
-  }
+  /* the rounded container used to clip the ends; a scrolling row cannot hide its overflow,
+     so the corners come from the first and last buttons instead */
+  .tabs button:first-child{border-radius:9px 0 0 9px}
+  .tabs button:last-child{border-radius:0 9px 9px 0}
 
   .panel{background:var(--surface);border:1px solid var(--hair);border-radius:14px;box-shadow:var(--shadow);padding:22px 20px 18px;margin-top:22px}
 
