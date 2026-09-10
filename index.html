@@ -49,6 +49,12 @@
   *{box-sizing:border-box}
   body{background:var(--ground);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased}
   .wrap{max-width:1000px;margin:0 auto;padding:48px 24px 96px}
+  /* The header block and the content below share .wrap, whose 96px bottom padding is
+     meant for the end of a page. Between the header and the tab bar it left 122px above
+     the bar and 70px below, so the bar floated between two sections instead of belonging
+     to either. 26px of header margin + 12px of the bar's own padding = 38px, matched below. */
+  .wrap-head{padding-bottom:0}
+  .tabs-sticky + .wrap{padding-top:4px}
   .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
 
   header{margin-bottom:26px}
@@ -945,7 +951,7 @@
  </div>
 </div>
 
-<div class="wrap">
+<div class="wrap wrap-head">
   <header>
     <p class="eyebrow">Portfolio Tracker &middot; <span id="eyebrow-range">Last updated: —</span><span id="auth-status"></span></p>
     <h1>Stock portfolio</h1>
