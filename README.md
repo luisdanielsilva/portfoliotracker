@@ -61,6 +61,40 @@ The planned coverage, grounded in bugs actually found:
 now lives once in `portfolio.js` and both callers use it.
 
 
+**The sell side is missing — the tool is currently only half its purpose:**
+
+The stated purpose is twofold: average *in* below your cost, and sell *near the tops*. Everything
+built so far serves the first. `dip_from_avg_cost`, the digest's "dips below your average cost"
+section, the DCA tab and the landing page headline all point one way. There is no
+take-profit rule, no notion of a peak, and no signal that a position is extended.
+
+What it needs, roughly in order:
+1. **A `gain_from_avg_cost` rule** — the exact mirror of the dip rule, firing when a holding is
+   up X% on what you paid. `price_above` exists and is evaluated, but it takes an absolute price,
+   so it does not follow your cost basis the way the dip rule does.
+2. **A notion of the top.** "Near the top" needs a high to measure against — 52-week or
+   all-time — which requires the price history below.
+3. **A trailing signal** ("dropped X% from its recent high"), which is what the removed
+   `change_pct` should have been. This is the one that actually protects a gain.
+4. **Framing.** The digest has one section for dips; a sell-side section, and language that is
+   not exclusively about buying, would follow.
+
+**Price history only goes back to when each ticker was first fetched:**
+
+`price-fetch.js` records one row per ticker per day from the day it starts running. Eight of the
+ten current holdings therefore have days of history, not years. Two consequences, both live:
+
+- **Historical snapshots value those holdings at cost.** `/api/snapshots` falls back to cost
+  basis when no price exists for a date, so the portfolio-over-time chart is largely accumulated
+  cost rather than market value, and per-holding gain and drawdown before September 2026 are not
+  real. Only TSLA has genuine history.
+- **Peaks are meaningless** for those tickers, which blocks the sell side above.
+
+The fix is a backfill: Yahoo serves daily history via `chart()` — already used for FX in
+`recompute-eur.js` — so each held ticker can be filled in from its first purchase date, converted
+at the rate for each day (`exchange_rates` now holds those). It is the single change that would
+most improve the accuracy of what the app already shows.
+
 **Ops hygiene:**
 - No load testing has been done — response times under real concurrent load are unverified
 
