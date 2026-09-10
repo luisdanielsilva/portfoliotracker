@@ -54,9 +54,11 @@ db.exec(schema);
 })();
 
 // Prices carry the currency the market quotes them in; see db-migrations.js.
+const { recentHigh } = require('./db-migrations');
 require('./db-migrations').ensurePriceCurrencyColumns(db);
 require('./db-migrations').ensureAlertCurrency(db);
 require('./db-migrations').ensureGainRuleType(db);
+require('./db-migrations').ensureDropFromHighRuleType(db);
 
 // Migration: stop the same rule being saved twice. Nothing prevented it, and one
 // ticker ended up with three identical "dip 5%" rules — which would have meant the
@@ -874,8 +876,14 @@ app.get('/api/avg-cost', (req, res) => {
       const price = priceStmt.get(row.ticker);
       const currentPriceEUR = price ? price.price_eur : null;
       const dipPct = currentPriceEUR !== null ? (currentPriceEUR / cost.avgCostEUR - 1) : null;
+      // the trailing form needs a peak to measure against, and an empty one is the
+      // signal to tell the user to backfill rather than to show a broken preview
+      const high = recentHigh(db, row.ticker);
       return {
         ticker: row.ticker,
+        recentHigh: high ? high.peak : null,
+        recentHighEUR: high ? high.peakEur : null,
+        recentHighDate: high ? high.peakDate : null,
         quantity: cost.quantity,
         avgCostEUR: cost.avgCostEUR,
         currentPriceEUR,
@@ -907,6 +915,19 @@ function enrichAlert(a, userId) {
     a.currentPriceUSD = priceRow.price_usd;
     a.currentPriceNative = priceRow.price_native;
     a.marketCurrency = priceRow.currency;
+  }
+
+  // A trailing rule measures against the recent high, not the cost basis.
+  if (a.ruleType === 'drop_from_high') {
+    const high = recentHigh(db, a.ticker);
+    if (high) {
+      a.recentHigh = high.peak;
+      a.recentHighEUR = high.peakEur;
+      a.triggerPriceEUR = high.peakEur * (1 - a.threshold / 100);
+      a.triggerPriceNative = high.peak * (1 - a.threshold / 100);
+      if (priceRow) a.offHighPct = (priceRow.price_native / high.peak - 1) * 100;
+    }
+    return a;
   }
 
   const costBased = a.ruleType === 'dip_from_avg_cost' || a.ruleType === 'gain_from_avg_cost';

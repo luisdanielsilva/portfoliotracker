@@ -123,4 +123,64 @@ function ensureGainRuleType(db) {
   }
 }
 
-module.exports = { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType, columnNames };
+/**
+ * Allow the trailing rule type.
+ *
+ * drop_from_high fires when a price falls X% below its high over the past year —
+ * the 52-week high, the standard reference for "how far off the top is this". It is
+ * the one rule that protects a gain: a target tied to cost basis says nothing once a
+ * holding has run up, and a fixed price level goes stale as the stock moves.
+ */
+function ensureDropFromHighRuleType(db) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='alerts'").get();
+  if (!row || row.sql.includes('drop_from_high')) return;
+
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE alerts_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        ticker TEXT NOT NULL,
+        rule_type TEXT NOT NULL CHECK(rule_type IN ('price_above','price_below','change_pct','dip_from_avg_cost','gain_from_avg_cost','drop_from_high')),
+        threshold REAL NOT NULL,
+        currency TEXT,
+        enabled BOOLEAN DEFAULT 1,
+        last_triggered_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      INSERT INTO alerts_new (id,user_id,ticker,rule_type,threshold,currency,enabled,last_triggered_at,created_at)
+        SELECT id,user_id,ticker,rule_type,threshold,currency,enabled,last_triggered_at,created_at FROM alerts;
+      DROP TABLE alerts;
+      ALTER TABLE alerts_new RENAME TO alerts;
+      CREATE INDEX IF NOT EXISTS idx_user_ticker_alert ON alerts(user_id, ticker);
+      CREATE INDEX IF NOT EXISTS idx_enabled ON alerts(enabled);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_unique ON alerts(user_id, ticker, rule_type, threshold);
+      COMMIT;
+    `);
+    const problems = db.pragma('foreign_key_check');
+    if (problems.length) throw new Error('foreign key check failed after alerts rebuild');
+    console.log('Migrated alerts table to support drop_from_high');
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+/** Highest close over the trailing window, in the market's own currency. */
+const HIGH_WINDOW_DAYS = 365;
+function recentHigh(db, ticker, days = HIGH_WINDOW_DAYS) {
+  const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+  const row = db.prepare(`
+    SELECT price_native AS peak, price_eur AS peakEur, price_date AS peakDate
+    FROM prices WHERE ticker = ? AND price_date >= ? AND price_native IS NOT NULL
+    ORDER BY price_native DESC LIMIT 1
+  `).get(ticker, from);
+  return row && row.peak ? row : null;
+}
+
+module.exports = {
+  ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
+  ensureDropFromHighRuleType, recentHigh, HIGH_WINDOW_DAYS, columnNames
+};

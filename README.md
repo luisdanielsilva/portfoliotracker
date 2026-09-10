@@ -13,9 +13,20 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
     gateways that auto-fetch links to scan them (e.g. Microsoft Safe Links) can't burn the
     one-time token before the user clicks it
 - **Transactions:** Buy/sell registration with automatic snapshot derivation (Node.js backend)
-- **Price Alerts:** Multiple rule types (price above/below, % change, dip from avg cost).
+- **Price Alerts:** Four rule types, covering both sides of the plan:
+  - `dip_from_avg_cost` — down X% on **your** average cost (buy signal)
+  - `gain_from_avg_cost` — up X% on your average cost (take-profit; follows your cost basis as
+    you keep buying, which an absolute price level does not)
+  - `drop_from_high` — down X% from the ticker's own **high of the past year** (trailing; the one
+    rule that still says something once a holding has run well past what you paid)
+  - `price_above` / `price_below` — an absolute level, in the currency that market quotes
+  
   Everything that fires for one person in a run arrives as a **single digest email**, split into
-  "dips below your average cost" and "price levels you set". Each rule sends at most once per 24h.
+  "dips below your average cost", "up on what you paid", "down from their recent high" and
+  "price levels you set". Each rule sends at most once per 24h. The alert list shows, per rule,
+  what it fires at, where the price is now, the remaining headroom, and a **sparkline** drawing
+  six months of price against the trigger level and its reference (your average cost, or the
+  52-week high) — so the gap the rule is watching is visible rather than arithmetic.
 - **Landing page:** Logged-out visitors get a public page explaining the tool (worked DCA example,
   six feature cards, a How-it-works time track, a preview of the alert email) rather than a bare
   login form. It lives inside `#auth-gate` in `index.html` and is replaced by the app on sign-in.
@@ -53,47 +64,53 @@ The planned coverage, grounded in bugs actually found:
   restatement preserves meaning
 
 **Blocker still to clear before writing tests:**
-- `price-fetch.js` and `check-job-health.js` call their entry point at module scope, so
-  `require()`-ing them runs the real job. They need `if (require.main === module)` guards and
-  `module.exports`. (`portfolio.js` and `db-migrations.js` are already importable.)
+- `check-job-health.js`, `recompute-eur.js` and `verify-portfolio.js` call their entry point at
+  module scope, so `require()`-ing them runs the real job. They need `if (require.main === module)`
+  guards and `module.exports`. (`portfolio.js`, `db-migrations.js`, `backfill-history.js` and —
+  since 2026-09-10 — `price-fetch.js` are importable; its digest renderers and `evaluateAlerts`
+  are exported, which is how the trailing rule was verified against a copy of the database
+  without sending mail or touching `last_triggered_at`.)
 
 *Cleared 2026-09-09:* `getAvgCostPerShare` was implemented twice with different signatures; it
 now lives once in `portfolio.js` and both callers use it.
 
 
-**The sell side is missing — the tool is currently only half its purpose:**
+**The sell side — mostly built, framing still one-sided:**
 
 The stated purpose is twofold: average *in* below your cost, and sell *near the tops*. Everything
-built so far serves the first. `dip_from_avg_cost`, the digest's "dips below your average cost"
-section, the DCA tab and the landing page headline all point one way. There is no
-take-profit rule, no notion of a peak, and no signal that a position is extended.
+built before 2026-09-10 served only the first. Now:
 
-What it needs, roughly in order:
-1. **A `gain_from_avg_cost` rule** — the exact mirror of the dip rule, firing when a holding is
-   up X% on what you paid. `price_above` exists and is evaluated, but it takes an absolute price,
-   so it does not follow your cost basis the way the dip rule does.
-2. **A notion of the top.** "Near the top" needs a high to measure against — 52-week or
-   all-time — which requires the price history below.
-3. **A trailing signal** ("dropped X% from its recent high"), which is what the removed
-   `change_pct` should have been. This is the one that actually protects a gain.
-4. **Framing.** The digest has one section for dips; a sell-side section, and language that is
-   not exclusively about buying, would follow.
+1. ✅ `gain_from_avg_cost` — the mirror of the dip rule, firing when a holding is up X% on what
+   you paid.
+2. ✅ **A notion of the top.** `backfill-history.js` fills in years of daily closes, and
+   `recentHigh()` in `db-migrations.js` reads the high of the trailing 365 days.
+3. ✅ `drop_from_high` — the trailing signal, which is what the removed `change_pct` should have
+   been. Against the current holdings at a 20% threshold, five of ten would fire.
+4. ⏳ **Framing.** The digest now has sell-side sections, but the landing page headline and the
+   DCA tab still speak only of dips. The public copy is the remaining half of this item.
 
-**Price history only goes back to when each ticker was first fetched:**
+**Price history — backfilled 2026-09-10 (was an open item):**
 
-`price-fetch.js` records one row per ticker per day from the day it starts running. Eight of the
-ten current holdings therefore have days of history, not years. Two consequences, both live:
+`price-fetch.js` records one row per ticker per day from the day it starts running, so most
+holdings had days of history rather than years. Two consequences were live: `/api/snapshots` fell
+back to cost basis for any date with no price, so the portfolio-over-time chart was largely
+accumulated cost rather than market value; and without a high, "near the top" could not be
+expressed at all.
 
-- **Historical snapshots value those holdings at cost.** `/api/snapshots` falls back to cost
-  basis when no price exists for a date, so the portfolio-over-time chart is largely accumulated
-  cost rather than market value, and per-holding gain and drawdown before September 2026 are not
-  real. Only TSLA has genuine history.
-- **Peaks are meaningless** for those tickers, which blocks the sell side above.
+`backfill-history.js` fixes both — Yahoo's `chart()` daily bars, stored in the market's own
+currency and converted at the rate **for that date** (same principle as `recompute-eur.js`),
+upserted per (ticker, date) so it is safe to re-run:
 
-The fix is a backfill: Yahoo serves daily history via `chart()` — already used for FX in
-`recompute-eur.js` — so each held ticker can be filled in from its first purchase date, converted
-at the rate for each day (`exchange_rates` now holds those). It is the single change that would
-most improve the accuracy of what the app already shows.
+```bash
+node backfill-history.js                    # every held ticker, 2 years
+node backfill-history.js ORCL --years 5     # one ticker, deeper
+node backfill-history.js --years 2 --dry-run
+```
+
+The first run added 6,123 rows across 11 tickers. It changed what the chart says: March 2025
+showed €6,197 of market value against €6,837 of cost — under water, and previously invisible —
+and max drawdown corrected from −13.5% to −21.9%. Registering a transaction for a ticker with no
+history now asks how far back to fetch (6mo / 1y / 2y / 5y) and calls the same code.
 
 **Ops hygiene:**
 - No load testing has been done — response times under real concurrent load are unverified
@@ -397,3 +414,7 @@ node check-job-health.js            # check, email if stale, exit 1 if unhealthy
   rejected its own timer slot. Fixed.
 - **Sep 2026:** Repository made **private**, session/login tokens purged from the tracked database,
   and `data.db` untracked in favour of `backup-db.sh`
+- **Sep 2026:** Two years of daily price history backfilled; the portfolio chart became market
+  value rather than accumulated cost
+- **Sep 2026:** Sell side built — `gain_from_avg_cost` and `drop_from_high` rules, digest sections
+  for both, and a per-alert sparkline showing the gap each rule is watching

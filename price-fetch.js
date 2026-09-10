@@ -13,7 +13,8 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
-const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType } = require('./db-migrations');
+const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
+        ensureDropFromHighRuleType, recentHigh } = require('./db-migrations');
 require('dotenv').config();
 
 const dbPath = path.join(__dirname, 'data.db');
@@ -93,6 +94,10 @@ function digestRow(item, isLast) {
     headline = `<span style="color:${MAIL.neg}">−${item.dropPct.toFixed(1)}%</span>`;
     detail = `${eur(item.price)} now · your average cost ${eur(item.avgCost)}<br>`
       + `Back to break-even at <span style="color:${MAIL.ink};font-family:${MAIL.mono}">${eur(item.avgCost)}</span>`;
+  } else if (item.kind === 'high') {
+    headline = `<span style="color:${MAIL.neg}">−${item.dropPct.toFixed(1)}%</span>`;
+    detail = `${fmtNative(item.price, item.currency)} now · 52-week high ${fmtNative(item.peak, item.currency)}<br>`
+      + `Past your <span style="color:${MAIL.ink};font-family:${MAIL.mono}">−${item.threshold}%</span> trailing level`;
   } else if (item.kind === 'gain') {
     headline = `<span style="color:${MAIL.pos}">+${item.gainPct.toFixed(1)}%</span>`;
     detail = `${eur(item.price)} now · your average cost ${eur(item.avgCost)}<br>`
@@ -127,7 +132,8 @@ function digestSection(title, items) {
 function renderAlertDigest(items) {
   const dips = items.filter(i => i.kind === 'dip');
   const gains = items.filter(i => i.kind === 'gain');
-  const levels = items.filter(i => i.kind !== 'dip' && i.kind !== 'gain');
+  const highs = items.filter(i => i.kind === 'high');
+  const levels = items.filter(i => !['dip','gain','high'].includes(i.kind));
   const when = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const heading = items.length === 1 ? 'One alert triggered' : `${items.length} alerts triggered`;
 
@@ -146,6 +152,7 @@ function renderAlertDigest(items) {
       <table width="100%" cellpadding="0" cellspacing="0" border="0">
         ${digestSection('Dips below your average cost', dips)}
         ${digestSection('Up on what you paid', gains)}
+        ${digestSection('Down from their recent high', highs)}
         ${digestSection('Price levels you set', levels)}
       </table>
     </td></tr>
@@ -167,6 +174,9 @@ function renderAlertDigestText(items) {
     if (i.kind === 'dip') {
       lines.push(`${i.ticker}  -${i.dropPct.toFixed(1)}% below your average`);
       lines.push(`  ${eur(i.price)} now, average cost ${eur(i.avgCost)}. Break-even at ${eur(i.avgCost)}.`);
+    } else if (i.kind === 'high') {
+      lines.push(`${i.ticker}  -${i.dropPct.toFixed(1)}% from its 52-week high`);
+      lines.push(`  ${fmtNative(i.price,i.currency)} now, high ${fmtNative(i.peak,i.currency)}.`);
     } else if (i.kind === 'gain') {
       lines.push(`${i.ticker}  +${i.gainPct.toFixed(1)}% on what you paid (target +${i.threshold}%)`);
       lines.push(`  ${eur(i.price)} now, average cost ${eur(i.avgCost)}.`);
@@ -327,6 +337,7 @@ function alertSubject(items) {
     const i = items[0];
     if (i.kind === 'dip') return `${i.ticker} is ${i.dropPct.toFixed(1)}% below your average cost`;
     if (i.kind === 'gain') return `${i.ticker} is up ${i.gainPct.toFixed(1)}% on what you paid`;
+    if (i.kind === 'high') return `${i.ticker} is ${i.dropPct.toFixed(1)}% off its 52-week high`;
     return `${i.ticker} ${i.kind === 'price_above' ? 'rose above' : 'fell below'} ${fmtNative(i.threshold, i.currency || 'USD')}`;
   }
   return `${items.length} alerts: ${[...new Set(items.map(i => i.ticker))].join(', ')}`;
@@ -443,6 +454,7 @@ async function evaluateAlerts(db, mailer) {
       const rule = alert.rule_type;
       let triggered = false;
       let avgCostEUR = null;
+      let highPeak = null;
 
       // A price threshold is compared in the market's own currency, which is what
       // the user set it in. A dip is measured against the euro cost basis, because
@@ -459,6 +471,14 @@ async function evaluateAlerts(db, mailer) {
         avgCostEUR = getAvgCostPerShare(db, alert.ticker, alert.user_id);
         if (avgCostEUR !== null && currentPrice <= avgCostEUR * (1 - threshold / 100)) {
           triggered = true;
+        }
+      } else if (rule === 'drop_from_high') {
+        // Trailing: how far below its own 52-week high the price has fallen. The one
+        // rule that protects a gain — cost basis says nothing once a holding has run.
+        const high = recentHigh(db, alert.ticker);
+        if (high && nativePrice <= high.peak * (1 - threshold / 100)) {
+          triggered = true;
+          highPeak = high.peak;
         }
       } else if (rule === 'gain_from_avg_cost') {
         // The sell-side mirror: fires when the holding is up `threshold`% on what
@@ -491,6 +511,10 @@ async function evaluateAlerts(db, mailer) {
       if (rule === 'dip_from_avg_cost') {
         item = { kind: 'dip', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
                  dropPct: ((avgCostEUR - currentPrice) / avgCostEUR) * 100 };
+      } else if (rule === 'drop_from_high') {
+        item = { kind: 'high', ticker: alert.ticker, price: nativePrice, peak: highPeak,
+                 dropPct: ((highPeak - nativePrice) / highPeak) * 100, threshold,
+                 currency: alert.currency || marketCurrency };
       } else if (rule === 'gain_from_avg_cost') {
         item = { kind: 'gain', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
                  gainPct: ((currentPrice - avgCostEUR) / avgCostEUR) * 100, threshold };
@@ -582,6 +606,7 @@ async function fetchPrices() {
     ensurePriceCurrencyColumns(db);
     ensureAlertCurrency(db);
     ensureGainRuleType(db);
+    ensureDropFromHighRuleType(db);
 
     const upsertStmt = db.prepare(`
       INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)
@@ -690,8 +715,14 @@ async function fetchPrices() {
   }
 }
 
-// Run the fetch job
-fetchPrices().catch(err => {
-  log(`❌ Uncaught error: ${err.message}`);
-  process.exit(1);
-});
+// Run the fetch job — only when invoked directly. Requiring this file used to run
+// the whole job as a side effect, which made the render helpers impossible to
+// exercise on their own (and is what blocks a test suite).
+if (require.main === module) {
+  fetchPrices().catch(err => {
+    log(`❌ Uncaught error: ${err.message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts };
