@@ -27,6 +27,16 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
   what it fires at, where the price is now, the remaining headroom, and a **sparkline** drawing
   six months of price against the trigger level and its reference (your average cost, or the
   52-week high) — so the gap the rule is watching is visible rather than arithmetic.
+- **Alert map:** a full-size chart above the alert list, one holding at a time: its price
+  history, your average cost, and every rule on it as its own line, coloured to match the tags
+  in the list (dip green, target orange, trailing red, price level blue). Markers show the day
+  each rule *crossed* into firing over the chosen period (3M / 6M / 1Y / 2Y / All), and hovering
+  gives the price plus every rule's distance on that date. Two things it deliberately does not
+  pretend: it applies today's levels to past prices (your average cost has moved, this does not
+  model that), and a level too far from the current price is left off the chart rather than
+  flattening it — the row below still gives the level and the distance. A trailing rule's line
+  moves, because it recomputes its own 365-day high at each date; triggering is always tested in
+  the rule's own currency even though the drawing is in the market's.
 - **Landing page:** Logged-out visitors get a public page explaining the tool (worked DCA example,
   six feature cards, a How-it-works time track, a preview of the alert email) rather than a bare
   login form. It lives inside `#auth-gate` in `index.html` and is replaced by the app on sign-in.

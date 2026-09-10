@@ -393,6 +393,31 @@
   #auth-status a{color:var(--accent);text-decoration:none;cursor:pointer}
   #auth-status a:hover{text-decoration:underline}
 
+  /* alert map: one distinct colour per rule, legible on both grounds */
+  :root{--am-c1:#2a78d6;--am-c2:#eb6834;--am-c3:#1baf7a;--am-c4:#9b59d0;--am-c5:#d64f6e;--am-c6:#b8860b}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --am-c1:#4d97ec;--am-c2:#f0803f;--am-c3:#34c48e;--am-c4:#b478e4;--am-c5:#e8677f;--am-c6:#d4a12a}}
+  :root[data-theme="dark"]{--am-c1:#4d97ec;--am-c2:#f0803f;--am-c3:#34c48e;--am-c4:#b478e4;--am-c5:#e8677f;--am-c6:#d4a12a}
+  .chip .am-n{font-size:10px;font-weight:600;background:var(--accent-soft);color:var(--accent);
+    border-radius:999px;padding:0 5px;line-height:15px;min-width:15px;text-align:center}
+  .am-rows{margin-top:14px;border-top:1px solid var(--hair)}
+  .am-row{display:grid;grid-template-columns:14px minmax(150px,1.4fr) minmax(95px,.8fr) minmax(105px,.9fr) minmax(150px,1.3fr) auto;
+    gap:12px;align-items:center;padding:9px 2px;border-bottom:1px solid var(--hair);font-size:12.5px}
+  .am-row:last-child{border-bottom:0}
+  .am-row.off{opacity:.5}
+  .am-sw{width:14px;height:3px;border-radius:2px}
+  .am-lab{color:var(--ink);font-weight:500}
+  .am-v{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;color:var(--muted)}
+  .am-v.fire{color:var(--accent);font-weight:600}
+  .am-mv{font-family:"IBM Plex Sans",sans-serif;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+  .am-hits{color:var(--faint);font-size:12px}
+  .am-hits b{color:var(--ink);font-weight:600}
+  .am-off2{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+  @media (max-width:760px){
+    .am-row{grid-template-columns:14px 1fr;row-gap:2px}
+    .am-row>*:nth-child(n+3){grid-column:2}
+  }
+
   /* alert list: a table that uses the width, so the numbers that matter are
      readable at a glance instead of packed into small grey prose */
   .al-row{display:grid;grid-template-columns:minmax(80px,.7fr) minmax(165px,1.35fr) minmax(85px,.7fr) minmax(85px,.7fr) minmax(128px,.95fr) 170px auto;
@@ -995,7 +1020,7 @@
           <input type="date" id="tx-date" aria-label="Date">
           <input type="time" id="tx-time" value="12:00" aria-label="Time">
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:10px">
           <div style="display:flex;flex-direction:column">
             <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Ticker</label>
             <input type="text" id="tx-ticker" placeholder="e.g. TSLA" style="font-size:12px">
@@ -1159,6 +1184,30 @@
           <button type="button" class="btn primary" id="al-create" style="flex:1">Create Alert</button>
         </div>
         <div class="frm-note" id="al-note"></div>
+      </div>
+
+      <div class="addcard" id="am-card">
+        <h3>Alert map <span id="am-sub" style="color:var(--faint);font-weight:400;font-size:13px"></span></h3>
+        <p class="hint">One holding at a time: its price history, what you paid, and every rule you have on it drawn as its own line. The markers show where each rule <b>would have fired</b> over the period &mdash; a level the stock reaches four times a year and one it has never come near look nothing alike on a chart, and identical in a list.</p>
+        <div class="picker-wrap" style="margin-bottom:12px">
+          <div class="picker" id="am-tickers" role="group" aria-label="Choose a holding"></div>
+        </div>
+        <div class="toolbar" style="margin-bottom:10px">
+          <div class="legend" id="am-legend"></div>
+          <div class="segmented" role="group" aria-label="Period" id="am-periods">
+            <button type="button" data-p="3m">3M</button>
+            <button type="button" data-p="6m">6M</button>
+            <button type="button" data-p="1y" aria-pressed="true">1Y</button>
+            <button type="button" data-p="2y">2Y</button>
+            <button type="button" data-p="all">All</button>
+          </div>
+        </div>
+        <div class="chartbox">
+          <svg class="chart" id="am-chart" viewBox="0 0 960 430" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Price history with your alert levels drawn on it"></svg>
+          <div class="tip" id="am-tip"></div>
+        </div>
+        <div id="am-rows"></div>
+        <p class="microcopy" id="am-note"></p>
       </div>
 
       <div class="addcard">
@@ -2373,6 +2422,8 @@
         renderDipPreview();
         renderGainPreview();
         renderHighPreview();
+        renderAlertTickerPicker();
+        if(AM_TICKER) amLoadSeries(AM_TICKER).then(renderAlertMap);
       })
       .catch(function(err){ console.error('Failed to load avg cost:',err); });
   }
@@ -2567,13 +2618,345 @@
         alerts=data.alerts||[];
         // sparklines need the price series; render regardless if it fails
         var tickers=[...new Set(alerts.map(a=>a.ticker))];
-        return loadAlertHistory(tickers).then(function(){ renderAlerts(); });
+        return loadAlertHistory(tickers).then(function(){
+          renderAlerts();
+          renderAlertTickerPicker();
+          if(AM_TICKER) amLoadSeries(AM_TICKER).then(renderAlertMap); else renderAlertMap();
+        });
       })
       .catch(err=>{
         console.error('Failed to load alerts:',err.message);
         showError('Failed to load alerts');
       });
   }
+
+  /* ================= alert map =================
+     The list can say a rule is 2.6% from firing; it cannot say whether that is a level
+     the stock actually visits. Drawn against the price, a rule that fired four times
+     this year and one that has never come close stop looking the same.
+
+     Everything is drawn in the market's own currency, matching the price. The two
+     cost-based rules are euro thresholds, so they are converted at each date's own
+     implied rate (native/eur from that day's row) rather than at today's — which is
+     why those lines can drift slightly even when your average cost has not moved.
+     Triggering is always tested in the rule's own currency, never the drawn one. */
+  var AM_TICKER=null, AM_PERIOD="1y", AM_SERIES={}, AM_PENDING={};
+  var AM_DAYS={"3m":90,"6m":180,"1y":365,"2y":730,"all":3650};
+  var AM_HIGH_DAYS=365;   // must match HIGH_WINDOW_DAYS in db-migrations.js
+
+  function amTs(d){ return new Date(d+"T00:00:00Z").getTime(); }
+  function amNat(p){ return p.native!=null?p.native:p.eur; }
+  function amRatio(p){ return (p.native!=null && p.eur)?p.native/p.eur:1; }
+
+  function amLoadSeries(ticker){
+    if(AM_SERIES[ticker]) return Promise.resolve(AM_SERIES[ticker]);
+    if(AM_PENDING[ticker]) return AM_PENDING[ticker];
+    AM_PENDING[ticker]=apiFetch('./api/price-history?days=3650&tickers='+encodeURIComponent(ticker))
+      .then(function(r){ return r.ok?r.json():{series:{}}; })
+      .then(function(d){ AM_SERIES[ticker]=((d.series||{})[ticker])||[]; delete AM_PENDING[ticker]; return AM_SERIES[ticker]; })
+      .catch(function(){ AM_SERIES[ticker]=[]; delete AM_PENDING[ticker]; return []; });
+    return AM_PENDING[ticker];
+  }
+
+  // Highest close in the trailing window ending at each date — the moving reference a
+  // trailing rule measures against, which is why its level is a line and not a level.
+  function amRollingHigh(S,days){
+    var out=[], dq=[], ms=days*864e5;
+    for(var i=0;i<S.length;i++){
+      var t=amTs(S[i].d), v=amNat(S[i]);
+      while(dq.length && amTs(S[dq[0]].d)<t-ms) dq.shift();
+      while(dq.length && amNat(S[dq[dq.length-1]])<=v) dq.pop();
+      dq.push(i);
+      out.push(amNat(S[dq[0]]));
+    }
+    return out;
+  }
+
+  // One descriptor per rule: where its line sits at each date, and whether it is firing
+  // there. Kept as functions so a moving level and a flat one draw through the same code.
+  // Colour follows the rule *type*, matching the tags in the list below — a dip is green
+  // there and green here. Index-based colours shifted every time an alert was added.
+  var AM_TYPE_COLOR={dip_from_avg_cost:3,gain_from_avg_cost:2,drop_from_high:5,price_above:1,price_below:1};
+  var AM_TYPE_ORDER={dip_from_avg_cost:0,gain_from_avg_cost:1,drop_from_high:2,price_below:3,price_above:4};
+
+  function amRules(ticker,S){
+    var mine=alerts.filter(function(a){ return a.ticker===ticker; }).sort(function(x,y){
+      return (AM_TYPE_ORDER[x.ruleType]-AM_TYPE_ORDER[y.ruleType]) || (x.threshold-y.threshold);
+    });
+    var roll=null, used={};
+    return mine.map(function(a,k){
+      // a second rule of the same type falls through to a free slot rather than
+      // drawing two indistinguishable lines
+      var want=AM_TYPE_COLOR[a.ruleType]||4, n=want;
+      while(used[n]) n=n%6+1;
+      used[n]=true;
+      var col="var(--am-c"+n+")";
+      var r={a:a,color:col,dynamic:false,enabled:!!a.enabled};
+      if(a.ruleType==="dip_from_avg_cost"||a.ruleType==="gain_from_avg_cost"){
+        var isDip=a.ruleType==="dip_from_avg_cost", lvlEUR=a.triggerPriceEUR;
+        r.levelAt=function(i){ return lvlEUR==null?null:lvlEUR*amRatio(S[i]); };
+        r.firedAt=function(i){ var v=S[i].eur;
+          return v!=null && lvlEUR!=null && (isDip?v<=lvlEUR:v>=lvlEUR); };
+        r.label=(isDip?"Dip −":"Target +")+a.threshold+"% on cost";
+        r.tag=isDip?"dip":"gain";
+      } else if(a.ruleType==="drop_from_high"){
+        if(!roll) roll=amRollingHigh(S,AM_HIGH_DAYS);
+        r.dynamic=true;
+        r.levelAt=function(i){ return roll[i]*(1-a.threshold/100); };
+        r.firedAt=function(i){ var v=amNat(S[i]); return v!=null && v<=roll[i]*(1-a.threshold/100); };
+        r.label="Trailing −"+a.threshold+"% off high";
+        r.tag="high";
+        r.roll=roll;
+      } else {
+        var above=a.ruleType==="price_above", lvl=a.threshold;
+        r.levelAt=function(){ return lvl; };
+        r.firedAt=function(i){ var v=amNat(S[i]); return v!=null && (above?v>lvl:v<lvl); };
+        r.label="Price "+(above?"above":"below")+" "+fmtNative(lvl,a.currency||a.marketCurrency);
+        r.tag="lvl";
+      }
+      return r;
+    });
+  }
+
+  function amXTicks(t0,t1){
+    var span=t1-t0;
+    var step=span>730*864e5?6:(span>365*864e5?3:(span>150*864e5?2:1));
+    // anchor the sequence on January so a year boundary is always one of the ticks —
+    // stepping from the window's own first month hid "2026" whenever it fell between two
+    var d0=new Date(t0), y=d0.getUTCFullYear(), m=Math.floor(d0.getUTCMonth()/step)*step;
+    var d=new Date(Date.UTC(y,m,1));
+    if(d.getTime()<t0) d=new Date(Date.UTC(y,m+step,1));
+    var out=[];
+    while(d.getTime()<=t1){
+      var isYear=d.getUTCMonth()===0;
+      out.push({t:d.getTime(),isYear:isYear,
+        lab:isYear?String(d.getUTCFullYear()):["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()]});
+      d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+step,1));
+    }
+    return out;
+  }
+
+  function renderAlertTickerPicker(){
+    var box=document.getElementById("am-tickers"); if(!box) return;
+    var counts={};
+    alerts.forEach(function(a){ counts[a.ticker]=(counts[a.ticker]||0)+1; });
+    var list=Object.keys(AVG_COST||{});
+    Object.keys(counts).forEach(function(t){ if(list.indexOf(t)<0) list.push(t); });
+    list.sort(function(x,y){ return (counts[y]||0)-(counts[x]||0) || x.localeCompare(y); });
+    if(!list.length){ box.innerHTML='<span style="font-size:12.5px;color:var(--faint)">Register a transaction first — the map draws a holding you own.</span>'; return; }
+    if(!AM_TICKER || list.indexOf(AM_TICKER)<0) AM_TICKER=list[0];
+    box.innerHTML=list.map(function(t){
+      var n=counts[t]||0;
+      return '<button type="button" class="chip" data-t="'+esc(t)+'" aria-pressed="'+(t===AM_TICKER)+'">'+esc(t)
+        +(n?'<span class="am-n">'+n+'</span>':'')+'</button>';
+    }).join("");
+    Array.prototype.forEach.call(box.querySelectorAll("button"),function(b){
+      b.addEventListener("click",function(){ amSelect(b.dataset.t); });
+    });
+  }
+
+  function amSelect(ticker){
+    AM_TICKER=ticker;
+    renderAlertTickerPicker();
+    amLoadSeries(ticker).then(renderAlertMap);
+  }
+
+  function renderAlertMap(){
+    var svg=document.getElementById("am-chart"); if(!svg) return;
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    var rowsBox=document.getElementById("am-rows"), sub=document.getElementById("am-sub"),
+        note=document.getElementById("am-note"), lg=document.getElementById("am-legend"),
+        tip=document.getElementById("am-tip");
+    rowsBox.innerHTML=""; lg.innerHTML=""; note.textContent="";
+    if(!AM_TICKER){ sub.textContent=""; return; }
+
+    var name=BSHORT[BKEY.indexOf(AM_TICKER.toLowerCase())]||AM_TICKER;
+    sub.textContent="· "+name;
+    var S=AM_SERIES[AM_TICKER];
+    if(!S){ amLoadSeries(AM_TICKER).then(renderAlertMap); return; }
+    if(S.length<2){
+      note.textContent="No stored price history for "+AM_TICKER+" yet. Register a transaction for it and choose a history depth, or run the daily fetch a few more times.";
+      return;
+    }
+
+    // window
+    var i0=0;
+    if(AM_PERIOD!=="all"){
+      var cut=Date.now()-AM_DAYS[AM_PERIOD]*864e5;
+      while(i0<S.length-2 && amTs(S[i0].d)<cut) i0++;
+    }
+    var cur=S[S.length-1].currency||"USD";
+    var rules=amRules(AM_TICKER,S);
+    var info=(AVG_COST||{})[AM_TICKER];
+    var avgAt=function(i){ return (info&&info.avgCostEUR!=null)?info.avgCostEUR*amRatio(S[i]):null; };
+
+    // vertical domain: the price band, plus any level close enough to be worth showing.
+    // A +200% target on a stock that has not moved would otherwise flatten the price
+    // into a horizontal line, which is exactly the chart nobody can read.
+    var pv=[]; for(var i=i0;i<S.length;i++){ var v=amNat(S[i]); if(v!=null) pv.push(v); }
+    var pMin=Math.min.apply(null,pv), pMax=Math.max.apply(null,pv), span=(pMax-pMin)||pMax*0.1;
+    // a level may stretch the scale by at most a third of the price band in each
+    // direction — past that the price flattens into a ribbon and the chart stops
+    // answering the question it exists for
+    var loLim=pMin-span*0.35, hiLim=pMax+span*0.35;
+    var dLo=pMin, dHi=pMax;
+    function consider(v){ if(v==null) return false;
+      if(v<loLim||v>hiLim) return false;
+      dLo=Math.min(dLo,v); dHi=Math.max(dHi,v); return true; }
+    rules.forEach(function(r){
+      var lo=null,hi=null;
+      for(var i=i0;i<S.length;i++){ var v=r.levelAt(i); if(v==null) continue;
+        lo=(lo==null?v:Math.min(lo,v)); hi=(hi==null?v:Math.max(hi,v)); }
+      r.lvlLo=lo; r.lvlHi=hi;
+      r.onChart=(consider(lo)|consider(hi))>0 || (lo!=null&&lo<=hiLim&&hi>=loLim);
+      if(r.onChart){ if(lo!=null) dLo=Math.min(dLo,Math.max(lo,loLim)); if(hi!=null) dHi=Math.max(dHi,Math.min(hi,hiLim)); }
+      else if(lo!=null) r.offDir=lo>hiLim?"above":"below";
+    });
+    var av=avgAt(S.length-1); var avgOn=consider(av);
+
+    var W=960,H=430,l=70,r=132,tp=20,bt=36,pW=W-l-r,pH=H-tp-bt;
+    var tks=niceTicksGeneric(dLo-(dHi-dLo)*0.04,dHi+(dHi-dLo)*0.04,5);
+    var yhi=Math.max(tks[tks.length-1],dHi), ylo=Math.min(tks[0],dLo);
+    var t0=amTs(S[i0].d), t1=amTs(S[S.length-1].d);
+    function X(i){ return l+(amTs(S[i].d)-t0)/((t1-t0)||1)*pW; }
+    function Y(v){ return tp+(1-(v-ylo)/((yhi-ylo)||1))*pH; }
+    function Yc(v){ return Math.max(tp,Math.min(tp+pH,Y(v))); }
+
+    tks.forEach(function(t){ var y=Y(t); if(y<tp-1||y>tp+pH+1) return;
+      svg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
+      var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5});
+      lb.textContent=fmtNative(t,cur); svg.appendChild(lb);
+    });
+    svg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:tp+pH,y2:tp+pH}));
+    amXTicks(t0,t1).forEach(function(m){
+      var x=l+(m.t-t0)/((t1-t0)||1)*pW; if(x<l||x>W-r) return;
+      svg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:tp,y2:tp+pH,"stroke-dasharray":"2 3"}));
+      var lb=el("text",{class:"xlbl",x:x,y:tp+pH+21});
+      if(m.isYear){ lb.setAttribute("font-weight","600"); lb.setAttribute("fill","var(--ink)"); }
+      lb.textContent=m.lab; svg.appendChild(lb);
+    });
+
+    // your average cost, first so the price and the rules sit on top of it
+    if(avgOn){
+      var ad=""; for(var i=i0;i<S.length;i++){ var v=avgAt(i); if(v==null) continue;
+        ad+=(ad?" L ":"M ")+X(i).toFixed(1)+" "+Y(v).toFixed(1); }
+      if(ad){
+        svg.appendChild(el("path",{class:"serieline",d:ad,stroke:"var(--muted)","stroke-width":1.4,"stroke-dasharray":"5 4"}));
+        var alb=el("text",{class:"endlbl",x:W-r+8,y:Yc(av)+3.5,fill:"var(--muted)"});
+        alb.textContent="Avg cost "+fmtNative(av,cur); svg.appendChild(alb);
+      }
+    }
+
+    // each rule's level, then its firing markers on the price
+    var ends=[];
+    rules.forEach(function(rr){
+      if(!rr.onChart) return;
+      var d="";
+      for(var i=i0;i<S.length;i++){ var v=rr.levelAt(i); if(v==null) continue;
+        d+=(d?" L ":"M ")+X(i).toFixed(1)+" "+Yc(v).toFixed(1); }
+      if(!d) return;
+      var path=el("path",{class:"serieline",d:d,stroke:rr.color,"stroke-width":rr.dynamic?1.6:1.5,
+        "stroke-dasharray":rr.dynamic?"none":"7 4",opacity:rr.enabled?1:.4});
+      svg.appendChild(path);
+      var lv=rr.levelAt(S.length-1);
+      if(lv!=null) ends.push({y:Yc(lv),col:rr.color,txt:fmtNative(lv,cur),dim:!rr.enabled});
+    });
+
+    // price on top
+    var pd="";
+    for(var i=i0;i<S.length;i++){ var v=amNat(S[i]); if(v==null) continue;
+      pd+=(pd?" L ":"M ")+X(i).toFixed(1)+" "+Y(v).toFixed(1); }
+    svg.appendChild(el("path",{class:"serieline",d:pd,stroke:"var(--ink)","stroke-width":2}));
+    ends.push({y:Y(amNat(S[S.length-1])),col:"var(--ink)",txt:fmtNative(amNat(S[S.length-1]),cur),lead:true});
+
+    // where each rule would have fired: the day it crossed, not every day it stayed past
+    rules.forEach(function(rr){
+      rr.hits=[];
+      for(var i=i0;i<S.length;i++){
+        var now=rr.firedAt(i), prev=i>0?rr.firedAt(i-1):false;
+        if(now&&!prev) rr.hits.push(i);
+      }
+      rr.hits.forEach(function(i){
+        var v=amNat(S[i]); if(v==null) return;
+        var g=el("g",{});
+        g.appendChild(el("circle",{cx:X(i).toFixed(1),cy:Y(v).toFixed(1),r:5.5,fill:rr.color,opacity:.18}));
+        g.appendChild(el("circle",{cx:X(i).toFixed(1),cy:Y(v).toFixed(1),r:3,fill:rr.color,
+          stroke:"var(--surface)","stroke-width":1.2,opacity:rr.enabled?1:.45}));
+        svg.appendChild(g);
+      });
+    });
+
+    // stack end labels so they never overlap
+    ends.sort(function(a,b){ return a.y-b.y; });
+    for(var e=1;e<ends.length;e++) if(ends[e].y-ends[e-1].y<12) ends[e].y=ends[e-1].y+12;
+    ends.forEach(function(en){
+      var lb=el("text",{class:"endlbl",x:W-r+8,y:en.y+3.5,fill:en.col,opacity:en.dim?.5:1});
+      lb.textContent=en.txt; svg.appendChild(lb);
+    });
+
+    /* hover: date, price, and how far each rule is from firing on that day */
+    var cross=el("line",{class:"crosshair",x1:0,x2:0,y1:tp,y2:tp+pH,opacity:0});
+    var fdot=el("circle",{r:4,class:"focus-dot",fill:"var(--ink)",opacity:0});
+    svg.appendChild(cross); svg.appendChild(fdot);
+    var hit=el("rect",{x:l,y:tp,width:pW,height:pH,fill:"transparent",style:"cursor:crosshair"});
+    var box=svg.parentNode;
+    hit.addEventListener("pointermove",function(ev){
+      var rect=svg.getBoundingClientRect();
+      var vx=(ev.clientX-rect.left)/rect.width*W;
+      var frac=Math.max(0,Math.min(1,(vx-l)/pW));
+      var target=t0+frac*(t1-t0), best=i0, bd=Infinity;
+      for(var i=i0;i<S.length;i++){ var dd=Math.abs(amTs(S[i].d)-target); if(dd<bd){ bd=dd; best=i; } }
+      var px=X(best), pv2=amNat(S[best]);
+      cross.setAttribute("x1",px); cross.setAttribute("x2",px); cross.setAttribute("opacity",1);
+      fdot.setAttribute("cx",px); fdot.setAttribute("cy",Y(pv2)); fdot.setAttribute("opacity",1);
+      var html='<div class="th">'+S[best].d+'</div>'
+        +'<div class="row"><span class="lab"><i style="background:var(--ink)"></i>Price</span><span class="v">'+fmtNative(pv2,cur)+'</span></div>';
+      rules.forEach(function(rr){
+        var lv=rr.levelAt(best); if(lv==null) return;
+        var gap=(pv2-lv)/lv*100, fired=rr.firedAt(best);
+        html+='<div class="row"><span class="lab"><i style="background:'+rr.color+'"></i>'+esc(rr.label)+'</span>'
+          +'<span class="v">'+(fired?"firing":(gap>=0?"+":"−")+comma(Math.abs(gap).toFixed(1))+"%")+'</span></div>';
+      });
+      tip.innerHTML=html; tip.classList.add("on");
+      var relX=px/W*box.clientWidth, tw=tip.offsetWidth;
+      tip.style.left=Math.max(tw/2+4,Math.min(box.clientWidth-tw/2-4,relX))+"px";
+      tip.style.top=Math.max(4,Y(pv2)/H*box.clientHeight-tip.offsetHeight-14)+"px";
+    });
+    hit.addEventListener("pointerleave",function(){
+      tip.classList.remove("on"); cross.setAttribute("opacity",0); fdot.setAttribute("opacity",0);
+    });
+    svg.appendChild(hit);
+
+    /* legend + one row per rule: what it fires at, how far away, how often it fired */
+    lg.innerHTML='<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)"><i style="width:11px;height:11px;border-radius:3px;background:var(--ink)"></i>Price</span>'
+      +(avgOn?'<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)"><i style="width:11px;height:2px;background:var(--muted)"></i>Your average cost</span>':'');
+
+    if(!rules.length){
+      rowsBox.innerHTML='<p class="hint" style="margin:12px 0 0">No alerts on '+esc(AM_TICKER)+' yet &mdash; the forms above create one, and it will appear here as a line.</p>';
+    } else {
+      var days=Math.round((t1-t0)/864e5);
+      rowsBox.innerHTML='<div class="am-rows">'+rules.map(function(rr){
+        var lvNow=rr.levelAt(S.length-1), pNow=amNat(S[S.length-1]);
+        var gap=(lvNow!=null&&pNow)?(pNow-lvNow)/pNow*100:null;
+        var firing=rr.firedAt(S.length-1);
+        var last=rr.hits.length?S[rr.hits[rr.hits.length-1]].d:null;
+        return '<div class="am-row'+(rr.enabled?"":" off")+'">'
+          +'<span class="am-sw" style="background:'+rr.color+'"></span>'
+          +'<span class="am-lab">'+esc(rr.label)+(rr.enabled?"":' <span class="al-off" style="display:inline">paused</span>')+'</span>'
+          +'<span class="am-v">'+(lvNow!=null?fmtNative(lvNow,cur):"—")+(rr.dynamic?' <span class="am-mv">moves</span>':'')+'</span>'
+          +'<span class="am-v'+(firing?" fire":"")+'">'+(firing?"firing now":(gap==null?"—":comma(Math.abs(gap).toFixed(1))+"% "+(gap>0?"to fall":"to rise")))+'</span>'
+          +'<span class="am-hits">'+(rr.hits.length?('<b>'+rr.hits.length+'×</b> in '+(days>400?Math.round(days/365)+"y":days+"d")+(last?' · last '+last:'')):'never in this window')+'</span>'
+          +(rr.onChart?'':'<span class="am-off2">'+(rr.offDir==="below"?"below":"above")+' the chart</span>')
+        +'</div>';
+      }).join("")+'</div>';
+    }
+
+    var offs=rules.filter(function(rr){ return !rr.onChart; }).length;
+    note.innerHTML="Markers are the day a rule <b>crossed</b> into firing, not every day it stayed there, and they use the levels as they stand today applied to past prices &mdash; your average cost has changed over time, this does not model that. A trailing rule recomputes its own "
+      +AM_HIGH_DAYS+"-day high at each date, so its line moves. Triggering is tested in each rule's own currency; the drawing is in "+cur+"."
+      +(offs?" "+offs+" rule"+(offs>1?"s sit":" sits")+" too far from the current price to fit on the chart without flattening it — the row below still gives the level and the distance.":"");
+  }
+
 
   function renderAlerts(){
     var list=document.getElementById("al-list");
@@ -2794,6 +3177,17 @@
         document.getElementById("gain-custom").hidden=(gainPreset!=="custom");
         if(gainPreset==="custom") document.getElementById("gain-custom").focus();
         renderGainPreview();
+      });
+    });
+  }
+
+  if(document.getElementById("am-periods")){
+    Array.prototype.forEach.call(document.querySelectorAll("#am-periods button"),function(b){
+      b.addEventListener("click",function(){
+        AM_PERIOD=b.dataset.p;
+        Array.prototype.forEach.call(document.querySelectorAll("#am-periods button"),function(x){
+          x.setAttribute("aria-pressed", x===b?"true":"false"); });
+        renderAlertMap();
       });
     });
   }
