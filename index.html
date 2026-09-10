@@ -72,6 +72,16 @@
   .tabs button{font:inherit;font-size:13.5px;font-weight:500;padding:9px 16px;border:0;cursor:pointer;background:var(--surface);color:var(--muted)}
   .tabs button[aria-selected="true"]{background:var(--accent);color:#fff}
   .tabs button+button{border-left:1px solid var(--hair)}
+  /* Five long labels do not fit a narrow screen. Wrapping them left a ragged, stepped
+     right edge and grew a sticky bar that already costs a phone 65px of viewport; the row
+     now scrolls sideways instead, so it stays one clean rectangle at every width. */
+  @media (max-width:1080px){
+    .tabs-sticky{padding-left:16px;padding-right:16px}
+    .tabs{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;min-width:0;max-width:100%;
+          scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-behavior:smooth}
+    .tabs::-webkit-scrollbar{display:none}
+    .tabs button{flex:none;white-space:nowrap}
+  }
 
   .panel{background:var(--surface);border:1px solid var(--hair);border-radius:14px;box-shadow:var(--shadow);padding:22px 20px 18px;margin-top:22px}
 
@@ -2317,6 +2327,10 @@
         document.getElementById(p[0]).setAttribute("aria-selected",on?"true":"false");
         document.getElementById(p[1]).hidden=!on;
       });
+      // the strip scrolls sideways when it does not fit; bring the tapped tab fully
+      // into view rather than leaving it clipped at the edge you tapped
+      var btn=document.getElementById(pair[0]);
+      if(btn.scrollIntoView) btn.scrollIntoView({block:"nearest",inline:"nearest",behavior:"smooth"});
       if(pair[0]==="tab-dca") loadAndRenderDCA();
     });
   });
