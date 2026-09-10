@@ -843,21 +843,31 @@ app.get('/api/avg-cost', (req, res) => {
   }
 });
 
-// Add avg-cost / current-price / dip context to a dip_from_avg_cost alert (mutates and returns it)
-function enrichDipAlert(a, userId) {
-  if (a.ruleType !== 'dip_from_avg_cost') return a;
-  const cost = getAvgCostPerShare(a.ticker, userId);
-  if (!cost) return a;
-  a.avgCostEUR = cost.avgCostEUR;
-  a.triggerPriceEUR = cost.avgCostEUR * (1 - a.threshold / 100);
-  const priceRow = db.prepare('SELECT price_eur, price_usd, price_native, currency FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1').get(a.ticker);
+// Attach the context an alert needs to be understood without doing arithmetic:
+// where the price is now, and for a dip rule what it is measured against.
+//
+// The current price used to be attached only to dip rules, so a price-level alert
+// arrived with nothing to compare its threshold to — the list could show what it
+// fires at but not how far away that was, which is the one thing worth knowing.
+function enrichAlert(a, userId) {
+  const priceRow = db.prepare(
+    'SELECT price_eur, price_usd, price_native, currency FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1'
+  ).get(a.ticker);
   if (priceRow) {
     a.currentPriceEUR = priceRow.price_eur;
     a.currentPriceUSD = priceRow.price_usd;
     a.currentPriceNative = priceRow.price_native;
     a.marketCurrency = priceRow.currency;
-    a.currentDipPct = (priceRow.price_eur / cost.avgCostEUR - 1) * 100;
   }
+
+  if (a.ruleType !== 'dip_from_avg_cost') return a;
+
+  // A dip is measured against the euro cost basis, so it needs the holding too.
+  const cost = getAvgCostPerShare(a.ticker, userId);
+  if (!cost) return a;
+  a.avgCostEUR = cost.avgCostEUR;
+  a.triggerPriceEUR = cost.avgCostEUR * (1 - a.threshold / 100);
+  if (priceRow) a.currentDipPct = (priceRow.price_eur / cost.avgCostEUR - 1) * 100;
   return a;
 }
 
@@ -871,7 +881,7 @@ app.get('/api/alerts', (req, res) => {
       WHERE user_id = ?
       ORDER BY created_at DESC
     `);
-    const alerts = stmt.all(req.userId).map(a => enrichDipAlert(a, req.userId));
+    const alerts = stmt.all(req.userId).map(a => enrichAlert(a, req.userId));
     res.json({ alerts });
   } catch (err) {
     console.error('GET /api/alerts error:', err.message);
@@ -926,7 +936,7 @@ app.post('/api/alerts', (req, res) => {
              last_triggered_at as lastTriggeredAt, created_at as createdAt
       FROM alerts WHERE id = ?
     `);
-    const newAlert = enrichDipAlert(selectStmt.get(result.lastInsertRowid), req.userId);
+    const newAlert = enrichAlert(selectStmt.get(result.lastInsertRowid), req.userId);
 
     res.json({ success: true, alert: newAlert });
   } catch (err) {
@@ -960,7 +970,7 @@ app.put('/api/alerts/:id', (req, res) => {
              last_triggered_at as lastTriggeredAt, created_at as createdAt
       FROM alerts WHERE id = ?
     `);
-    const alert = enrichDipAlert(selectStmt.get(id), req.userId);
+    const alert = enrichAlert(selectStmt.get(id), req.userId);
 
     res.json({ success: true, alert });
   } catch (err) {

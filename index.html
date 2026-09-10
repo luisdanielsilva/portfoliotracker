@@ -392,6 +392,42 @@
   #auth-status a{color:var(--accent);text-decoration:none;cursor:pointer}
   #auth-status a:hover{text-decoration:underline}
 
+  /* alert list: a table that uses the width, so the numbers that matter are
+     readable at a glance instead of packed into small grey prose */
+  .al-row{display:grid;grid-template-columns:minmax(90px,.8fr) minmax(150px,1.4fr) minmax(90px,.8fr) minmax(90px,.8fr) minmax(130px,1fr) auto;
+          gap:14px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--hair)}
+  .al-row:last-child{border-bottom:0}
+  .al-row.off{opacity:.5}
+  .al-head{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+           border-bottom:1px solid var(--hair);padding-bottom:8px}
+  .al-head .al-num{text-align:right}
+  .al-tk{font-weight:600;font-size:15px;letter-spacing:-.01em}
+  .al-off{display:block;font-size:10px;font-weight:500;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+  .al-rule{font-size:13px;color:var(--muted)}
+  .al-tag{display:inline-block;font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+          border-radius:4px;padding:2px 6px;margin-right:7px;vertical-align:1px}
+  .al-tag.dip{color:var(--pos);background:rgba(63,143,91,.13)}
+  .al-tag.lvl{color:var(--accent);background:var(--accent-soft)}
+  .al-num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:14px;text-align:right}
+  .al-trig{font-weight:600}
+  .al-move{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:600}
+  .al-move.near{color:var(--neg)}
+  .al-dir{font-size:11.5px;color:var(--faint);margin-left:5px}
+  .al-bar{height:4px;border-radius:2px;background:var(--hair);margin-top:5px;overflow:hidden}
+  .al-bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
+  .al-move.near ~ .al-bar i,.al-head2:has(.near) .al-bar i{background:var(--neg)}
+  .al-act{display:flex;gap:6px;justify-self:end}
+  @media (max-width:820px){
+    .al-head{display:none}
+    .al-row{grid-template-columns:1fr auto;gap:6px 12px;padding:14px 12px}
+    .al-rule{grid-column:1/-1}
+    .al-num{text-align:left;font-size:13px}
+    .al-num::before{content:attr(data-l);font-family:"IBM Plex Sans",sans-serif;font-size:10px;
+                    text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-right:6px}
+    .al-head2{grid-column:1/-1}
+    .al-act{grid-column:2;grid-row:1}
+  }
+
   .modal{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:1000}
   .modal-backdrop{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5)}
   .modal-content{position:relative;background:var(--surface);border-radius:8px;box-shadow:var(--shadow);max-width:500px;width:90%;max-height:90vh;overflow-y:auto;padding:24px;z-index:1001}
@@ -2286,42 +2322,59 @@
       return;
     }
 
-    list.innerHTML=alerts.map(a=>{
-      var lastTriggered=a.lastTriggeredAt?new Date(a.lastTriggeredAt).toLocaleDateString():"never";
-      var desc;
-      if(a.ruleType==="dip_from_avg_cost"){
-        var badge='<span style="display:inline-block;font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--pos);background:rgba(63,143,91,.12);border-radius:4px;padding:1px 6px;margin-right:6px">Dip</span>';
-        desc=badge+"Triggers "+a.threshold+"%+ below your avg cost";
-        if(a.avgCostEUR!=null){
-          desc+="<br>Avg cost: €"+a.avgCostEUR.toFixed(2)+" · Trigger price: €"+a.triggerPriceEUR.toFixed(2);
-          if(a.currentPriceEUR!=null){
-            var dipCls=a.currentDipPct<0?"pos":"neg";
-            desc+="<br>Current price: €"+a.currentPriceEUR.toFixed(2)+" · Currently <span class='"+dipCls+"'>"+(a.currentDipPct>=0?"+":"")+a.currentDipPct.toFixed(1)+"%</span> vs. your cost";
-          }
-        }
-        desc+="<br>Last triggered: "+lastTriggered;
-      } else {
-        // A price level is shown in the currency its market quotes, matching the
-        // threshold the user set. (Dips above stay in euros: they are measured
-        // against the cost basis, which is what actually left the account.)
-        var ruleText=a.ruleType==="price_above"?"above":a.ruleType==="price_below"?"below":"changed";
-        var cur=a.currency||a.marketCurrency||"USD";
-        desc="Price "+ruleText+" "+fmtNative(a.threshold,cur);
-        if(a.currentPriceNative!=null) desc+=" · now "+fmtNative(a.currentPriceNative,cur);
-        desc+=" • Last: "+lastTriggered;
+    // Each alert is reduced to the numbers that decide whether to care: what it
+    // fires at, where the price is now, and how far it still has to move. That last
+    // one — headroom — is the whole question ("is this close?") and previously had
+    // to be worked out in your head from two figures buried in 12px grey text.
+    var rows=alerts.map(a=>{
+      var isDip=a.ruleType==="dip_from_avg_cost";
+      var cur=isDip?"EUR":(a.currency||a.marketCurrency||"USD");
+      var trigger=isDip?a.triggerPriceEUR:a.threshold;
+      var now=isDip?a.currentPriceEUR:a.currentPriceNative;
+
+      // percentage the price must still move for this rule to fire
+      var movePct=null, dir="";
+      if(trigger!=null && now!=null && now>0){
+        if(a.ruleType==="price_above"){ movePct=(trigger-now)/now*100; dir="rise"; }
+        else { movePct=(now-trigger)/now*100; dir="fall"; }
       }
-      return `
-        <div style="background:var(--surface-2);border:1px solid var(--hair);border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-          <div style="flex:1;min-width:200px">
-            <div style="font-weight:600;color:var(--ink)">${a.ticker}</div>
-            <div style="font-size:12px;color:var(--muted)">${desc}</div>
-          </div>
-          <div style="display:flex;gap:6px">
-            <button class="mini" data-action="toggle" data-id="${a.id}" ${a.enabled?"":"aria-pressed=false"}>${a.enabled?"On":"Off"}</button>
-            <button class="mini" data-action="delete" data-id="${a.id}">Delete</button>
-          </div>
-        </div>
-      `;
+      return {a:a,isDip:isDip,cur:cur,trigger:trigger,now:now,movePct:movePct,dir:dir};
+    });
+    // closest to firing first — the ones worth looking at are at the top
+    rows.sort((x,y)=>(x.movePct==null?1e9:Math.abs(x.movePct))-(y.movePct==null?1e9:Math.abs(y.movePct)));
+
+    var head='<div class="al-row al-head">'
+      +'<div>Ticker</div><div>Rule</div><div class="al-num">Fires at</div>'
+      +'<div class="al-num">Now</div><div>Headroom</div><div></div></div>';
+
+    list.innerHTML=head+rows.map(r=>{
+      var a=r.a;
+      var last=a.lastTriggeredAt?new Date(a.lastTriggeredAt).toLocaleDateString():"never";
+      var rule=r.isDip
+        ? '<span class="al-tag dip">Dip</span>'+a.threshold+'% below avg cost'
+        : '<span class="al-tag lvl">Level</span>Price '+(a.ruleType==="price_above"?"above":"below");
+
+      var head2="—", bar="";
+      if(r.movePct!=null){
+        var pct=Math.abs(r.movePct);
+        // near = within 10% of firing; the bar fills as the gap closes
+        var near=pct<10, fill=Math.max(3,Math.min(100,(1-pct/40)*100));
+        head2='<span class="al-move'+(near?" near":"")+'">'+pct.toFixed(1)+'%</span>'
+          +'<span class="al-dir">to '+r.dir+'</span>';
+        bar='<div class="al-bar"><i style="width:'+fill.toFixed(0)+'%"></i></div>';
+      }
+
+      return '<div class="al-row'+(a.enabled?"":" off")+'">'
+        +'<div class="al-tk">'+esc(a.ticker)+(a.enabled?"":'<span class="al-off">paused</span>')+'</div>'
+        +'<div class="al-rule">'+rule+'</div>'
+        +'<div class="al-num al-trig" data-l="fires at">'+(r.trigger!=null?fmtNative(r.trigger,r.cur):"—")+'</div>'
+        +'<div class="al-num" data-l="now">'+(r.now!=null?fmtNative(r.now,r.cur):"—")+'</div>'
+        +'<div class="al-head2">'+head2+bar+'</div>'
+        +'<div class="al-act">'
+          +'<button class="mini" data-action="toggle" data-id="'+a.id+'" title="Last triggered: '+last+'">'+(a.enabled?"On":"Off")+'</button>'
+          +'<button class="mini" data-action="delete" data-id="'+a.id+'">Delete</button>'
+        +'</div>'
+      +'</div>';
     }).join('');
 
     list.querySelectorAll('[data-action="toggle"]').forEach(btn=>{
