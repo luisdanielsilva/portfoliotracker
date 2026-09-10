@@ -13,7 +13,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
-const { ensurePriceCurrencyColumns, ensureAlertCurrency } = require('./db-migrations');
+const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType } = require('./db-migrations');
 require('dotenv').config();
 
 const dbPath = path.join(__dirname, 'data.db');
@@ -93,6 +93,10 @@ function digestRow(item, isLast) {
     headline = `<span style="color:${MAIL.neg}">−${item.dropPct.toFixed(1)}%</span>`;
     detail = `${eur(item.price)} now · your average cost ${eur(item.avgCost)}<br>`
       + `Back to break-even at <span style="color:${MAIL.ink};font-family:${MAIL.mono}">${eur(item.avgCost)}</span>`;
+  } else if (item.kind === 'gain') {
+    headline = `<span style="color:${MAIL.pos}">+${item.gainPct.toFixed(1)}%</span>`;
+    detail = `${eur(item.price)} now · your average cost ${eur(item.avgCost)}<br>`
+      + `Past your <span style="color:${MAIL.ink};font-family:${MAIL.mono}">+${item.threshold}%</span> target`;
   } else {
     // A price level, shown in the currency its market quotes.
     const above = item.kind === 'price_above';
@@ -122,7 +126,8 @@ function digestSection(title, items) {
 
 function renderAlertDigest(items) {
   const dips = items.filter(i => i.kind === 'dip');
-  const levels = items.filter(i => i.kind !== 'dip');
+  const gains = items.filter(i => i.kind === 'gain');
+  const levels = items.filter(i => i.kind !== 'dip' && i.kind !== 'gain');
   const when = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const heading = items.length === 1 ? 'One alert triggered' : `${items.length} alerts triggered`;
 
@@ -140,6 +145,7 @@ function renderAlertDigest(items) {
     <tr><td style="padding:0 26px">
       <table width="100%" cellpadding="0" cellspacing="0" border="0">
         ${digestSection('Dips below your average cost', dips)}
+        ${digestSection('Up on what you paid', gains)}
         ${digestSection('Price levels you set', levels)}
       </table>
     </td></tr>
@@ -161,6 +167,9 @@ function renderAlertDigestText(items) {
     if (i.kind === 'dip') {
       lines.push(`${i.ticker}  -${i.dropPct.toFixed(1)}% below your average`);
       lines.push(`  ${eur(i.price)} now, average cost ${eur(i.avgCost)}. Break-even at ${eur(i.avgCost)}.`);
+    } else if (i.kind === 'gain') {
+      lines.push(`${i.ticker}  +${i.gainPct.toFixed(1)}% on what you paid (target +${i.threshold}%)`);
+      lines.push(`  ${eur(i.price)} now, average cost ${eur(i.avgCost)}.`);
     } else {
       const above = i.kind === 'price_above';
       const cur = i.currency || 'USD';
@@ -317,6 +326,7 @@ function alertSubject(items) {
   if (items.length === 1) {
     const i = items[0];
     if (i.kind === 'dip') return `${i.ticker} is ${i.dropPct.toFixed(1)}% below your average cost`;
+    if (i.kind === 'gain') return `${i.ticker} is up ${i.gainPct.toFixed(1)}% on what you paid`;
     return `${i.ticker} ${i.kind === 'price_above' ? 'rose above' : 'fell below'} ${fmtNative(i.threshold, i.currency || 'USD')}`;
   }
   return `${items.length} alerts: ${[...new Set(items.map(i => i.ticker))].join(', ')}`;
@@ -450,6 +460,14 @@ async function evaluateAlerts(db, mailer) {
         if (avgCostEUR !== null && currentPrice <= avgCostEUR * (1 - threshold / 100)) {
           triggered = true;
         }
+      } else if (rule === 'gain_from_avg_cost') {
+        // The sell-side mirror: fires when the holding is up `threshold`% on what
+        // was actually paid. Measured in euros for the same reason a dip is — that
+        // is the currency the money left in.
+        avgCostEUR = getAvgCostPerShare(db, alert.ticker, alert.user_id);
+        if (avgCostEUR !== null && currentPrice >= avgCostEUR * (1 + threshold / 100)) {
+          triggered = true;
+        }
       }
 
       if (!triggered) continue;
@@ -469,11 +487,17 @@ async function evaluateAlerts(db, mailer) {
       // Collect rather than send: everything that fired for one person goes out
       // as a single digest below, so three rules never mean three emails.
       const recipient = alert.owner_email || process.env.ALERT_EMAIL_TO;
-      const item = rule === 'dip_from_avg_cost'
-        ? { kind: 'dip', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
-            dropPct: ((avgCostEUR - currentPrice) / avgCostEUR) * 100 }
-        : { kind: rule, ticker: alert.ticker, price: nativePrice, threshold,
-            currency: alert.currency || marketCurrency };
+      let item;
+      if (rule === 'dip_from_avg_cost') {
+        item = { kind: 'dip', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
+                 dropPct: ((avgCostEUR - currentPrice) / avgCostEUR) * 100 };
+      } else if (rule === 'gain_from_avg_cost') {
+        item = { kind: 'gain', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
+                 gainPct: ((currentPrice - avgCostEUR) / avgCostEUR) * 100, threshold };
+      } else {
+        item = { kind: rule, ticker: alert.ticker, price: nativePrice, threshold,
+                 currency: alert.currency || marketCurrency };
+      }
 
       if (!byRecipient.has(recipient)) byRecipient.set(recipient, []);
       byRecipient.get(recipient).push(item);
@@ -557,6 +581,7 @@ async function fetchPrices() {
 
     ensurePriceCurrencyColumns(db);
     ensureAlertCurrency(db);
+    ensureGainRuleType(db);
 
     const upsertStmt = db.prepare(`
       INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)

@@ -56,6 +56,7 @@ db.exec(schema);
 // Prices carry the currency the market quotes them in; see db-migrations.js.
 require('./db-migrations').ensurePriceCurrencyColumns(db);
 require('./db-migrations').ensureAlertCurrency(db);
+require('./db-migrations').ensureGainRuleType(db);
 
 // Migration: stop the same rule being saved twice. Nothing prevented it, and one
 // ticker ended up with three identical "dip 5%" rules — which would have meant the
@@ -860,13 +861,17 @@ function enrichAlert(a, userId) {
     a.marketCurrency = priceRow.currency;
   }
 
-  if (a.ruleType !== 'dip_from_avg_cost') return a;
+  const costBased = a.ruleType === 'dip_from_avg_cost' || a.ruleType === 'gain_from_avg_cost';
+  if (!costBased) return a;
 
-  // A dip is measured against the euro cost basis, so it needs the holding too.
+  // Both cost-based rules measure against the euro cost basis, so they need the
+  // holding too — a dip fires below it, a gain above it.
   const cost = getAvgCostPerShare(a.ticker, userId);
   if (!cost) return a;
   a.avgCostEUR = cost.avgCostEUR;
-  a.triggerPriceEUR = cost.avgCostEUR * (1 - a.threshold / 100);
+  a.triggerPriceEUR = a.ruleType === 'gain_from_avg_cost'
+    ? cost.avgCostEUR * (1 + a.threshold / 100)
+    : cost.avgCostEUR * (1 - a.threshold / 100);
   if (priceRow) a.currentDipPct = (priceRow.price_eur / cost.avgCostEUR - 1) * 100;
   return a;
 }

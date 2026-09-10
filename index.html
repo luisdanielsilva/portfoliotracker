@@ -408,6 +408,7 @@
           border-radius:4px;padding:2px 6px;margin-right:7px;vertical-align:1px}
   .al-tag.dip{color:var(--pos);background:rgba(63,143,91,.13)}
   .al-tag.lvl{color:var(--accent);background:var(--accent-soft)}
+  .al-tag.gain{color:var(--s-tsla);background:rgba(235,104,52,.13)}
   .al-num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:14px;text-align:right}
   .al-trig{font-weight:600}
   .al-move{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:600}
@@ -1051,6 +1052,32 @@
           <button type="button" class="btn primary" id="dip-create" style="flex:1">Create dip alert</button>
         </div>
         <div class="frm-note" id="dip-note"></div>
+      </div>
+
+      <div class="addcard">
+        <h3>Create target alert</h3>
+        <p class="hint">The other half of the plan: get an email when a stock is a set % <b>above</b> your own average purchase price &mdash; a signal to consider taking some profit. The target follows your cost basis, so it stays meaningful as you keep buying.</p>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;max-width:260px">
+          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Stock</label>
+          <select id="gain-ticker" style="font-size:12px;padding:8px"></select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Alert when up</label>
+          <div class="segmented" role="group" aria-label="Target threshold" id="gain-presets">
+            <button type="button" data-pct="25" aria-pressed="true">25%</button>
+            <button type="button" data-pct="50">50%</button>
+            <button type="button" data-pct="75">75%</button>
+            <button type="button" data-pct="100">100%</button>
+            <button type="button" data-pct="150">150%</button>
+            <button type="button" data-pct="custom">Custom</button>
+          </div>
+          <input type="number" id="gain-custom" placeholder="e.g. 200" step="5" min="1" style="font-size:12px;max-width:140px" hidden>
+        </div>
+        <div class="frm-note" id="gain-preview" style="background:var(--surface-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--muted)"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn primary" id="gain-create" style="flex:1">Create target alert</button>
+        </div>
+        <div class="frm-note" id="gain-note"></div>
       </div>
 
       <div class="addcard">
@@ -2253,17 +2280,20 @@
       .then(function(data){
         AVG_COST={};
         (data.tickers||[]).forEach(function(t){ AVG_COST[t.ticker]=t; });
-        var sel=document.getElementById("dip-ticker");
         var tickers=Object.keys(AVG_COST);
-        if(!tickers.length){
-          sel.innerHTML='<option value="">No holdings yet</option>';
-        } else {
-          sel.innerHTML=tickers.map(function(t){
-            var nm=BSHORT[BKEY.indexOf(t.toLowerCase())]||t;
-            return '<option value="'+t+'">'+esc(nm)+' ('+t+')</option>';
-          }).join("");
-        }
+        var opts=tickers.length
+          ? tickers.map(function(t){
+              var nm=BSHORT[BKEY.indexOf(t.toLowerCase())]||t;
+              return '<option value="'+t+'">'+esc(nm)+' ('+t+')</option>';
+            }).join("")
+          : '<option value="">No holdings yet</option>';
+        // both cost-based forms offer the same holdings
+        ["dip-ticker","gain-ticker"].forEach(function(id){
+          var sel=document.getElementById(id);
+          if(sel) sel.innerHTML=opts;
+        });
         renderDipPreview();
+        renderGainPreview();
       })
       .catch(function(err){ console.error('Failed to load avg cost:',err); });
   }
@@ -2292,6 +2322,55 @@
     var already=current!=null && current<=triggerPrice;
     box.innerHTML="Your average cost: <b>"+fmt(avgCost)+"</b> · Triggers at "+dp(-pct/100).replace("−","-")+" → <b>"+fmt(triggerPrice)+"</b>"+
       (current!=null?"<br>Current price: "+fmt(current)+" ("+dp(current/avgCost-1)+" vs. your cost)"+(already?" — <span class='pos'>would trigger right away</span>":""):"");
+  }
+
+  // Target alerts are the sell-side mirror of dip alerts: same shape, same preview,
+  // measured against the same cost basis — only the direction differs.
+  var gainPreset="25";
+
+  function currentGainThreshold(){
+    if(gainPreset==="custom"){
+      var v=parseFloat(document.getElementById("gain-custom").value);
+      return (v>0)?v:null;
+    }
+    return parseFloat(gainPreset);
+  }
+
+  function renderGainPreview(){
+    var box=document.getElementById("gain-preview");
+    if(!box) return;
+    var ticker=document.getElementById("gain-ticker").value;
+    var pct=currentGainThreshold();
+    var info=AVG_COST[ticker];
+    if(!info){ box.textContent="Add a transaction for this stock first — a target needs a purchase to measure against."; return; }
+    if(!pct){ box.textContent="Pick a target % (or enter a custom one) to see the price it fires at."; return; }
+    var isUSD=TICKER_CURRENCY[ticker]==="USD";
+    var rate=TICKER_EXCHANGE_RATE[ticker]||CURRENT_EUR_TO_USD||1.087;
+    var avgCost=isUSD?info.avgCostEUR*rate:info.avgCostEUR;
+    var triggerPrice=avgCost*(1+pct/100);
+    var current=isUSD?info.currentPriceUSD:info.currentPriceEUR;
+    var fmt=isUSD?usd:eur;
+    var already=current!=null && current>=triggerPrice;
+    box.innerHTML="Your average cost: <b>"+fmt(avgCost)+"</b> · Triggers at +"+pct+"% → <b>"+fmt(triggerPrice)+"</b>"+
+      (current!=null?"<br>Current price: "+fmt(current)+" ("+dp(current/avgCost-1)+" vs. your cost)"+(already?" — <span class='pos'>would trigger right away</span>":""):"");
+  }
+
+  function createGainAlert(){
+    var nt=document.getElementById("gain-note"); nt.className="frm-note"; nt.textContent="";
+    var ticker=document.getElementById("gain-ticker").value;
+    var pct=currentGainThreshold();
+    if(!ticker){ nt.className="frm-note err"; nt.textContent="Pick a stock."; return; }
+    if(!pct){ nt.className="frm-note err"; nt.textContent="Pick or enter a target %."; return; }
+    apiFetch('./api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ticker:ticker,ruleType:'gain_from_avg_cost',threshold:pct})})
+      .then(r=>r.json().then(d=>({ok:r.ok,d:d})))
+      .then(({ok,d})=>{
+        if(!ok){ nt.className="frm-note err"; nt.textContent=d.error||"Could not create the alert."; return; }
+        nt.className="frm-note ok"; nt.textContent="Target alert created for "+ticker+" at +"+pct+"%.";
+        toast("Target alert created for "+ticker);
+        loadAlerts();
+      })
+      .catch(e=>{ nt.className="frm-note err"; nt.textContent="Server error: "+e.message; });
   }
 
   function loadAlerts(){
@@ -2328,17 +2407,20 @@
     // to be worked out in your head from two figures buried in 12px grey text.
     var rows=alerts.map(a=>{
       var isDip=a.ruleType==="dip_from_avg_cost";
-      var cur=isDip?"EUR":(a.currency||a.marketCurrency||"USD");
-      var trigger=isDip?a.triggerPriceEUR:a.threshold;
-      var now=isDip?a.currentPriceEUR:a.currentPriceNative;
+      var isGain=a.ruleType==="gain_from_avg_cost";
+      var costBased=isDip||isGain;
+      var cur=costBased?"EUR":(a.currency||a.marketCurrency||"USD");
+      var trigger=costBased?a.triggerPriceEUR:a.threshold;
+      var now=costBased?a.currentPriceEUR:a.currentPriceNative;
 
       // percentage the price must still move for this rule to fire
       var movePct=null, dir="";
       if(trigger!=null && now!=null && now>0){
-        if(a.ruleType==="price_above"){ movePct=(trigger-now)/now*100; dir="rise"; }
+        // a gain target and a price_above both need the price to climb
+        if(a.ruleType==="price_above"||isGain){ movePct=(trigger-now)/now*100; dir="rise"; }
         else { movePct=(now-trigger)/now*100; dir="fall"; }
       }
-      return {a:a,isDip:isDip,cur:cur,trigger:trigger,now:now,movePct:movePct,dir:dir};
+      return {a:a,isDip:isDip,isGain:isGain,cur:cur,trigger:trigger,now:now,movePct:movePct,dir:dir};
     });
     // closest to firing first — the ones worth looking at are at the top
     rows.sort((x,y)=>(x.movePct==null?1e9:Math.abs(x.movePct))-(y.movePct==null?1e9:Math.abs(y.movePct)));
@@ -2352,6 +2434,8 @@
       var last=a.lastTriggeredAt?new Date(a.lastTriggeredAt).toLocaleDateString():"never";
       var rule=r.isDip
         ? '<span class="al-tag dip">Dip</span>'+a.threshold+'% below avg cost'
+        : r.isGain
+        ? '<span class="al-tag gain">Target</span>'+a.threshold+'% above avg cost'
         : '<span class="al-tag lvl">Level</span>Price '+(a.ruleType==="price_above"?"above":"below");
 
       var head2="—", bar="";
@@ -2483,6 +2567,21 @@
         document.getElementById("dip-custom").hidden=(dipPreset!=="custom");
         if(dipPreset==="custom") document.getElementById("dip-custom").focus();
         renderDipPreview();
+      });
+    });
+  }
+
+  if(document.getElementById("gain-create")){
+    document.getElementById("gain-create").addEventListener("click",createGainAlert);
+    document.getElementById("gain-ticker").addEventListener("change",renderGainPreview);
+    document.getElementById("gain-custom").addEventListener("input",renderGainPreview);
+    Array.prototype.forEach.call(document.querySelectorAll("#gain-presets button"),function(b){
+      b.addEventListener("click",function(){
+        gainPreset=b.dataset.pct;
+        Array.prototype.forEach.call(document.querySelectorAll("#gain-presets button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
+        document.getElementById("gain-custom").hidden=(gainPreset!=="custom");
+        if(gainPreset==="custom") document.getElementById("gain-custom").focus();
+        renderGainPreview();
       });
     });
   }

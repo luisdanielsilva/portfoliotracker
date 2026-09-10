@@ -73,4 +73,54 @@ function ensureAlertCurrency(db) {
   }
 }
 
-module.exports = { ensurePriceCurrencyColumns, ensureAlertCurrency, columnNames };
+/**
+ * Allow the sell-side rule type.
+ *
+ * The tool exists to average in below cost *and* to sell near the tops, but every
+ * rule was a buy signal. gain_from_avg_cost is the exact mirror of
+ * dip_from_avg_cost: it fires when a holding is up X% on what you actually paid,
+ * so a take-profit level follows your cost basis instead of being an absolute
+ * price that goes stale as you keep buying.
+ *
+ * SQLite cannot ALTER a CHECK constraint, so the table is rebuilt — the same
+ * approach used when dip_from_avg_cost was added.
+ */
+function ensureGainRuleType(db) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='alerts'").get();
+  if (!row || row.sql.includes('gain_from_avg_cost')) return;
+
+  const hasCurrency = columnNames(db, 'alerts').includes('currency');
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE alerts_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        ticker TEXT NOT NULL,
+        rule_type TEXT NOT NULL CHECK(rule_type IN ('price_above','price_below','change_pct','dip_from_avg_cost','gain_from_avg_cost')),
+        threshold REAL NOT NULL,
+        currency TEXT,
+        enabled BOOLEAN DEFAULT 1,
+        last_triggered_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      INSERT INTO alerts_new (id,user_id,ticker,rule_type,threshold,currency,enabled,last_triggered_at,created_at)
+        SELECT id,user_id,ticker,rule_type,threshold,${hasCurrency ? 'currency' : 'NULL'},enabled,last_triggered_at,created_at FROM alerts;
+      DROP TABLE alerts;
+      ALTER TABLE alerts_new RENAME TO alerts;
+      CREATE INDEX IF NOT EXISTS idx_user_ticker_alert ON alerts(user_id, ticker);
+      CREATE INDEX IF NOT EXISTS idx_enabled ON alerts(enabled);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_unique ON alerts(user_id, ticker, rule_type, threshold);
+      COMMIT;
+    `);
+    const problems = db.pragma('foreign_key_check');
+    if (problems.length) throw new Error('foreign key check failed after alerts rebuild');
+    console.log('Migrated alerts table to support gain_from_avg_cost');
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+module.exports = { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType, columnNames };
