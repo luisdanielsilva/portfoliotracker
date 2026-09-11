@@ -44,6 +44,14 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
   flattening it — the row below still gives the level and the distance. A trailing rule's line
   moves, because it recomputes its own 365-day high at each date; triggering is always tested in
   the rule's own currency even though the drawing is in the market's.
+- **Contact / Feature Request:** one widget, `contact.js`, loaded by `index.html`,
+  `privacy.html` and `terms.html`. It injects its own styles, markup and behaviour, styled
+  from the CSS variables all three pages already define, and posts to `api/contact`
+  (relative, so it resolves under `/portfoliotracker/` from any of them). Any element with
+  `data-contact-open` becomes a trigger; a page with none gets a button before its footer.
+  Fields match the form on dupsweep.com: Type (Support / Feature Request), Name, E-mail,
+  Title, Description. The app page previously had its own copy of all of this, with a
+  browser `alert()` for feedback, and the two policy pages had none.
 - **Landing page:** Logged-out visitors get a public page explaining the tool (two worked examples
   — one buying the dip, one selling near the top — six feature cards, a How-it-works time track,
   and a preview of the alert email) rather than a bare login form. It lives inside `#auth-gate` in

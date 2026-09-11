@@ -983,7 +983,11 @@
   </div>
   </section>
 
-  <footer style="margin-top:44px;text-align:center">
+  <div class="lp-cta" style="justify-content:center;margin-top:40px">
+    <a class="lp-btn" href="#" data-contact-open>Contact / Feature Request</a>
+  </div>
+
+  <footer style="margin-top:32px;text-align:center">
     Portfolio Tracker &middot; a personal investing tracker by <strong>Luís Silva</strong> &middot;
     <a href="https://www.luisdanielsilva.com" target="_blank" rel="noopener">www.luisdanielsilva.com</a> &middot;
     <a href="mailto:luisdanielsilva@gmail.com">luisdanielsilva@gmail.com</a><br>
@@ -1410,52 +1414,13 @@
 
   <section id="contact-section" class="contact-section">
     <div class="contact-container">
-      <h2>Contact / Support</h2>
-      <p>Have a question or suggestion? We'd love to hear from you.</p>
-      <button id="contact-btn" class="contact-btn">Send us a message</button>
+      <h2>Contact / Feature Request</h2>
+      <p>Something not working, or an idea for the app? Support questions and feature requests both land in the same inbox.</p>
+      <button id="contact-btn" class="contact-btn" data-contact-open>Contact / Feature Request</button>
     </div>
   </section>
 
-  <div id="contact-modal" class="modal" hidden>
-    <div class="modal-backdrop"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Contact / Support</h3>
-        <button class="modal-close" id="contact-close">&times;</button>
-      </div>
-      <form id="contact-form">
-        <div class="form-group">
-          <label for="contact-type">Type</label>
-          <select id="contact-type" required>
-            <option value="support">Support</option>
-            <option value="feature">Feature Request</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="contact-name">Name</label>
-          <input type="text" id="contact-name" placeholder="Your name" required>
-        </div>
-        <div class="form-group">
-          <label for="contact-email">Email</label>
-          <input type="email" id="contact-email" placeholder="your@email.com" required>
-        </div>
-        <div class="form-group">
-          <label for="contact-title">Title</label>
-          <input type="text" id="contact-title" placeholder="Subject" required>
-        </div>
-        <div class="form-group">
-          <label for="contact-message">Message</label>
-          <textarea id="contact-message" placeholder="Tell us more..." rows="6" required></textarea>
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn-primary">Send</button>
-          <button type="button" class="btn-secondary" id="contact-cancel">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <footer>Made by <strong>Luís Silva</strong> with the help of AI &middot; <a href="https://www.luisdanielsilva.com" target="_blank" rel="noopener">www.luisdanielsilva.com</a> &middot; <a href="mailto:luisdanielsilva@gmail.com">luisdanielsilva@gmail.com</a> &middot; <a href="#" id="footer-contact">Support</a><br>
+  <footer>Made by <strong>Luís Silva</strong> with the help of AI &middot; <a href="https://www.luisdanielsilva.com" target="_blank" rel="noopener">www.luisdanielsilva.com</a> &middot; <a href="mailto:luisdanielsilva@gmail.com">luisdanielsilva@gmail.com</a> &middot; <a href="#" id="footer-contact" data-contact-open>Support</a><br>
     <span class="footer-legal"><a href="./privacy.html">Privacy Policy</a> &middot; <a href="./terms.html">Terms of Service</a></span></footer>
 </div>
 <div class="loading-overlay" id="loading-overlay">
@@ -4108,49 +4073,8 @@
     .catch(function(){ hideLoadingOverlay(); loadAuthConfig(); showAuthGate(); });
 
   /* ================= Contact Form ================= */
-  var contactModal=document.getElementById("contact-modal");
-  var contactForm=document.getElementById("contact-form");
-  var contactBtn=document.getElementById("contact-btn");
-  var contactClose=document.getElementById("contact-close");
-  var contactCancel=document.getElementById("contact-cancel");
-  var footerContact=document.getElementById("footer-contact");
-
-  function openContactModal(){ contactModal.hidden=false; contactForm.reset(); }
-  function closeContactModal(){ contactModal.hidden=true; }
-
-  contactBtn.addEventListener("click",openContactModal);
-  contactClose.addEventListener("click",closeContactModal);
-  contactCancel.addEventListener("click",closeContactModal);
-  footerContact.addEventListener("click",function(e){ e.preventDefault(); openContactModal(); });
-
-  contactModal.addEventListener("click",function(e){
-    if(e.target===contactModal) closeContactModal();
-  });
-
-  contactForm.addEventListener("submit",function(e){
-    e.preventDefault();
-    var formData={
-      type:document.getElementById("contact-type").value,
-      name:document.getElementById("contact-name").value,
-      email:document.getElementById("contact-email").value,
-      title:document.getElementById("contact-title").value,
-      message:document.getElementById("contact-message").value
-    };
-    fetch("./api/contact",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formData)})
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        if(data.success){
-          alert("Thank you for your message! We'll get back to you soon.");
-          closeContactModal();
-        } else {
-          alert("Error sending message. Please try again later.");
-        }
-      })
-      .catch(function(){
-        alert("Error sending message. Please try again later.");
-      });
-  });
 })();
 </script>
+<script src="./contact.js" defer></script>
 </body>
 </html>
