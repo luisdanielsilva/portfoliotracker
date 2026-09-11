@@ -181,6 +181,29 @@ This exists because every bug found on 2026-09-09 was caught by noticing a numbe
 cost ignoring splits. That is not a repeatable process. Run against a backup from before those
 fixes, this tool reports all three unaided.
 
+### 📈 How the portfolio chart is built
+
+There is **no snapshots table**. `/api/snapshots` recomputes the entire series on every
+request from `transactions` (split-adjusted into current share units) valued at the newest
+stored price on or before each date, so the chart cannot drift from the transactions behind
+it. Three things about it are worth knowing, all of them mistakes that were live:
+
+- **The series ends at the later of now and the newest transaction.** It used to walk from the
+  first transaction's own clock time, so every point carried that hour and the series stopped
+  there. The registration form defaults to 12:00, so a purchase entered in the morning was
+  stamped hours ahead of the last point and did not reach the chart until the next day.
+- **Dates are sent as UTC instants and must be parsed as such.** The client stripped the `Z`
+  and re-parsed, which moved every point back by the viewer's offset — an hour, except that
+  local midnight minus an hour lands on the previous day, so the last point read a day early.
+- **Nothing about the chart is stored in the browser.** Registering a transaction used to push
+  a snapshot built client-side into `localStorage` (`pf.snapshots.v1`). It valued the new
+  position at what was paid rather than at market, survived deleting the transaction, and
+  outlived the page — one stale copy went on overriding the tail of the chart forever. The key
+  is now cleared on load. Do not reintroduce a client-side copy of derived state.
+
+`refreshPortfolio()` re-fetches and redraws after any transaction is added or deleted, and
+after a backfill lands new history.
+
 ### 🎯 Architecture
 
 **Single Source of Truth:** `/var/www/portfoliotracker/`

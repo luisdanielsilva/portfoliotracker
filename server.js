@@ -671,21 +671,36 @@ app.get('/api/stock-splits', (req, res) => {
 // Generate daily snapshot dates from first transaction to today
 function generateDailySnapshots(userId) {
   const txStmt = db.prepare(`
-    SELECT MIN(ts) as firstTx FROM transactions WHERE user_id = ?
+    SELECT MIN(ts) as firstTx, MAX(ts) as lastTx FROM transactions WHERE user_id = ?
   `);
   const result = txStmt.get(userId);
 
   if (!result.firstTx) return []; // No transactions
 
-  const startDate = new Date(result.firstTx);
-  const endDate = new Date();
+  // Each point is anchored at local midnight, and the last one is *now*.
+  //
+  // The walk used to start at the first transaction's own clock time, so every point
+  // carried that hour and the series ended there: a transaction registered at noon
+  // today fell past the end of a series whose last point was stamped 00:15, and did
+  // not appear on the chart until the following day. Anchoring at midnight and
+  // finishing at the current moment means anything registered a minute ago is on it.
+  //
+  // The end is the later of now and the newest transaction: the registration form
+  // defaults to 12:00, so a purchase entered at nine in the morning is stamped hours
+  // ahead of the clock and would otherwise sit past the end of its own series.
+  const stamp = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const now = new Date(Math.max(Date.now(), result.lastTx || 0));
+  const d = new Date(result.firstTx);
+  d.setHours(0, 0, 0, 0);
 
   const dates = [];
-  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    dates.push(`${year}-${month}-${day}T00:00`);
+  while (d <= now) {
+    dates.push(`${stamp(d)}T00:00`);
+    d.setDate(d.getDate() + 1);
+  }
+  if (dates.length) {
+    dates[dates.length - 1] =
+      `${stamp(now)}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   }
 
   return dates;
