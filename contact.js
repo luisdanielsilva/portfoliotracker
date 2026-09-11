@@ -174,7 +174,7 @@
         .catch(function () {
           send.disabled = false; send.textContent = 'Send';
           note.className = 'cw-note err';
-          note.textContent = 'That did not send. Try again, or email luisdanielsilva@gmail.com directly.';
+          note.textContent = 'That did not send. Try again, or email singleuseapps@gmail.com directly.';
         });
     });
   });
