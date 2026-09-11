@@ -115,8 +115,47 @@ function getAvgCostPerShare(ticker, userId) {
   return avgCostFor(db, userId, ticker);
 }
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false })); // for the magic-link confirm form
+// A crash in one request must not take the process down with it. Under Node 22 an
+// unhandled rejection is fatal by default; pm2 would restart, but that is a
+// request-triggered restart and the reason never reached a log.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', (reason && reason.stack) || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err && err.stack || err);
+});
+
+app.disable('x-powered-by');
+
+// The page is one large inline script and inline styles, so script-src and style-src
+// have to allow 'unsafe-inline' — this is not an XSS defence and is not pretending to
+// be one. What it does buy: the app cannot be framed, cannot be used as a base for
+// injected relative URLs, cannot post a form off-site, cannot load a plugin, and can
+// only talk to its own origin.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "form-action 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'"
+].join('; ');
+
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
+  next();
+});
+
+app.use(express.json({ limit: '64kb' }));
+app.use(express.urlencoded({ extended: false, limit: '16kb' })); // for the magic-link confirm form
 app.use(cookieParser());
 // SECURITY: only these four files are public.
 //
@@ -238,9 +277,50 @@ const requestLinkIpLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "If that's a valid email, a login link is on its way." }
 });
+/* ---- request validation ----
+   The client checks these too, but the client is not where validation happens: a
+   transaction posted straight at the API used to be stored whatever it said. One
+   already is — 1,984 shares at an amount that rounds to €0.00 — and verify-portfolio.js
+   has been flagging it ever since. */
+const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-]{0,11}$/;
+const TX_TYPES = new Set(['buy', 'sell']);
+const RULE_TYPES = new Set(['price_above', 'price_below', 'dip_from_avg_cost',
+                            'gain_from_avg_cost', 'drop_from_high']);
+const MIN_TX_TS = Date.UTC(1990, 0, 1);
+
+function num(v) {
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+function positive(v, max) {
+  const n = num(v);
+  return n !== null && n > 0 && n <= max ? n : null;
+}
+function str(v, max) {
+  return typeof v === 'string' && v.trim().length && v.trim().length <= max ? v.trim() : null;
+}
+
+const contactLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many messages from this address. Try again in an hour.' }
+});
+
 const emailAttempts = new Map(); // email -> [timestamps]
+// Bounded: without this, a bot posting random addresses grows the map until the
+// process runs out of memory. Entries older than the window are dead weight anyway.
+function pruneEmailAttempts(now) {
+  const windowStart = now - 60 * 60 * 1000;
+  for (const [email, hits] of emailAttempts) {
+    const live = hits.filter(t => t > windowStart);
+    if (live.length) emailAttempts.set(email, live); else emailAttempts.delete(email);
+  }
+}
 function emailRateLimited(email) {
   const now = Date.now();
+  if (emailAttempts.size > 500) pruneEmailAttempts(now);
   const windowStart = now - 60 * 60 * 1000;
   const hits = (emailAttempts.get(email) || []).filter(t => t > windowStart);
   hits.push(now);
@@ -479,11 +559,26 @@ app.get('/api/transactions', (req, res) => {
 // POST /api/transactions - create new transaction
 app.post('/api/transactions', (req, res) => {
   try {
-    const tx = req.body;
+    const tx = req.body || {};
 
-    // Validate required fields
-    if (!tx.ts || !tx.ticker || !tx.quantity || !tx.amount) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    const ticker = String(tx.ticker || '').toUpperCase().trim();
+    const quantity = positive(tx.quantity, 1e9);
+    const amountEUR = positive(tx.amountEUR != null ? tx.amountEUR : tx.amount, 1e12);
+    const txType = String(tx.type || 'buy');
+    const currency = String(tx.currency || 'EUR').toUpperCase();
+    const rate = positive(tx.exchangeRate != null ? tx.exchangeRate : 1, 1e6);
+    const ts = num(tx.ts);
+
+    if (!TICKER_RE.test(ticker)) return res.status(400).json({ error: 'Ticker must be 1-12 characters: letters, digits, dot or dash.' });
+    if (quantity === null) return res.status(400).json({ error: 'Quantity must be a positive number.' });
+    if (amountEUR === null) return res.status(400).json({ error: 'Amount must be a positive number.' });
+    if (!TX_TYPES.has(txType)) return res.status(400).json({ error: "Type must be 'buy' or 'sell'." });
+    if (!/^[A-Z]{3}$/.test(currency)) return res.status(400).json({ error: 'Currency must be a three-letter code.' });
+    if (rate === null) return res.status(400).json({ error: 'Exchange rate must be a positive number.' });
+    // A date far in the past or the future is a typo, not a trade — and it stretches
+    // every chart to fit it. Two days of slack covers time zones and the form's 12:00.
+    if (ts === null || ts < MIN_TX_TS || ts > Date.now() + 2 * 864e5) {
+      return res.status(400).json({ error: 'Date must be between 1990 and tomorrow.' });
     }
 
     const insertStmt = db.prepare(
@@ -492,16 +587,7 @@ app.post('/api/transactions', (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
-    const result = insertStmt.run(
-      req.userId,
-      tx.ticker,
-      tx.quantity,
-      tx.amountEUR || tx.amount,
-      tx.currency || 'EUR',
-      tx.exchangeRate || 1.0,
-      tx.type || 'buy',
-      tx.ts
-    );
+    const result = insertStmt.run(req.userId, ticker, quantity, amountEUR, currency, rate, txType, ts);
 
     // Fetch the inserted transaction
     const selectStmt = db.prepare(
@@ -998,10 +1084,26 @@ app.get('/api/alerts', (req, res) => {
 // POST /api/alerts - create new alert
 app.post('/api/alerts', (req, res) => {
   try {
-    const alert = req.body;
+    const alert = req.body || {};
 
     if (!alert.ticker || !alert.ruleType || alert.threshold === undefined) {
       return res.status(400).json({ error: 'Missing required fields: ticker, ruleType, threshold' });
+    }
+    // Without this the CHECK constraint rejects a bad rule type as a 500, and a
+    // percentage rule would happily accept 5000% or a negative.
+    if (!RULE_TYPES.has(alert.ruleType)) {
+      return res.status(400).json({ error: 'Unknown rule type.' });
+    }
+    if (!TICKER_RE.test(String(alert.ticker).toUpperCase().trim())) {
+      return res.status(400).json({ error: 'Ticker must be 1-12 characters: letters, digits, dot or dash.' });
+    }
+    const pct = alert.ruleType !== 'price_above' && alert.ruleType !== 'price_below';
+    const threshold = positive(alert.threshold, pct ? 1000 : 1e9);
+    if (threshold === null || (pct && alert.ruleType !== 'gain_from_avg_cost' && threshold >= 100)) {
+      return res.status(400).json({
+        error: pct ? 'Percentage must be above 0 (and below 100 for a dip or trailing rule).'
+                   : 'Price must be a positive number.'
+      });
     }
 
     const insertStmt = db.prepare(`
@@ -1026,7 +1128,7 @@ app.post('/api/alerts', (req, res) => {
         req.userId,
         ticker,
         alert.ruleType,
-        parseFloat(alert.threshold),
+        threshold,
         currency
       );
     } catch (e) {
@@ -1110,13 +1212,23 @@ function escapeHtml(str) {
 }
 
 // POST /api/contact - handle contact form submissions
-app.post('/api/contact', async (req, res) => {
+// Public and unauthenticated, so it is the one endpoint a stranger can use to make the
+// server send mail. Five an hour per address, and every field capped — an uncapped
+// message field is an open relay for a multi-megabyte email.
+app.post('/api/contact', contactLimiter, async (req, res) => {
   try {
-    const { type, name, email, title, message } = req.body;
+    const body = req.body || {};
+    const type = ['support', 'feature'].includes(body.type) ? body.type : null;
+    const name = str(body.name, 120);
+    const email = str(body.email, 200);
+    const title = str(body.title, 200);
+    const message = str(body.message, 5000);
 
-    // Validate required fields
     if (!type || !name || !email || !title || !message) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'Every field is needed, and each has a length limit.' });
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return res.status(400).json({ error: 'That does not look like an email address.' });
     }
 
     console.log(`Contact form submission: Type=${type}, Name=${name}, Email=${email}, Title=${title}`);
@@ -1128,7 +1240,7 @@ app.post('/api/contact', async (req, res) => {
           from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'contact@portfoliotracker.local',
           to: recipient,
           replyTo: email,
-          subject: `[Portfolio Tracker] ${type}: ${title}`,
+          subject: `[Portfolio Tracker] ${type}: ${title}`.slice(0, 200),
           html: `<p><strong>From:</strong> ${escapeHtml(name)} (${escapeHtml(email)})</p>
                  <p><strong>Type:</strong> ${escapeHtml(type)}</p>
                  <p><strong>Message:</strong></p>
