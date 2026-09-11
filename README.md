@@ -109,6 +109,20 @@ left is marked at the end of this section.
 | 14 | Low | The CSP carries `'unsafe-inline'` for scripts because `index.html` is one large inline script. Moving that script to its own file would let the directive tighten to `'self'`. |
 | 15 | Low | No test suite still — see the Testing section above; the blocker list is down to three files. |
 
+**Cleared 2026-09-12:** the row `verify-portfolio.js` had been flagging — 1,984 AAPL for
+€0.13, dated 1994, entered by a test sign-in on 2026-09-10 — was deleted at the owner's
+request after a backup. `verify-portfolio.js` now reports **no problems found**. The
+validation added in Phase 1 rejects that shape of input at the API, so it cannot recur;
+what it could not do was clean up a row already stored.
+
+**On the record — how this one got in, and how a second nearly did:** the garbage row
+arrived through the API from a browser, which is why client-side checks were never enough.
+While *testing* the new server-side date rule, this session posted a 1994-dated transaction
+straight at the live account and it was accepted, because 1990 is the floor and 1994 is
+inside it. The row was removed immediately and the count returned to 16, but it should
+never have been created: **write endpoints get tested against a scratch account, not
+against real data.** Every other check in that phase was.
+
 **Checked and sound:** ownership filters on every alert and transaction route (no IDOR);
 session cookies `HttpOnly; Secure; SameSite=Lax`; magic-link tokens hashed, single-use and
 consumed only on POST; `trust proxy` set so rate limits see the real client; Google OAuth
