@@ -512,7 +512,7 @@
   .btn-secondary{background:var(--surface-2);color:var(--ink);border:1px solid var(--hair)}
   .btn-secondary:hover{background:var(--hair)}
 
-  footer{margin-top:28px;font-size:12px;color:var(--faint)}
+  footer{margin-top:28px;font-size:12px;color:var(--faint);text-align:center}
   footer a{color:var(--faint);text-decoration:none}
   footer a:hover{color:var(--ink)}
   .footer-legal{display:inline-block;margin-top:5px;font-size:11px;color:var(--faint);opacity:.85}
@@ -3768,7 +3768,12 @@
         BASE_RAW = data.snapshots
           .filter(snap => snap.holdings && snap.holdings.length > 0 && snap.ts)
           .map(snap => {
-            const dateStr = snap.date.replace('Z', '').substring(0, 16);
+            // snap.date is a UTC instant. Stripping the Z and re-parsing made the
+            // browser read it as local time, moving every point back by the viewer's
+            // offset — and since the server stamps each snapshot at local midnight,
+            // that put the last one on the previous day: "Last updated: 9 Sept" above
+            // a chart holding the 10 Sept close. Keep the instant as sent.
+            const dateStr = snap.date;
             const holdings = snap.holdings.map(h => {
               // BKEY started as a fixed list of the tickers held at the time it was
               // written. Anything absent used to be dropped here, silently removing
