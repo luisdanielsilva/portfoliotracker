@@ -134,6 +134,10 @@ history now asks how far back to fetch (6mo / 1y / 2y / 5y) and calls the same c
 **Ops hygiene:**
 - No load testing has been done — response times under real concurrent load are unverified
 
+*(Alerts have been emailed to each rule's own owner since the multi-user work — `evaluateAlerts`
+joins `users` and sends to `owner_email`, with `ALERT_EMAIL_TO` only as a fallback. The alerts
+card claimed a placeholder address until 2026-09-11; the copy was simply stale.)*
+
 *(Historical euro values were recomputed from real per-date FX on 2026-09-09 — see
 Exchange Rates below. No longer an open item.)*
 
