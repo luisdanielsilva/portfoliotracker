@@ -118,7 +118,24 @@ function getAvgCostPerShare(ticker, userId) {
 app.use(express.json());
 app.use(express.urlencoded({ extended: false })); // for the magic-link confirm form
 app.use(cookieParser());
-app.use(express.static(__dirname));
+// SECURITY: only these four files are public.
+//
+// This was `express.static(__dirname)`, which served the entire application
+// directory. data.db, every data.db.backup-* beside it, .git/ and all of the
+// source were downloadable over HTTPS — including the backup taken *before*
+// session cookies were hashed and purged, which was enough to take over an
+// account. An allowlist, rather than a filter, so a new file dropped in this
+// directory is private until someone deliberately publishes it.
+const PUBLIC_FILES = {
+  '/': 'index.html',
+  '/index.html': 'index.html',
+  '/privacy.html': 'privacy.html',
+  '/terms.html': 'terms.html',
+  '/contact.js': 'contact.js'
+};
+app.get(Object.keys(PUBLIC_FILES), (req, res) => {
+  res.sendFile(path.join(__dirname, PUBLIC_FILES[req.path]));
+});
 
 /* ================= passwordless magic-link auth ================= */
 
