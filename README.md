@@ -72,6 +72,9 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
 A full sweep of the app, the server, the infrastructure and the repository. Severity is
 about what an outsider could do or what silently corrupts data, not about effort.
 
+**Phases 1-3 were implemented on 2026-09-12** — items 1 to 10 below are done; what is
+left is marked at the end of this section.
+
 **Fixed during the review:**
 
 - **CRITICAL — the whole application directory was public.** `express.static(__dirname)`
@@ -81,22 +84,30 @@ about what an outsider could do or what silently corrupts data, not about effort
   against production, then replaced with an allowlist of the four files meant to be public.
   The stale backups were moved to `~/backups/portfoliotracker/legacy` (chmod 600).
 
-**Open, highest value first:**
+**Done (2026-09-12):**
+
+| # | Was | Now |
+|---|---|---|
+| 1 | `POST /api/contact` public, unthrottled, uncapped | 5/hour per address, every field length-capped, type and address shape checked, 64kb JSON limit (a 200kb body gets 413) |
+| 2 | Transactions stored as posted | Ticker shape, positive finite quantity and amount, buy/sell, 3-letter currency, positive rate, date between 1990 and tomorrow — each with its own message. Alerts check the rule type and reject a percentage below 0 or above 100 |
+| 3 | No security headers | CSP, nosniff, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, `x-powered-by` off. The page is one inline script, so `script-src` needs `'unsafe-inline'` — the CSP is not an XSS defence and the comment says so |
+| 4 | An unhandled rejection killed the process | `unhandledRejection` and `uncaughtException` log instead |
+| 5 | Expired sessions and spent tokens accumulated forever | Purged at boot and daily; the first run removed 2 sessions and 3 tokens |
+| 6 | 3 moderate advisories | `qs` pinned to 6.16.0 through an `overrides` entry — express 4 pulls a vulnerable one otherwise. `npm audit`: 0 |
+| 7 | 14 form controls with no accessible name | All labelled: 11 by `for=`, 3 by `aria-label` where the visible label names a group rather than a field |
+| 8 | `schema.sql` (a MySQL schema with `password_hash` and `api_key`), `migrate.js`, `migrate-snapshots.js` | Deleted |
+| 9 | Logs never rotated | `logrotate.portfoliotracker` in the repo — **needs one root command to install, see DEPLOYMENT.md** |
+| 10 | `emailAttempts` map unbounded | Pruned once it passes 500 entries |
+
+**Still open:**
 
 | # | Severity | Finding |
 |---|---|---|
-| 1 | High | `POST /api/contact` is public and unthrottled, with no length caps. Anyone can send unlimited mail through the Resend account — inbox flood, quota burn, sender-reputation damage. |
-| 2 | High | `POST /api/transactions` barely validates. No check that `tx_type` is buy/sell, that quantity is a positive number, that the ticker looks like a ticker, or that the date is sane. It has already produced one impossible row (1,984 shares at €0.00), which `verify-portfolio.js` flags. |
-| 3 | Medium | No security headers — no CSP, `X-Content-Type-Options`, `Referrer-Policy`, or frame protection, so the app can be framed. `x-powered-by: Express` advertises the stack. |
-| 4 | Medium | No `unhandledRejection` / `uncaughtException` handler. Under Node 22 an unhandled rejection kills the process; pm2 restarts it, but that is a request-triggered restart. |
-| 5 | Medium | Expired sessions and used login tokens are never deleted. They accumulate forever, and stale token rows are exactly what had to be purged once already. |
-| 6 | Medium | `npm audit`: 3 moderate advisories (express → qs). |
-| 7 | Medium | Form fields have visible labels that are not associated with their inputs — no `for=`, no `aria-label`. A screen reader announces ten-plus fields on the Add tab with no name. |
-| 8 | Low | Dead files in the repo: `schema.sql` is a **MySQL** schema with `password_hash` and `api_key` columns, describing an architecture that does not exist; `migrate.js` and `migrate-snapshots.js` are spent one-shots that read a `data.json` no longer there. |
-| 9 | Low | `logs/*.log` never rotate. |
-| 10 | Low | The magic-link `emailAttempts` map grows without bound. |
-| 11 | Low | Backups exist only on this machine. A disk loss takes the database and every snapshot together. |
-| 12 | Low | `data.db` remains in the git history, including pre-purge session tokens. Contained only by the repository being private — verify that before any visibility change. |
+| 11 | Medium | Backups exist only on this machine. A disk loss takes the database and every snapshot with it. Needs a destination you choose — another host, object storage, or a periodic copy off-box. |
+| 12 | Medium | `data.db` remains in the git history, including session tokens from before they were hashed. Contained only by the repository being private. Rewriting history (`git filter-repo`) would remove it; verify the repo is private before any visibility change either way. |
+| 13 | Low | `logrotate.portfoliotracker` is written but not installed — one `sudo cp` away. |
+| 14 | Low | The CSP carries `'unsafe-inline'` for scripts because `index.html` is one large inline script. Moving that script to its own file would let the directive tighten to `'self'`. |
+| 15 | Low | No test suite still — see the Testing section above; the blocker list is down to three files. |
 
 **Checked and sound:** ownership filters on every alert and transaction route (no IDOR);
 session cookies `HttpOnly; Secure; SameSite=Lax`; magic-link tokens hashed, single-use and

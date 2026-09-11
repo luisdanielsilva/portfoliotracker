@@ -1174,19 +1174,19 @@
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:10px">
           <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Ticker</label>
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" for="tx-ticker">Ticker</label>
             <input type="text" id="tx-ticker" placeholder="e.g. TSLA" style="font-size:12px">
           </div>
           <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Qty</label>
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" for="tx-qty">Qty</label>
             <input type="number" id="tx-qty" placeholder="10" step="0.01" style="font-size:12px">
           </div>
           <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Amount</label>
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" for="tx-amount">Amount</label>
             <input type="number" id="tx-amount" placeholder="1000" step="0.01" style="font-size:12px">
           </div>
           <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Currency</label>
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" for="tx-currency">Currency</label>
             <select id="tx-currency" style="font-size:12px">
               <option value="EUR">EUR</option>
               <option value="USD">USD</option>
@@ -1210,7 +1210,7 @@
         </div>
         <div id="tx-rate-row" hidden style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
           <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Exchange rate (1 USD = ? EUR)</label>
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" for="tx-rate">Exchange rate (1 USD = ? EUR)</label>
             <input type="number" id="tx-rate" placeholder="0.92" step="0.001" style="font-size:12px">
           </div>
         </div>
@@ -1235,7 +1235,7 @@
         <h3>Create dip alert</h3>
         <p class="hint">Get an email when a stock drops a set % below your own average purchase price for it &mdash; a signal to consider reinforcing the position.</p>
         <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;max-width:260px">
-          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Stock</label>
+          <label style="font-size:10px;color:var(--faint);text-transform:uppercase" for="dip-ticker">Stock</label>
           <select id="dip-ticker" style="font-size:12px;padding:8px"></select>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
@@ -1248,7 +1248,7 @@
             <button type="button" data-pct="15">15%</button>
             <button type="button" data-pct="custom">Custom</button>
           </div>
-          <input type="number" id="dip-custom" placeholder="e.g. 20" step="0.5" min="0.5" style="font-size:12px;max-width:140px" hidden>
+          <input type="number" id="dip-custom" aria-label="Custom dip percentage" placeholder="e.g. 20" step="0.5" min="0.5" style="font-size:12px;max-width:140px" hidden>
         </div>
         <div class="frm-note" id="dip-preview" style="background:var(--surface-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--muted)"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1261,7 +1261,7 @@
         <h3>Create target alert</h3>
         <p class="hint">The other half of the plan: get an email when a stock is a set % <b>above</b> your own average purchase price &mdash; a signal to consider taking some profit. The target follows your cost basis, so it stays meaningful as you keep buying.</p>
         <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;max-width:260px">
-          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Stock</label>
+          <label style="font-size:10px;color:var(--faint);text-transform:uppercase" for="gain-ticker">Stock</label>
           <select id="gain-ticker" style="font-size:12px;padding:8px"></select>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
@@ -1274,7 +1274,7 @@
             <button type="button" data-pct="150">150%</button>
             <button type="button" data-pct="custom">Custom</button>
           </div>
-          <input type="number" id="gain-custom" placeholder="e.g. 200" step="5" min="1" style="font-size:12px;max-width:140px" hidden>
+          <input type="number" id="gain-custom" aria-label="Custom target percentage" placeholder="e.g. 200" step="5" min="1" style="font-size:12px;max-width:140px" hidden>
         </div>
         <div class="frm-note" id="gain-preview" style="background:var(--surface-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--muted)"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1287,7 +1287,7 @@
         <h3>Create trailing alert</h3>
         <p class="hint">Get an email when a stock has fallen a set % below its own <b>highest price of the past year</b>. Unlike the two above it is measured against the market, not your cost &mdash; so it still says something once a holding has run up well past what you paid, and it does not go stale as the stock moves.</p>
         <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;max-width:260px">
-          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Stock</label>
+          <label style="font-size:10px;color:var(--faint);text-transform:uppercase" for="high-ticker">Stock</label>
           <select id="high-ticker" style="font-size:12px;padding:8px"></select>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
@@ -1300,7 +1300,7 @@
             <button type="button" data-pct="30">30%</button>
             <button type="button" data-pct="custom">Custom</button>
           </div>
-          <input type="number" id="high-custom" placeholder="e.g. 35" step="0.5" min="0.5" style="font-size:12px;max-width:140px" hidden>
+          <input type="number" id="high-custom" aria-label="Custom percentage off the high" placeholder="e.g. 35" step="0.5" min="0.5" style="font-size:12px;max-width:140px" hidden>
         </div>
         <div class="frm-note" id="high-preview" style="background:var(--surface-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--muted)"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1314,11 +1314,11 @@
         <p class="hint">Get notified when a stock reaches a specific price.</p>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px">
           <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Ticker</label>
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" for="al-ticker">Ticker</label>
             <input type="text" id="al-ticker" placeholder="e.g. TSLA" style="font-size:12px;text-transform:uppercase">
           </div>
           <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px">Rule</label>
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" for="al-rule">Rule</label>
             <!-- "% change" was offered here but evaluateAlerts never handled it, so a
                  rule created that way sat in the database and never fired. Removed
                  rather than left as a trap; re-add it only alongside an evaluator. -->
@@ -1328,7 +1328,7 @@
             </select>
           </div>
           <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" id="al-threshold-label">Threshold</label>
+            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" id="al-threshold-label" for="al-threshold">Threshold</label>
             <input type="number" id="al-threshold" placeholder="500" step="0.01" style="font-size:12px">
           </div>
         </div>

@@ -19,5 +19,8 @@
     "google-auth-library": "^11.0.2",
     "nodemailer": "^10.0.0",
     "yahoo-finance2": "^3.10.0"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
   }
 }

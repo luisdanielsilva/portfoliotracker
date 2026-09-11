@@ -53,6 +53,31 @@ db.exec(schema);
   }
 })();
 
+/**
+ * Nothing ever deleted an expired session or a spent login token, so they accumulated
+ * indefinitely. Old credential rows are exactly what had to be purged by hand once
+ * already; the fix is for them not to pile up in the first place.
+ *
+ * Runs at boot and then daily. unref() so it never holds the process open.
+ */
+function purgeExpiredCredentials() {
+  try {
+    const now = new Date().toISOString();
+    const sessions = db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now).changes;
+    // A used token is spent; an expired one can never be used. Keep neither.
+    const tokens = db.prepare(
+      "DELETE FROM login_tokens WHERE used_at IS NOT NULL OR expires_at < ?"
+    ).run(now).changes;
+    if (sessions || tokens) {
+      console.log(`Purged ${sessions} expired session(s) and ${tokens} spent login token(s)`);
+    }
+  } catch (err) {
+    console.error('Credential purge failed:', err.message);
+  }
+}
+purgeExpiredCredentials();
+setInterval(purgeExpiredCredentials, 24 * 60 * 60 * 1000).unref();
+
 // Prices carry the currency the market quotes them in; see db-migrations.js.
 const { recentHigh } = require('./db-migrations');
 require('./db-migrations').ensurePriceCurrencyColumns(db);
