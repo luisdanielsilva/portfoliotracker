@@ -1117,7 +1117,7 @@
       <h3 class="ind-h">Deviation from average &mdash; how far below (or above) the norm</h3>
       <p class="microcopy" style="margin:0 0 10px">% difference between the daily price and its trailing average. Below zero (shaded) is cheaper than usual &mdash; a candidate moment to reinforce. Above zero is dearer than usual, which is the half of the picture a dip-only view leaves out.</p>
       <div class="chartbox">
-        <svg class="chart" id="dca-dev" viewBox="0 0 960 300" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Deviation from trailing average over time"></svg>
+        <svg class="chart" id="dca-dev" viewBox="0 0 960 320" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Deviation from trailing average over time"></svg>
         <div class="tip" id="dca-tip"></div>
       </div>
       <h3 class="ind-h">Notable dips</h3>
@@ -3717,7 +3717,8 @@
     var dsvg=document.getElementById("dca-dev");
     while(dsvg.firstChild) dsvg.removeChild(dsvg.firstChild);
     var dmin=Math.min.apply(null,dev)*1.08, dmax=Math.max(0.02,Math.max.apply(null,dev)*1.08);
-    var stepd=Math.max(Math.abs(dmin),dmax)>0.32?0.1:0.05;
+    var dspan=Math.max(Math.abs(dmin),dmax);
+    var stepd = dspan>1.2 ? 0.25 : dspan>0.6 ? 0.2 : dspan>0.32 ? 0.1 : 0.05;
     function DX(i){ return l+(ts[i]-t0)/((t1-t0)||1)*pW; }
     function DY(v){ return tp+(1-(v-dmin)/((dmax-dmin)||1))*pH; }
     for(var t=0;t>=dmin-1e-9;t-=stepd){ var y=DY(t);
