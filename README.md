@@ -188,6 +188,32 @@ This exists because every bug found on 2026-09-09 was caught by noticing a numbe
 cost ignoring splits. That is not a repeatable process. Run against a backup from before those
 fixes, this tool reports all three unaided.
 
+### 🆕 What a new account sees
+
+A brand-new account has no transactions, and everything in the app is derived from
+transactions — so every chart, the KPI strip and the picker have nothing to draw.
+
+**The blank page was one uncaught exception, not an absent feature.** `renderHeadline()`
+called `fmtDayY.format(new Date(T[n-1]))` with an empty series, `new Date(undefined)` made
+Intl throw `RangeError: Invalid time value`, and that aborted `rebuild()` before the picker,
+the charts, the KPI strip or the tables had drawn anything. `startApp()`'s `.catch` swallowed
+it, so the console was clean and the page merely looked empty. That catch now logs.
+
+With the throw fixed, the empty state is deliberate:
+- Every chart falls back to `drawEmptyChart()` — its own axes drawn at zero, a caption, and a
+  button that focuses the transaction form. No invented data inside the signed-in app; the
+  example curves belong on the landing page, where they are labelled as examples.
+- The KPI strip renders five cards at `€ 0,00` / `—` so the band holds its place instead of
+  appearing from nowhere with the first transaction.
+- A three-step first-run card sits above the chart and hides itself once `n > 0`.
+- The stock-splits events line is hidden when you hold nothing — a split in a stock you do
+  not own is not an event in your portfolio.
+
+Also fixed here: `CURRENT_MARKET_VALUE` and `CURRENT_COST_BASIS` were only ever assigned from
+`/api/prices`, which has never returned snapshots, so the gain line beside the headline was
+dead for every account since it was written. They now come from the last snapshot, where the
+numbers actually are.
+
 ### 📈 How the portfolio chart is built
 
 There is **no snapshots table**. `/api/snapshots` recomputes the entire series on every

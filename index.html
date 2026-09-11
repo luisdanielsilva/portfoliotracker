@@ -118,6 +118,26 @@
   .ctlrow .lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:600}
 
   .chartbox{position:relative;width:100%}
+  /* Empty state for any chart with nothing to draw: the axes are real and sit at zero,
+     so nothing on screen can be mistaken for data — because there isn't any yet. */
+  .chart-empty{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+    display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;
+    pointer-events:none;padding:0 24px}
+  .chart-empty p{margin:0;font-size:13.5px;color:var(--muted);max-width:44ch;line-height:1.5}
+  .chart-empty .btn{pointer-events:auto}
+  .firstrun{padding:20px}
+  .firstrun h3{margin:0 0 4px;font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:19px}
+  .firstrun .hint{margin:0 0 16px}
+  .firstrun ol{list-style:none;counter-reset:fr;margin:0;padding:0;display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .firstrun li{counter-increment:fr;border:1px solid var(--hair);border-radius:10px;padding:14px 16px;
+    background:var(--surface-2)}
+  .firstrun li b{display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:5px}
+  .firstrun li b::before{content:counter(fr);flex:none;width:20px;height:20px;border-radius:50%;
+    background:var(--accent);color:#fff;font-size:11px;font-weight:600;display:flex;
+    align-items:center;justify-content:center;font-family:"IBM Plex Mono",monospace}
+  .firstrun li span{display:block;font-size:12.5px;color:var(--muted);line-height:1.5}
+  .firstrun .fr-cta{margin-top:16px}
   svg.chart{display:block;width:100%;height:auto;touch-action:pan-y}
   .gridline{stroke:var(--grid);stroke-width:1}
   .axislbl{fill:var(--faint);font-size:11px;font-family:"IBM Plex Mono",monospace}
@@ -1004,6 +1024,16 @@
 
   <!-- ===== VIEW 1: TIME SERIES ===== -->
   <section id="view-total">
+    <div class="panel firstrun" id="firstrun" hidden>
+      <h3>Nothing here yet &mdash; three steps and there will be</h3>
+      <p class="hint">Everything on every tab is derived from the transactions you enter. There is no import, and no demo data pretending to be yours.</p>
+      <ol>
+        <li><b>Register a transaction</b><span>Ticker, quantity, what you paid and in which currency. For a stock the app has never seen, it offers to pull up to five years of daily history so your chart starts with a past.</span></li>
+        <li><b>Prices arrive on their own</b><span>A job takes the closing price of every ticker you hold once a day, converts it at that day&rsquo;s rate, and recomputes value, average cost and drawdown.</span></li>
+        <li><b>Set a rule and stop watching</b><span>Below your average cost, above it, or off a holding&rsquo;s own 12-month high. Everything that fires in a day arrives as one email.</span></li>
+      </ol>
+      <div class="fr-cta"><button type="button" class="btn primary" id="fr-go">Register your first transaction</button></div>
+    </div>
     <div class="panel">
       <div class="picker-wrap">
         <div class="picker" id="picker" role="group" aria-label="Choose series to plot"></div>
@@ -1541,6 +1571,64 @@
   function shortDate(ts){ return fmtDay.format(new Date(ts)); }
   function stampLabel(ts){ var d=new Date(ts); return fmtDayY.format(d)+", "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
   function el(tag,attrs){ var e=document.createElementNS("http://www.w3.org/2000/svg",tag); if(attrs) for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
+
+  /* ---- empty charts ----
+     A new account used to get a tall blank rectangle inside an otherwise complete panel:
+     period buttons, currency toggle and legend all present, framing nothing. Every chart
+     now falls back to the same picture — its own axes, drawn at zero, with a caption and
+     the one action that changes anything. */
+  function clearEmptyChart(svg){
+    var host=svg&&svg.parentNode; if(!host) return;
+    var old=host.querySelector(".chart-empty"); if(old) old.parentNode.removeChild(old);
+  }
+  function drawEmptyChart(svg, caption, withButton){
+    if(!svg) return;
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    var vb=(svg.getAttribute("viewBox")||"0 0 960 400").split(/[\s,]+/).map(Number);
+    var W=vb[2]||960, H=vb[3]||400, l=72, r=110, tp=24, bt=40;
+    var pW=W-l-r, pH=H-tp-bt, rows=4;
+    for(var i=0;i<=rows;i++){
+      var y=tp+pH*(i/rows), zero=(i===rows);
+      svg.appendChild(el("line",{x1:l,x2:W-r,y1:y,y2:y,
+        stroke:zero?"var(--faint)":"var(--grid)","stroke-width":zero?1.5:1,
+        "stroke-dasharray":zero?"none":"4 4"}));
+      if(zero){ var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5});
+        lb.textContent="\u20ac 0"; svg.appendChild(lb); }
+    }
+    var now=new Date();
+    for(var k=5;k>=0;k--){
+      var m=new Date(now.getFullYear(), now.getMonth()-k, 1);
+      var t=el("text",{class:"xlbl",x:l+pW*((5-k)/5),y:tp+pH+22});
+      t.textContent=m.toLocaleDateString("en-GB",{month:"short"}); svg.appendChild(t);
+    }
+    var host=svg.parentNode;
+    if(!host) return;
+    clearEmptyChart(svg);
+    var div=document.createElement("div"); div.className="chart-empty";
+    div.innerHTML='<p>'+esc(caption)+'</p>'+
+      (withButton?'<button type="button" class="btn primary chart-empty-cta">Register your first transaction</button>':'');
+    host.appendChild(div);
+    var cta=div.querySelector(".chart-empty-cta");
+    if(cta) cta.addEventListener("click",goToFirstTransaction);
+  }
+  function goToFirstTransaction(){
+    var t=document.getElementById("tab-add"); if(t) t.click();
+    var f=document.getElementById("tx-ticker");
+    if(f) setTimeout(function(){ f.scrollIntoView({block:"center",behavior:"smooth"}); f.focus(); },250);
+  }
+  function kpiCard(k){ return '<div class="kpi"><div class="k-label">'+k.l+'</div><div class="k-val">'+k.v+'</div>'+(k.s?'<div class="k-sub '+(k.c||"")+'">'+k.s+'</div>':'')+'</div>'; }
+  function emptyKpiStrip(){
+    // five cards holding their place, rather than a band that appears out of nowhere
+    // the moment the first transaction lands
+    var strip=document.getElementById("kpi-strip");
+    if(strip) strip.innerHTML=[
+      {l:"Current value", v:eur(0)},
+      {l:"Since", v:"\u2014", s:"no transactions yet"},
+      {l:"Peak value", v:"\u2014"},
+      {l:"Lowest value", v:"\u2014"},
+      {l:"Max drawdown", v:"\u2014"}
+    ].map(kpiCard).join("");
+  }
   // End-of-series labels sit at their own value, so two series that finish close
   // together print on top of each other — the Bollinger chart stacked "Upper" and
   // "Price" into one unreadable line whenever the price ran at the band. Nudge them
@@ -1669,6 +1757,7 @@
       ddNow:DD[n-1], years:yrs
     };
 
+    var fr=document.getElementById("firstrun"); if(fr) fr.hidden=!!n;
     renderHeadline();
     renderPicker(); renderMain(); renderEventsTimeline();
     buildGrid();
@@ -1716,6 +1805,17 @@
   }
 
   function renderHeadline(){
+    // With no transactions T is empty, and new Date(undefined) made Intl throw here —
+    // aborting rebuild() before the picker, the charts, the KPI strip and the tables
+    // had drawn anything. The blank new-account page was one uncaught RangeError.
+    if(!n){
+      document.getElementById("h-value").textContent=eur(0);
+      var d0e=document.getElementById("h-delta");
+      d0e.className="delta"; d0e.textContent="Nothing recorded yet";
+      document.getElementById("eyebrow-range").textContent="No data yet";
+      emptyKpiStrip();
+      return;
+    }
     var marketValue = CURRENT_MARKET_VALUE || TOTAL[n-1] || 0;
     var costBasis = CURRENT_COST_BASIS || 0;
 
@@ -1800,6 +1900,12 @@
     // fire at any time, so both can reach here before (or without) a signed-in
     // session — there is simply nothing to draw yet.
     if(!ALL) return;
+    if(!n){
+      drawEmptyChart(svg,"Your portfolio starts at zero. Register a transaction and this chart fills in from your own history \u2014 market value against what you put in, from your first buy to today.",true);
+      renderLegend();
+      return;
+    }
+    clearEmptyChart(svg);
     while(svg.firstChild) svg.removeChild(svg.firstChild);
 
     // Get adjusted time range for X-axis
@@ -1860,6 +1966,7 @@
   }
   function renderLegend(){
     var lg=document.getElementById("legend"); lg.innerHTML="";
+    if(!n){ lg.innerHTML=""; return; }
     if(!selected.length){ lg.innerHTML='<span style="font-size:12.5px;color:var(--faint)">Pick a series above to plot it</span>'; return; }
     selected.forEach(function(k){
       var s=byKey(k); if(!s) return;
@@ -1871,7 +1978,8 @@
   }
   function renderEventsTimeline(){
     var timeline=document.getElementById("events-timeline");
-    if(!STOCK_SPLITS || STOCK_SPLITS.length===0){ timeline.innerHTML=""; return; }
+    // a split in a stock you do not own is not an event in your portfolio
+    if(!n || !STOCK_SPLITS || STOCK_SPLITS.length===0){ timeline.innerHTML=""; return; }
     var sorted=STOCK_SPLITS.slice().sort(function(a,b){
       return new Date(a.date).getTime()-new Date(b.date).getTime();
     });
@@ -1886,6 +1994,9 @@
   function renderPicker(){
     if(!ALL) return;
     var p=document.getElementById("picker"); p.innerHTML="";
+    var acts=document.querySelector(".picker-actions");
+    if(acts) acts.hidden=!n;
+    if(!n) return;
     ALL.forEach(function(s){
       var on=selected.indexOf(s.key)>-1;
       var b=document.createElement("button");
@@ -1910,6 +2021,7 @@
     document.getElementById("caphint").hidden=selected.length<CAP;
     hideMain(); renderPicker(); renderMain();
   }
+  if(document.getElementById("fr-go")) document.getElementById("fr-go").addEventListener("click",goToFirstTransaction);
   document.getElementById("q-agg").addEventListener("click",function(){ selected=["_total","_tesla","_ex"]; document.getElementById("caphint").hidden=true; hideMain(); renderPicker(); renderMain(); });
   document.getElementById("q-clear").addEventListener("click",function(){ selected=[]; document.getElementById("caphint").hidden=true; hideMain(); renderPicker(); renderMain(); });
   function nearMain(cx){
@@ -1999,6 +2111,10 @@
   }
   function buildGrid(){
     grid.innerHTML=""; panels=[];
+    if(!n){
+      grid.innerHTML='<p class="hint" style="grid-column:1/-1;margin:0">Each holding gets its own small chart here once you have registered a transaction.</p>';
+      return;
+    }
     orderedStocks().forEach(function(s){
       if(s.vals[n-1]==null && s.vals.every(function(v){return v==null;})) return;
       var f=firstIdx(s);
@@ -2075,7 +2191,17 @@
 
   /* ================= VIEW 3 : indicators ================= */
   function renderPortfolioDetail(){
+    if(!n){
+      emptyKpiStrip();
+      document.getElementById("detail-kpi").innerHTML="";
+      drawEmptyChart(document.getElementById("g-iv"),"What you put in against what it is worth \u2014 the gap between the two lines is your gain. Both start once you register a transaction.",true);
+      drawEmptyChart(document.getElementById("g-uw"),"How far the portfolio sits below its own previous peak. Flat at zero means a new high.",false);
+      ["bars-weight","bars-contrib"].forEach(function(id){ var b=document.getElementById(id); if(b) b.innerHTML=""; });
+      return;
+    }
     if(!GROWTH||!INVESTED) return;
+    clearEmptyChart(document.getElementById("g-iv"));
+    clearEmptyChart(document.getElementById("g-uw"));
     var g=GROWTH;
     var nowTot=TOTAL[n-1], t0=TOTAL[0], winRet=nowTot/t0-1;
     var peak=-1,pk=0,trough=1e18,tr=0,rp=-1,rpi=0,mdd=0,mp=0,mt=0;
@@ -2108,7 +2234,8 @@
     var days=(T1-T0)/864e5, ann=Math.pow(1+winRet,365/Math.max(days,1))-1;
 
     function dd2(i){ return SNAP[i].label.replace(/,.*$/,""); }
-    function gap(i){ return dd2(i)+" \u2192 "+dd2(i+1); }
+    // one day of history means there is no "next" snapshot to name
+    function gap(i){ return SNAP[i+1] ? dd2(i)+" \u2192 "+dd2(i+1) : dd2(i); }
     function kpi(k){ return '<div class="kpi"><div class="k-label">'+k.l+'</div><div class="k-val">'+k.v+'</div>'+(k.s?'<div class="k-sub '+(k.c||"")+'">'+k.s+'</div>':'')+'</div>'; }
 
     var addedNote = userEntries.length ? " · incl. "+userEntries.length+" you added" : "";
@@ -2131,7 +2258,8 @@
       strip[2],strip[3],strip[4],
       {l:"Now vs peak", v:dp(nowTot/peak-1), c:nowTot>=peak?"pos":"neg", s:"clawed back "+d0(nowTot-trough)+" off the low"},
       {l:"Snapshot-to-snapshot swing", v:"\u00b1"+comma((sd*100).toFixed(1))+"%", s:"std dev of the "+mv.length+" gaps"},
-      {l:"Best / worst gap", v:dp(mv[bi])+" / "+dp(mv[wi]), s:gap(bi)+"  \u00b7  "+gap(wi)},
+      {l:"Best / worst gap", v:mv.length?dp(mv[bi])+" / "+dp(mv[wi]):"\u2014",
+       s:mv.length?gap(bi)+"  \u00b7  "+gap(wi):"needs more than one day of history"},
       {l:"Concentration", v:(top[0]?Math.round(top[0].w*100):0)+"% "+(top[0]?top[0].short:""), s:"top 3 = "+Math.round(top3/nowTot*100)+"%  \u00b7  effective "+comma((1/hhi).toFixed(1))+" of "+per.length},
       {l:"Breadth", v:upN+" up \u00b7 "+(per.length-upN)+" down", s:"per-share price over the window"},
       {l:"Biggest lift / drag", v:(lift?lift.short:"")+" / "+(drag?drag.short:""), s:(lift?d0(lift.dVal):"")+"  \u00b7  "+(drag?d0(drag.dVal):"")+" in value"},
@@ -2898,14 +3026,20 @@
         note=document.getElementById("am-note"), lg=document.getElementById("am-legend"),
         tip=document.getElementById("am-tip");
     rowsBox.innerHTML=""; lg.innerHTML=""; note.textContent="";
-    if(!AM_TICKER){ sub.textContent=""; return; }
+    if(!AM_TICKER){
+      sub.textContent="";
+      drawEmptyChart(svg,"Pick a holding above to see its price with every rule you have on it drawn across the same chart.",false);
+      return;
+    }
+    clearEmptyChart(svg);
 
     var name=tickerLabel(AM_TICKER);
     sub.textContent="· "+name;
     var S=AM_SERIES[AM_TICKER];
     if(!S){ amLoadSeries(AM_TICKER).then(renderAlertMap); return; }
     if(S.length<2){
-      note.textContent="No stored price history for "+AM_TICKER+" yet. Register a transaction for it and choose a history depth, or run the daily fetch a few more times.";
+      note.textContent="";
+      drawEmptyChart(svg,"No stored price history for "+AM_TICKER+" yet. Register a transaction for it and choose a history depth, or wait for the daily fetch to build one up.",false);
       return;
     }
 
@@ -3394,17 +3528,6 @@
           }
         }
 
-        // Get market value and cost basis from the latest API snapshot
-        if(data.snapshots && data.snapshots.length > 0){
-          var lastSnapshot = data.snapshots[data.snapshots.length-1];
-          if(lastSnapshot.portfolioTotal){
-            CURRENT_MARKET_VALUE = lastSnapshot.portfolioTotal;
-          }
-          if(lastSnapshot.costBasis !== undefined){
-            CURRENT_COST_BASIS = lastSnapshot.costBasis;
-          }
-        }
-
         renderHeadline();
         renderPricesTable();
       })
@@ -3481,8 +3604,14 @@
     var tickers=Object.keys(AVG_COST);
     if(!tickers.length){
       document.getElementById("dca-tickers").innerHTML='<span class="lbl" style="padding:6px 10px">Register a transaction first &mdash; this tab analyses what you hold</span>';
+      var thin=document.getElementById("dca-thin"); if(thin) thin.innerHTML="";
+      drawEmptyChart(document.getElementById("dca-price"),"Each holding\u2019s price against its own trailing average \u2014 the case for adding when it sits below, for trimming when it runs above.",true);
+      drawEmptyChart(document.getElementById("dca-bb"),"Bollinger bands: how far the price has strayed from its own recent range.",false);
+      drawEmptyChart(document.getElementById("dca-dev"),"The same distance as a percentage, above and below zero.",false);
+      var tbl=document.getElementById("dca-table"); if(tbl) tbl.innerHTML="";
       return Promise.resolve();
     }
+    ["dca-price","dca-bb","dca-dev"].forEach(function(id){ clearEmptyChart(document.getElementById(id)); });
     var toFetch=tickers.filter(function(t){ return !DCA_HISTORY[t]; });
     return Promise.all(toFetch.map(function(t){
       return apiFetch('./api/price-history/'+t)
@@ -3796,6 +3925,7 @@
           // signed up is both alarming and unhelpful, so point them at the step
           // they actually need to take.
           console.info('No snapshots yet — account has no transactions');
+          BASE_RAW=[]; CURRENT_MARKET_VALUE=null; CURRENT_COST_BASIS=null;
           toast('Add your first transaction to start building your portfolio history');
           return [];
         }
@@ -3843,6 +3973,15 @@
             return [dateStr, holdings];
           })
           .filter(s => s !== null);
+
+        // Market value and cost basis come from the last snapshot. They used to be read
+        // from /api/prices, which has never returned snapshots — so the gain line beside
+        // the headline was dead for every account since it was written.
+        var last=data.snapshots[data.snapshots.length-1];
+        if(last){
+          if(last.portfolioTotal!=null) CURRENT_MARKET_VALUE=last.portfolioTotal;
+          if(last.costBasis!=null) CURRENT_COST_BASIS=last.costBasis;
+        }
 
         console.log(`✓ Loaded ${BASE_RAW.length} snapshots from API`);
         return BASE_RAW;
@@ -3904,7 +4043,9 @@
       loadTransactions();
       loadAndRenderPrices();
       hideLoadingOverlay();
-    }).catch(function(){
+    }).catch(function(err){
+      // this used to swallow the error, so a crash mid-render looked like an empty page
+      console.error('startApp failed:', err && err.stack || err);
       hideLoadingOverlay();
     });
   }
