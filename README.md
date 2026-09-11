@@ -13,6 +13,13 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
     gateways that auto-fetch links to scan them (e.g. Microsoft Safe Links) can't burn the
     one-time token before the user clicks it
 - **Transactions:** Buy/sell registration with automatic snapshot derivation (Node.js backend)
+- **DCA tab:** analyses any holding against its own trailing average and Bollinger bands.
+  The selector lists what you hold, taken from `/api/avg-cost`. It used to be driven by the
+  chart's universe, whose keys are the short names this app started with (`asml`, `vw`, `spy`)
+  rather than Yahoo symbols — so the two European listings, whose symbols carry an exchange
+  suffix, asked for price history that does not exist under that name and were silently
+  dropped. Use `tickerLabel()` for anything user-facing: it falls back through `BKEY` and
+  `TICKER_NAMES` so `ASML.AS` reads as "ASML Holding".
 - **Price Alerts:** Four rule types, covering both sides of the plan:
   - `dip_from_avg_cost` — down X% on **your** average cost (buy signal)
   - `gain_from_avg_cost` — up X% on your average cost (take-profit; follows your cost basis as

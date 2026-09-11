@@ -1099,7 +1099,8 @@
   <section id="view-dca" hidden>
     <div class="panel">
       <p class="microcopy" style="margin:0 0 12px">Where a holding sits against its own recent norm, in both directions: how far below its trailing average it is trading &mdash; the case for adding &mdash; and how far above, which is where taking something off is worth thinking about. Plus how often each has happened over the last year, so you can judge whether today&rsquo;s level is unusual or routine.</p>
-      <div class="segmented" role="group" aria-label="Select stock" id="dca-tickers" style="margin-bottom:16px"></div>
+      <div class="segmented" role="group" aria-label="Select stock" id="dca-tickers" style="margin-bottom:8px"></div>
+      <p class="microcopy" id="dca-thin" style="margin:0 0 16px"></p>
       <div class="kpi-grid" id="dca-kpi"></div>
       <h3 class="ind-h" id="dca-h1">Price vs. trailing average</h3>
       <p class="microcopy" style="margin:0 0 10px"><span style="color:var(--pos)">&#9679;</span> Buy &middot; <span style="color:var(--neg)">&#9679;</span> Sell &mdash; each mark is one of your actual transactions, plotted at the price you paid or received, so you can see at a glance whether past trades landed above or below the trend.</p>
@@ -1529,11 +1530,28 @@
   function dp(v){ return (v>=0?"+":"\u2212")+comma(Math.abs(v*100).toFixed(1))+"%"; }
   function slug(s){ return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"").slice(0,14)||"x"; }
   function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+  // BKEY holds the short names this app started with, so a symbol carrying an exchange
+  // suffix (ASML.AS, VOW3.DE) misses it and used to fall through to the raw symbol.
+  function tickerLabel(t){
+    if(!t) return "";
+    return BSHORT[BKEY.indexOf(String(t).toLowerCase())] || TICKER_NAMES[String(t).toUpperCase()] || t;
+  }
   var fmtDayY=new Intl.DateTimeFormat("en-GB",{day:"numeric",month:"short",year:"numeric"});
   var fmtDay=new Intl.DateTimeFormat("en-GB",{day:"numeric",month:"short"});
   function shortDate(ts){ return fmtDay.format(new Date(ts)); }
   function stampLabel(ts){ var d=new Date(ts); return fmtDayY.format(d)+", "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
   function el(tag,attrs){ var e=document.createElementNS("http://www.w3.org/2000/svg",tag); if(attrs) for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
+  // End-of-series labels sit at their own value, so two series that finish close
+  // together print on top of each other — the Bollinger chart stacked "Upper" and
+  // "Price" into one unreadable line whenever the price ran at the band. Nudge them
+  // apart in order, exactly as the main chart already does for its own labels.
+  function placeEndLabels(svg,x,items){
+    items.slice().sort(function(a,b){ return a.y-b.y; }).forEach(function(it,i,arr){
+      if(i && it.y-arr[i-1].y<12) it.y=arr[i-1].y+12;
+      var t=el("text",{class:"endlbl",x:x,y:it.y+3.5,fill:it.fill});
+      t.textContent=it.text; svg.appendChild(t);
+    });
+  }
   function isBuyIdx(q,i){ return q[i]!=null && ((i>0 && q[i-1]==null) || (i>0 && q[i-1]!=null && q[i]>q[i-1])); }
   function num(x){ if(x===""||x==null) return null; var v=+x; return isNaN(v)?null:v; }
 
@@ -2517,7 +2535,7 @@
         var tickers=Object.keys(AVG_COST);
         var opts=tickers.length
           ? tickers.map(function(t){
-              var nm=BSHORT[BKEY.indexOf(t.toLowerCase())]||t;
+              var nm=tickerLabel(t);
               return '<option value="'+t+'">'+esc(nm)+' ('+t+')</option>';
             }).join("")
           : '<option value="">No holdings yet</option>';
@@ -2877,7 +2895,7 @@
     rowsBox.innerHTML=""; lg.innerHTML=""; note.textContent="";
     if(!AM_TICKER){ sub.textContent=""; return; }
 
-    var name=BSHORT[BKEY.indexOf(AM_TICKER.toLowerCase())]||AM_TICKER;
+    var name=tickerLabel(AM_TICKER);
     sub.textContent="· "+name;
     var S=AM_SERIES[AM_TICKER];
     if(!S){ amLoadSeries(AM_TICKER).then(renderAlertMap); return; }
@@ -3444,8 +3462,22 @@
   var DCA_DIP_THRESHOLD=-0.05;
 
   function loadAndRenderDCA(){
-    if(!UNI || !UNI.length) return Promise.resolve();
-    var tickers=UNI.map(function(u){ return u.key.toUpperCase(); }).filter(function(t,i,a){ return a.indexOf(t)===i; });
+    // The list used to come from the chart's universe, whose keys are the legacy short
+    // names this app started with — "asml", "vw", "spy" — not Yahoo symbols. A European
+    // listing keeps its exchange suffix (ASML.AS, VOW3.DE) and reuses the existing name
+    // slot, so its real symbol never reached that list: two held stocks asked for price
+    // history under a symbol that has none and were quietly dropped from the selector.
+    // /api/avg-cost is keyed by the real symbol and is, by definition, what you hold.
+    var ready=Object.keys(AVG_COST).length?Promise.resolve():loadAvgCostAndDipForm();
+    return ready.then(function(){ return renderDCATickers(); });
+  }
+
+  function renderDCATickers(){
+    var tickers=Object.keys(AVG_COST);
+    if(!tickers.length){
+      document.getElementById("dca-tickers").innerHTML='<span class="lbl" style="padding:6px 10px">Register a transaction first &mdash; this tab analyses what you hold</span>';
+      return Promise.resolve();
+    }
     var toFetch=tickers.filter(function(t){ return !DCA_HISTORY[t]; });
     return Promise.all(toFetch.map(function(t){
       return apiFetch('./api/price-history/'+t)
@@ -3456,15 +3488,21 @@
         .catch(function(){ DCA_HISTORY[t]=[]; });
     })).then(function(){
       DCA_TICKERS=tickers.filter(function(t){ return DCA_HISTORY[t] && DCA_HISTORY[t].length>=DCA_MIN_POINTS; });
+      var thin=tickers.filter(function(t){ return DCA_TICKERS.indexOf(t)===-1; });
       if(!DCA_TICKERS.length){
-        document.getElementById("dca-tickers").innerHTML='<span class="lbl" style="padding:6px 10px">No stock has enough price history yet</span>';
+        document.getElementById("dca-tickers").innerHTML='<span class="lbl" style="padding:6px 10px">No holding has enough price history yet &mdash; register a transaction with a history depth, or wait for the daily fetch</span>';
         return;
       }
       if(!dcaSelected || DCA_TICKERS.indexOf(dcaSelected)===-1) dcaSelected=DCA_TICKERS[0];
       document.getElementById("dca-tickers").innerHTML=DCA_TICKERS.map(function(t){
-        var nm=BSHORT[BKEY.indexOf(t.toLowerCase())]||t;
+        var nm=tickerLabel(t);
         return '<button data-ticker="'+t+'" aria-pressed="'+(t===dcaSelected?"true":"false")+'">'+esc(nm)+'</button>';
       }).join("");
+      // say so rather than silently shortening the list, which is how the old bug hid
+      var note=document.getElementById("dca-thin");
+      if(note) note.innerHTML=thin.length
+        ? "Not shown: "+thin.map(esc).join(", ")+" &mdash; fewer than "+DCA_MIN_POINTS+" days of stored prices. Backfill more history from the transaction form."
+        : "";
       Array.prototype.forEach.call(document.querySelectorAll("#dca-tickers button"),function(b){
         b.addEventListener("click",function(){
           dcaSelected=b.dataset.ticker;
@@ -3558,7 +3596,7 @@
     ].map(kpi).join("");
     function ntv(){ return Math.round((ts[m]-winTs[0])/864e5); }
 
-    document.getElementById("dca-h1").textContent="Price vs. trailing average · "+(BSHORT[BKEY.indexOf(ticker.toLowerCase())]||ticker);
+    document.getElementById("dca-h1").textContent="Price vs. trailing average · "+tickerLabel(ticker);
 
     /* --- price + average chart --- */
     var svg=document.getElementById("dca-price");
@@ -3586,8 +3624,10 @@
     }
     svg.appendChild(el("path",{class:"serieline",d:pa,stroke:"var(--muted)","stroke-dasharray":"4 3"}));
     svg.appendChild(el("path",{class:"serieline",d:pp,stroke:"var(--accent)"}));
-    var ePr=el("text",{class:"endlbl",x:W-r+8,y:Y(prices[m])+3.5,fill:"var(--accent)"}); ePr.textContent="Price "+fmt(prices[m]); svg.appendChild(ePr);
-    var eAv=el("text",{class:"endlbl",x:W-r+8,y:Y(avg[m])+3.5,fill:"var(--muted)"}); eAv.textContent="Avg "+fmt(avg[m]); svg.appendChild(eAv);
+    placeEndLabels(svg,W-r+8,[
+      {y:Y(prices[m]), fill:"var(--accent)", text:"Price "+fmt(prices[m])},
+      {y:Y(avg[m]),    fill:"var(--muted)",  text:"Avg "+fmt(avg[m])}
+    ]);
 
     // Mark each of your own buy/sell transactions on the chart, at the price actually paid/received
     var priceTip=document.getElementById("dca-price-tip"), priceBox=svg.parentNode;
@@ -3613,7 +3653,7 @@
 
     /* --- Bollinger Bands chart --- */
     var bb=computeBollingerBands(prices,BB_PERIOD,BB_MULT);
-    document.getElementById("dca-bb-h").textContent="Bollinger Bands ("+BB_PERIOD+"-day, ±"+BB_MULT+"σ) · "+(BSHORT[BKEY.indexOf(ticker.toLowerCase())]||ticker);
+    document.getElementById("dca-bb-h").textContent="Bollinger Bands ("+BB_PERIOD+"-day, ±"+BB_MULT+"σ) · "+tickerLabel(ticker);
     var bsvg=document.getElementById("dca-bb");
     while(bsvg.firstChild) bsvg.removeChild(bsvg.firstChild);
     var bvmax=Math.max.apply(null,bb.upper),bvmin=Math.min.apply(null,bb.lower);
@@ -3645,9 +3685,12 @@
     bsvg.appendChild(el("path",{class:"serieline",d:bPrice,stroke:"var(--accent)"}));
     var bTouch=m; for(var i=m;i>=0 && i>m-90;i--){ if(prices[i]<=bb.lower[i]){ bTouch=i; break; } }
     if(prices[bTouch]<=bb.lower[bTouch]) bsvg.appendChild(el("circle",{cx:X(bTouch),cy:BY(prices[bTouch]),r:3.5,fill:"var(--pos)",stroke:"var(--surface)","stroke-width":1.5}));
-    var eBP=el("text",{class:"endlbl",x:W-r+8,y:BY(prices[m])+3.5,fill:"var(--accent)"}); eBP.textContent="Price "+fmt(prices[m]); bsvg.appendChild(eBP);
-    var eBU=el("text",{class:"endlbl",x:W-r+8,y:BY(bb.upper[m])+3.5,fill:"var(--muted)"}); eBU.textContent="Upper "+fmt(bb.upper[m]); bsvg.appendChild(eBU);
-    var eBL=el("text",{class:"endlbl",x:W-r+8,y:BY(bb.lower[m])+3.5,fill:"var(--muted)"}); eBL.textContent="Lower "+fmt(bb.lower[m]); bsvg.appendChild(eBL);
+    var bbEnds=[
+      {y:BY(bb.upper[m]), fill:"var(--muted)", text:"Upper "+fmt(bb.upper[m])},
+      {y:BY(bb.lower[m]), fill:"var(--muted)", text:"Lower "+fmt(bb.lower[m])}
+    ];
+    bbEnds.push({y:BY(prices[m]), fill:"var(--accent)", text:"Price "+fmt(prices[m])});
+    placeEndLabels(bsvg,W-r+8,bbEnds);
     var bbTip=document.getElementById("dca-bb-tip"), bBox=bsvg.parentNode;
     var bCross=el("line",{class:"crosshair",x1:0,x2:0,y1:tp,y2:tp+pH,opacity:0}); bsvg.appendChild(bCross);
     bsvg.appendChild(el("rect",{x:l,y:tp,width:pW,height:pH,fill:"transparent"}));
