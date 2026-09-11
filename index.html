@@ -1622,7 +1622,10 @@
       .concat(UNI.map(function(u){ return {key:u.key,name:u.name,arr:u.vals,qty:u.qty}; }));
 
     selected=selected.filter(function(k){ return ALL.some(function(a){return a.key===k;}); });
-    if(!selected.length) selected=["_total","_tesla","_ex"];
+    // The chart opens on the portfolio itself. The Tesla / Ex-Tesla split is a view of
+    // one holding against the rest — useful, but a choice to make rather than the first
+    // thing you are shown; the Totals button puts all three back in one click.
+    if(!selected.length) selected=["_total"];
 
     /* ---- estimated invested capital (cost basis) per snapshot ---- */
     var cbBy={};
@@ -1687,11 +1690,13 @@
         if(d.getTime()>=chartT0){
           var year=d.getFullYear();
           if(year!==currentYear){
+            // The year label stands in for that quarter — pushing both put "2026" and
+            // "Q1" on the same x, one printed over the other.
             out.push({t:d.getTime(), lab:String(year), isYear:true});
             currentYear=year;
+          } else {
+            out.push({t:d.getTime(), lab:"Q"+(Math.floor(d.getMonth()/3)+1)});
           }
-          var q=Math.floor(d.getMonth()/3)+1;
-          out.push({t:d.getTime(), lab:"Q"+q});
         }
         d.setMonth(d.getMonth()+3);
       }
@@ -1732,7 +1737,7 @@
   var svg=document.getElementById("chart"), tip=document.getElementById("tip"), box=svg.parentNode;
   var D={w:960,h:540,l:72,r:140,t:28,b:44};
   var pW=D.w-D.l-D.r, pH=D.h-D.t-D.b;
-  var mode="eur", CAP=8, DOMc=[0,1], selected=["_total","_tesla","_ex"], capTimer;
+  var mode="eur", CAP=8, DOMc=[0,1], selected=["_total"], capTimer;
   var CURRENT_EUR_TO_USD=1.087; // Default exchange rate, updated from latest prices
   var timePeriod="all"; // Current time period filter: 1m, 3m, 6m, 1y, 3y, 5y, or all
   var PAL_L=["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4","#008300","#4a3aa7","#e34948"];
