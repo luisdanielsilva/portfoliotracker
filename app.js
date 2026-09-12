@@ -1213,16 +1213,22 @@
       s+='<text class="algo-lanelab" data-lane="'+(ln.key==="e"?"early":"confirmed")+'" x="'+(L-8)+'" y="'+(ln.y+LH/2+4)+'" text-anchor="end">'+ln.label+'</text>';
       s+='<rect x="'+L+'" y="'+ln.y+'" width="'+(R-L)+'" height="'+LH+'" fill="var(--grid)" opacity="0.5" rx="2"/>';
       days.forEach(function(x,i){
-        // Only the top two tiers get a colour. Very strong reads green or red by
-        // direction; merely strong reads amber in both directions, because
-        // distinguishing those is not worth the ink yet. Everything below stays
-        // grey — including real Signal-tier days, which the tooltip still reports.
-        var lane=x[ln.key], col, op, painted=true;
-        if(lane.t==="VeryStrong"&&lane.d==="Buy"){ col="var(--pos)"; }
-        else if(lane.t==="VeryStrong"&&lane.d==="Sell"){ col="var(--neg)"; }
-        else if(lane.t==="VeryStrong"||lane.t==="Strong"){ col="var(--warn)"; }
-        else { col="var(--faint)"; painted=false; }
-        op=painted?(0.25+0.75*(lane.c/100)):0.16;
+        // Four states, strongest first. Very strong reads green or red by direction;
+        // merely strong reads amber in both directions, because telling those apart
+        // is not worth the ink yet.
+        //
+        // Signal gets a pale wash of its direction colour, and that tier is not
+        // cosmetic: a buy only the Early lane sees comes from one window, one window
+        // is worth at most 2 of the maximum 6, and 33% can never reach the 50% amber
+        // needs. Without this step the two lanes were provably identical — 0 days out
+        // of 7,560 differed — and the single thing the Early lane exists to catch was
+        // invisible. Watch and no-signal stay grey.
+        var lane=x[ln.key], col, op;
+        var dirCol=lane.d==="Buy"?"var(--pos)":lane.d==="Sell"?"var(--neg)":"var(--warn)";
+        if(lane.t==="VeryStrong"&&(lane.d==="Buy"||lane.d==="Sell")){ col=dirCol; op=0.25+0.75*(lane.c/100); }
+        else if(lane.t==="VeryStrong"||lane.t==="Strong"){ col="var(--warn)"; op=0.25+0.75*(lane.c/100); }
+        else if(lane.t==="Signal"){ col=dirCol; op=0.34; }
+        else { col="var(--faint)"; op=0.16; }
         s+='<rect x="'+(L+(R-L)*i/n).toFixed(2)+'" y="'+ln.y+'" width="'+bw.toFixed(2)+'" height="'+LH+'" fill="'+col+'" opacity="'+op.toFixed(2)+'"/>';
       });
     });
