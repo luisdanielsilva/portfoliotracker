@@ -62,12 +62,17 @@ db.exec(schema);
  */
 function purgeExpiredCredentials() {
   try {
-    const now = new Date().toISOString();
-    const sessions = db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now).changes;
+    // Compare as timestamps, not as strings. expires_at is written as an ISO-8601 string
+    // with a T and a Z, but SQLite's own datetime() produces "YYYY-MM-DD HH:MM:SS" — and a
+    // space sorts before T, so a string comparison reads such a row as long expired and
+    // deletes a session that is perfectly valid. julianday() parses both.
+    const sessions = db.prepare(
+      "DELETE FROM sessions WHERE julianday(expires_at) < julianday('now')"
+    ).run().changes;
     // A used token is spent; an expired one can never be used. Keep neither.
     const tokens = db.prepare(
-      "DELETE FROM login_tokens WHERE used_at IS NOT NULL OR expires_at < ?"
-    ).run(now).changes;
+      "DELETE FROM login_tokens WHERE used_at IS NOT NULL OR julianday(expires_at) < julianday('now')"
+    ).run().changes;
     if (sessions || tokens) {
       console.log(`Purged ${sessions} expired session(s) and ${tokens} spent login token(s)`);
     }
@@ -931,6 +936,32 @@ app.get('/api/snapshots', (req, res) => {
       return qty;
     }
 
+    /* Every price, once.
+     *
+     * This used to call db.prepare() inside two nested loops — once per snapshot date per
+     * ticker — which on this database was 8,274 statement compilations for a single
+     * request, and one more every day as the series grew. The whole prices table is a few
+     * thousand rows; reading it once and walking it costs less than preparing one
+     * statement. Same answer, and the endpoint stops getting slower with age.
+     */
+    const seriesByTicker = {};
+    for (const row of db.prepare(
+      'SELECT ticker, price_date, price_eur FROM prices ORDER BY ticker ASC, price_date ASC'
+    ).all()) {
+      (seriesByTicker[row.ticker] || (seriesByTicker[row.ticker] = [])).push(row);
+    }
+    // Snapshot dates ascend, so each ticker's cursor only ever moves forward.
+    const cursor = {};
+    function priceAsOf(ticker, date) {
+      const series = seriesByTicker[ticker];
+      if (!series) return null;
+      let i = cursor[ticker] || 0;
+      while (i + 1 < series.length && series[i + 1].price_date <= date) i++;
+      cursor[ticker] = i;
+      // the cursor may still sit before the first row that exists on or after `date`
+      return series[i].price_date <= date ? series[i].price_eur : null;
+    }
+
     // Generate daily snapshots from first transaction to today
     const snapshotDates = generateDailySnapshots(req.userId);
 
@@ -952,14 +983,7 @@ app.get('/api/snapshots', (req, res) => {
       // Adjust prices for stock splits: pre-split prices need to be adjusted up
       const pricesOnDate = {};
       Object.keys(latestPrices).forEach(ticker => {
-        const priceStmt = db.prepare(`
-          SELECT price_eur FROM prices
-          WHERE ticker = ? AND price_date <= ?
-          ORDER BY price_date DESC
-          LIMIT 1
-        `);
-        const priceRow = priceStmt.get(ticker, snapshotDate);
-        let price = priceRow ? priceRow.price_eur : null;
+        let price = priceAsOf(ticker, snapshotDate);
 
         // Apply split adjustment to prices (multiply pre-split prices by ratio)
         if (price !== null) {
