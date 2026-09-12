@@ -108,6 +108,9 @@ left is marked at the end of this section.
 | 13 | Low | `logrotate.portfoliotracker` is written but not installed — one `sudo cp` away. |
 | 14 | Low | The CSP carries `'unsafe-inline'` for scripts because `index.html` is one large inline script. Moving that script to its own file would let the directive tighten to `'self'`. |
 | 15 | Low | No test suite still — see the Testing section above; the blocker list is down to three files. |
+| 16 | Low | No per-user notification address. Alerts go to whatever address the account signed in with, because there is no profile page — fine for magic links, where the address *is* the identity, but someone who signed in with Google cannot redirect their alerts elsewhere. |
+| 17 | Low | No load testing. Response times under real concurrent load are still unverified — the snapshots endpoint recomputes the whole series per request. |
+| 18 | Low | Signing in is registration: anyone with the URL can create an account. `noindex` keeps it out of search but is not a gate. Deliberate for now; an invite code or email allow-list is the fix if it ever matters. |
 
 **Cleared 2026-09-12:** the row `verify-portfolio.js` had been flagging — 1,984 AAPL for
 €0.13, dated 1994, entered by a test sign-in on 2026-09-10 — was deleted at the owner's
