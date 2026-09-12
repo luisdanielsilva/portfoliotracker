@@ -1213,12 +1213,16 @@
       s+='<text class="algo-lanelab" data-lane="'+(ln.key==="e"?"early":"confirmed")+'" x="'+(L-8)+'" y="'+(ln.y+LH/2+4)+'" text-anchor="end">'+ln.label+'</text>';
       s+='<rect x="'+L+'" y="'+ln.y+'" width="'+(R-L)+'" height="'+LH+'" fill="var(--grid)" opacity="0.5" rx="2"/>';
       days.forEach(function(x,i){
-        var lane=x[ln.key], col, op;
-        if(lane.d==="Buy"){ col="var(--pos)"; }
-        else if(lane.d==="Sell"){ col="var(--neg)"; }
-        else if(lane.d==="Mixed"){ col="#d69a2e"; }
-        else { col="var(--faint)"; }
-        op=lane.d==="None"?0.16:(0.25+0.75*(lane.c/100));
+        // Only the top two tiers get a colour. Very strong reads green or red by
+        // direction; merely strong reads amber in both directions, because
+        // distinguishing those is not worth the ink yet. Everything below stays
+        // grey — including real Signal-tier days, which the tooltip still reports.
+        var lane=x[ln.key], col, op, painted=true;
+        if(lane.t==="VeryStrong"&&lane.d==="Buy"){ col="var(--pos)"; }
+        else if(lane.t==="VeryStrong"&&lane.d==="Sell"){ col="var(--neg)"; }
+        else if(lane.t==="VeryStrong"||lane.t==="Strong"){ col="var(--warn)"; }
+        else { col="var(--faint)"; painted=false; }
+        op=painted?(0.25+0.75*(lane.c/100)):0.16;
         s+='<rect x="'+(L+(R-L)*i/n).toFixed(2)+'" y="'+ln.y+'" width="'+bw.toFixed(2)+'" height="'+LH+'" fill="'+col+'" opacity="'+op.toFixed(2)+'"/>';
       });
     });

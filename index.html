@@ -22,7 +22,7 @@
     --ink:#1b1d21; --muted:#6b6e76; --faint:#9a9ca2;
     --s-total:#2a78d6; --s-tsla:#eb6834; --s-ex:#1baf7a;
     --accent:#2a78d6; --accent-soft:rgba(42,120,214,.10);
-    --pos:#3f8f5b; --neg:#c0473e;
+    --pos:#3f8f5b; --neg:#c0473e; --warn:#b8861f;
     --shadow:0 1px 2px rgba(20,22,28,.05),0 8px 24px rgba(20,22,28,.06);
   }
   @media (prefers-color-scheme:dark){
@@ -32,7 +32,7 @@
       --ink:#ecebe2; --muted:#9c9d93; --faint:#6f6f66;
       --s-total:#3987e5; --s-tsla:#d95926; --s-ex:#199e70;
       --accent:#3987e5; --accent-soft:rgba(57,135,229,.16);
-      --pos:#5aa877; --neg:#d2685e;
+      --pos:#5aa877; --neg:#d2685e; --warn:#d4a13f;
       --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
     }
   }
@@ -42,7 +42,7 @@
     --ink:#ecebe2; --muted:#9c9d93; --faint:#6f6f66;
     --s-total:#3987e5; --s-tsla:#d95926; --s-ex:#199e70;
     --accent:#3987e5; --accent-soft:rgba(57,135,229,.16);
-    --pos:#5aa877; --neg:#d2685e;
+    --pos:#5aa877; --neg:#d2685e; --warn:#d4a13f;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
   }
 
@@ -64,7 +64,7 @@
   .headline .big{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:clamp(30px,5vw,44px);font-weight:500;letter-spacing:-.02em}
   .headline .delta{font-size:15px;font-weight:500}
   .delta.neg{color:var(--neg)} .delta.pos{color:var(--pos)}
-  .frm-note .pos,.pos{color:var(--pos)} .frm-note .neg,.neg{color:var(--neg)}
+  .frm-note .pos,.pos{color:var(--pos)} .frm-note .neg,.neg{color:var(--neg)} .warn{color:var(--warn)}
   .sub{color:var(--muted);font-size:14px;max-width:64ch;margin:12px 0 0}
 
   .tabs-sticky{position:sticky;top:0;z-index:100;display:flex;justify-content:center;background:var(--ground);padding:12px 24px;box-shadow:0 2px 8px rgba(0,0,0,0.08)}
@@ -1233,7 +1233,7 @@
       <div class="kpi-grid" id="algo-kpi"></div>
 
       <h3 class="ind-h">Price, with both signal lanes</h3>
-      <p class="microcopy" style="margin:0 0 10px">The line is the daily close. Each strip below it is one bar per trading day &mdash; <span class="pos">green</span> where the rules call Buy, <span class="neg">red</span> where they call Sell, grey where they say nothing. The stronger the agreement between windows, the more solid the bar. Hover anywhere for that day&rsquo;s numbers, or hover a lane&rsquo;s name for what makes it fire.</p>
+      <p class="microcopy" style="margin:0 0 10px">The line is the daily close. Each strip below it is one bar per trading day, and only the strongest readings are coloured: <span class="pos">green</span> for a <b>very strong</b> buy, <span class="neg">red</span> for a <b>very strong</b> sell, <span class="warn">amber</span> for anything <b>strong</b> in either direction &mdash; buy and sell are not told apart at that level yet. Everything weaker stays grey, signal or not. Hover any day for what it actually said, or hover a lane&rsquo;s name for what makes it fire.</p>
       <div class="chartbox">
         <svg class="chart" id="algo-chart" viewBox="0 0 960 348" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Daily close with Early and Confirmed signal lanes"></svg>
         <div class="tip" id="algo-tip"></div>
