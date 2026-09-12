@@ -143,3 +143,49 @@ Changing `.env` restarts the app automatically.
 The fetch only runs when US markets are shut — after the 21:00 UTC close and again before the
 13:00 UTC open. The window wraps midnight; testing only `hour < close` made the 09:00 slot skip
 every single day, which is how it shipped originally.
+
+## Off-site backups
+
+`backup-db.sh` writes nightly to `~/backups/portfoliotracker` — the same disk as the
+database, so it survives a bad migration and not a dead disk. `backup-offsite.sh` puts the
+same snapshot in two places that have nothing to do with this VPS.
+
+```bash
+./backup-offsite.sh --dry-run    # snapshot, encrypt, verify the round-trip, send nothing
+./backup-offsite.sh              # and email it and push it
+```
+
+Weekly by cron, Sunday 04:00, after the nightly local backup:
+
+```
+0 4 * * 0 cd /var/www/portfoliotracker && ./backup-offsite.sh >> logs/backup-offsite.log 2>&1
+```
+
+**What goes where**
+
+| Copy | Where | Kept |
+|---|---|---|
+| Nightly, plain | `~/backups/portfoliotracker` on this box | 30 days |
+| Weekly, encrypted | emailed to `CONTACT_EMAIL_TO` | as long as the inbox keeps it |
+| Weekly, encrypted | `luisdanielsilva/portfoliotracker-backups` (private) | ~26 weeks, pruned by the script |
+
+Both off-site copies are gpg symmetric (AES256) before they leave, so neither Gmail nor
+GitHub holds anything readable. That is what makes a git repository an acceptable
+destination at all: a leak of it yields ciphertext.
+
+**The passphrase** is `BACKUP_PASSPHRASE` in `.env` (chmod 600, gitignored) and in the
+owner's password manager. It is deliberately not in the repository, not in the email, and
+not in this file. **Without it every off-site copy is a brick** — if it is ever rotated,
+the old copies stay readable only with the old one.
+
+**Restore**
+
+```bash
+gpg -d data.db.<stamp>.gz.gpg > data.db.gz
+gunzip data.db.gz
+sqlite3 data.db "PRAGMA integrity_check;"    # expect: ok
+```
+
+Then put `data.db` in the application directory and `pm2 restart portfolio-api`. The script
+refuses to ship anything it cannot decrypt back to a valid gzip, so a copy that reaches
+either destination has already been proven to round-trip once.

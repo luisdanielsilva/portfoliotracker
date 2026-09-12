@@ -103,7 +103,6 @@ left is marked at the end of this section.
 
 | # | Severity | Finding |
 |---|---|---|
-| 11 | Medium | Backups exist only on this machine. A disk loss takes the database and every snapshot with it. Needs a destination you choose — another host, object storage, or a periodic copy off-box. |
 | 12 | Medium | `data.db` remains in the git history, including session tokens from before they were hashed. Contained only by the repository being private. Rewriting history (`git filter-repo`) would remove it; verify the repo is private before any visibility change either way. |
 | 14 | Low | The CSP carries `'unsafe-inline'` for scripts because `index.html` is one large inline script. Moving that script to its own file would let the directive tighten to `'self'`. |
 | 15 | Low | No test suite still — see the Testing section above; the blocker list is down to three files. |
@@ -228,6 +227,15 @@ Exchange Rates below. No longer an open item.)*
 **Not planned for now:**
 - AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built then
   removed. Explicitly parked (2026-09-09); do not pick it up without asking.
+
+**Off-site backups — done 2026-09-12.** `backup-offsite.sh` encrypts the nightly snapshot
+with gpg (AES256) and puts it in two independent places weekly: an email to
+`CONTACT_EMAIL_TO`, and a commit in the private `portfoliotracker-backups` repository.
+Encryption is what makes the git destination acceptable — a leak of that repo yields
+ciphertext. The script refuses to ship anything that does not decrypt back to a valid gzip,
+and a restore drill was run end to end: the copy in GitHub decrypts to a database with
+`integrity_check` ok and 5 users, 16 transactions, 16 alerts, 6,144 prices. Details and the
+restore procedure are in DEPLOYMENT.md.
 
 **Settled, recorded so it is not re-litigated:**
 - **No log rotation. Decided 2026-09-12 after measuring — do not raise it again without new
