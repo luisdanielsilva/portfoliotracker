@@ -105,7 +105,6 @@ left is marked at the end of this section.
 |---|---|---|
 | 11 | Medium | Backups exist only on this machine. A disk loss takes the database and every snapshot with it. Needs a destination you choose — another host, object storage, or a periodic copy off-box. |
 | 12 | Medium | `data.db` remains in the git history, including session tokens from before they were hashed. Contained only by the repository being private. Rewriting history (`git filter-repo`) would remove it; verify the repo is private before any visibility change either way. |
-| 13 | Low | `logrotate.portfoliotracker` is written but not installed — one `sudo cp` away. |
 | 14 | Low | The CSP carries `'unsafe-inline'` for scripts because `index.html` is one large inline script. Moving that script to its own file would let the directive tighten to `'self'`. |
 | 15 | Low | No test suite still — see the Testing section above; the blocker list is down to three files. |
 | 17 | Low | No load testing. Response times under real concurrent load are still unverified — the snapshots endpoint recomputes the whole series per request. |
@@ -231,6 +230,13 @@ Exchange Rates below. No longer an open item.)*
   removed. Explicitly parked (2026-09-09); do not pick it up without asking.
 
 **Settled, recorded so it is not re-litigated:**
+- **No log rotation. Decided 2026-09-12 after measuring — do not raise it again without new
+  numbers.** `price-fetch.log` grew 52 KB in eight days: ~6.5 KB a day, ~2.4 MB a year,
+  against 28 GB free. It was proposed as generic hygiene, and the measurement did not
+  support it. The config that existed for it has been deleted. The residual risk is a crash
+  loop turning 6 KB a day into megabytes an hour — if that ever happens, the file to watch
+  is `~/.pm2/logs/portfolio-api-error*.log` rather than `logs/`, because that is where a
+  failing server writes and nothing prunes it.
 - **Alerts go to the address you authenticated with. Decided 2026-09-12 — do not propose a
   `notify_email` column, a profile page or a per-alert recipient again.** The address *is*
   the identity: `findOrCreateUserByEmail` keys the account on it, so a magic link and a

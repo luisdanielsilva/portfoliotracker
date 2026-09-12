@@ -143,15 +143,3 @@ Changing `.env` restarts the app automatically.
 The fetch only runs when US markets are shut — after the 21:00 UTC close and again before the
 13:00 UTC open. The window wraps midnight; testing only `hour < close` made the 09:00 slot skip
 every single day, which is how it shipped originally.
-
-## Log rotation (one-time, needs root)
-
-`logs/*.log` are appended to by the price-fetch timer and the two cron jobs and were
-never rotated. The config lives in the repo; install it once:
-
-```bash
-sudo cp /var/www/portfoliotracker/logrotate.portfoliotracker /etc/logrotate.d/portfoliotracker
-sudo logrotate -d /etc/logrotate.d/portfoliotracker   # dry run first
-```
-
-Weekly, eight kept, compressed, `copytruncate` because the writers hold the file open.
