@@ -1217,8 +1217,9 @@
       s+='<text class="algo-lanelab" data-lane="'+(ln.key==="e"?"early":"confirmed")+'" x="'+(L-8)+'" y="'+(ln.y+LH/2+4)+'" text-anchor="end">'+ln.label+'</text>';
       s+='<rect x="'+L+'" y="'+ln.y+'" width="'+(R-L)+'" height="'+LH+'" fill="var(--grid)" opacity="0.5" rx="2"/>';
       days.forEach(function(x,i){
-        // One hue per direction, three intensities by tier: bright for very strong,
-        // light for strong, palest for a plain signal. Grey below that.
+        // One hue per direction, four intensities by tier: bright for very strong,
+        // light for strong, pale for a signal, faintest for a watch. Grey now means
+        // only one thing — the rules said nothing at all that day.
         //
         // The steps are deliberately separated rather than following confidence
         // continuously — the spec's smooth opacity ramp put 67% and 83% within a
@@ -1231,10 +1232,11 @@
         // every one of 7,560 displayable days.
         var lane=x[ln.key], col, op;
         var dirCol=lane.d==="Buy"?"var(--pos)":lane.d==="Sell"?"var(--neg)":"var(--warn)";
-        if(lane.d==="None"||lane.t==="Watch"){ col="var(--faint)"; op=0.16; }
+        if(lane.d==="None"){ col="var(--faint)"; op=0.13; }
         else if(lane.t==="VeryStrong"){ col=dirCol; op=lane.c>=100?1:0.85; }
         else if(lane.t==="Strong"){ col=dirCol; op=lane.c>=67?0.58:0.47; }
-        else { col=dirCol; op=0.26; }
+        else if(lane.t==="Signal"){ col=dirCol; op=0.32; }
+        else { col=dirCol; op=0.22; }   // Watch: the faintest a reading gets
         s+='<rect x="'+(L+(R-L)*i/n).toFixed(2)+'" y="'+ln.y+'" width="'+bw.toFixed(2)+'" height="'+LH+'" fill="'+col+'" opacity="'+op.toFixed(2)+'"/>';
       });
     });
