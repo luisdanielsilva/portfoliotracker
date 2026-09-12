@@ -104,7 +104,6 @@ left is marked at the end of this section.
 | # | Severity | Finding |
 |---|---|---|
 | 12 | Medium | `data.db` remains in the git history, including session tokens from before they were hashed. Contained only by the repository being private. Rewriting history (`git filter-repo`) would remove it; verify the repo is private before any visibility change either way. |
-| 14 | Low | The CSP carries `'unsafe-inline'` for scripts because `index.html` is one large inline script. Moving that script to its own file would let the directive tighten to `'self'`. |
 | 15 | Low | No test suite still — see the Testing section above; the blocker list is down to three files. |
 | 17 | Low | No load testing. Response times under real concurrent load are still unverified — the snapshots endpoint recomputes the whole series per request. |
 | 18 | Low | Signing in is registration: anyone with the URL can create an account. `noindex` keeps it out of search but is not a gate. Deliberate for now; an invite code or email allow-list is the fix if it ever matters. |
@@ -227,6 +226,20 @@ Exchange Rates below. No longer an open item.)*
 **Not planned for now:**
 - AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built then
   removed. Explicitly parked (2026-09-09); do not pick it up without asking.
+
+**CSP tightened and the XSS shape removed — 2026-09-12.** The application moved out of
+`index.html` into `app.js` (142 KB, 2,643 lines) so `script-src` could drop
+`'unsafe-inline'` and become `'self'`. With an inline script the browser cannot tell the one
+you wrote from one an attacker injected, so the old policy had to permit both and bought
+nothing against XSS; an injected `<script>` and an injected `on*` handler are both refused
+now, verified in the browser. `style-src` still allows inline styles — 39 KB of them, and an
+injected stylesheet is a far smaller problem than injected code.
+
+Separately and more importantly, six places interpolated a ticker-derived string into
+`innerHTML` without escaping, including the transaction list. Not exploitable — the API
+rejects a ticker containing markup and no stored ticker is dangerous — but plugged at one
+end only, and the CSP as it then stood would not have caught it. All six now use `esc()`.
+Fix the injection, then keep the backstop: in that order.
 
 **Off-site backups — done 2026-09-12.** `backup-offsite.sh` encrypts the nightly snapshot
 with gpg (AES256) and puts it in two independent places weekly: an email to

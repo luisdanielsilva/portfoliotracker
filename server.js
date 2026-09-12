@@ -152,14 +152,16 @@ process.on('uncaughtException', (err) => {
 
 app.disable('x-powered-by');
 
-// The page is one large inline script and inline styles, so script-src and style-src
-// have to allow 'unsafe-inline' — this is not an XSS defence and is not pretending to
-// be one. What it does buy: the app cannot be framed, cannot be used as a base for
-// injected relative URLs, cannot post a form off-site, cannot load a plugin, and can
-// only talk to its own origin.
+// script-src is 'self' with no 'unsafe-inline': the application moved out of index.html
+// into app.js precisely so this could be true. With an inline script the browser cannot
+// tell the one you wrote from one an attacker injected, so the policy had to permit both
+// and bought nothing against XSS. Now an injected <script> or on* attribute does not run.
+//
+// style-src still allows inline styles — the pages carry 39 KB of them, and an injected
+// stylesheet is a far smaller problem than injected code.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src https://fonts.gstatic.com",
   "img-src 'self' data:",
@@ -195,7 +197,8 @@ const PUBLIC_FILES = {
   '/index.html': 'index.html',
   '/privacy.html': 'privacy.html',
   '/terms.html': 'terms.html',
-  '/contact.js': 'contact.js'
+  '/contact.js': 'contact.js',
+  '/app.js': 'app.js'
 };
 app.get(Object.keys(PUBLIC_FILES), (req, res) => {
   res.sendFile(path.join(__dirname, PUBLIC_FILES[req.path]));
