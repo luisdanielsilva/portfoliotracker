@@ -1026,8 +1026,333 @@
   document.getElementById("t-amt").addEventListener("click",function(){ tableMode="amt"; this.setAttribute("aria-pressed","true"); document.getElementById("t-qty").setAttribute("aria-pressed","false"); renderTable(); });
   document.getElementById("t-qty").addEventListener("click",function(){ tableMode="qty"; this.setAttribute("aria-pressed","true"); document.getElementById("t-amt").setAttribute("aria-pressed","false"); renderTable(); });
 
+
+  /* ================= ALGORITHM (position-timing signal) ================= */
+  var ALGO_CACHE={}, algoSelected=null, ALGO=null;
+
+  var ALGO_LANE_TEXT={
+    early:"Early — Sell needs two of the three windows to read High. Buy needs only one, because a real dip shows up in the 6-month window first, while the 1- and 2-year windows are still anchored to the prior run-up.",
+    confirmed:"Confirmed — the same Sell rule, but Buy now needs two windows to agree as well. Slower, and it misses early pullbacks the other lane catches."
+  };
+
+  function algoSym(cur){ return cur==="EUR"?"€":cur==="USD"?"$":cur==="GBP"?"£":(cur+" "); }
+  function algoMoney(v,cur){ return algoSym(cur)+comma(Number(v).toFixed(2)); }
+  function algoDate(d){
+    var m=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    var p=String(d).split("-"); return p[2].replace(/^0/,"")+" "+m[+p[1]-1]+" "+p[0];
+  }
+  function algoPct(v){ return comma(Number(v).toFixed(1)); }
+  function algoDirClass(dir){ return dir==="Buy"?"buy":dir==="Sell"?"sell":"none"; }
+  function algoTierWord(t){ return t==="VeryStrong"?"Very strong":t||""; }
+
+  function loadAndRenderAlgo(){
+    var ready=Object.keys(AVG_COST).length?Promise.resolve():loadAvgCostAndDipForm();
+    return ready.then(renderAlgoTickers);
+  }
+
+  function renderAlgoTickers(){
+    var tickers=Object.keys(AVG_COST), wrap=document.getElementById("algo-tickers");
+    if(!wrap) return Promise.resolve();
+    if(!tickers.length){
+      wrap.innerHTML='<span class="lbl" style="padding:6px 10px">Register a transaction first &mdash; this tab times the holdings you own</span>';
+      document.getElementById("algo-note").innerHTML="";
+      document.getElementById("algo-today").innerHTML="";
+      document.getElementById("algo-kpi").innerHTML="";
+      document.getElementById("algo-runs").innerHTML="";
+      document.getElementById("algo-foot").innerHTML="";
+      drawEmptyChart(document.getElementById("algo-chart"),"Each holding’s daily close, with the days the rules call Buy or Sell marked underneath.",true);
+      return Promise.resolve();
+    }
+    if(!algoSelected||tickers.indexOf(algoSelected)===-1) algoSelected=tickers[0];
+    wrap.innerHTML=tickers.map(function(t){
+      return '<button data-ticker="'+esc(t)+'" aria-pressed="'+(t===algoSelected?"true":"false")+'">'+esc(tickerLabel(t))+'</button>';
+    }).join("");
+    Array.prototype.forEach.call(wrap.querySelectorAll("button"),function(b){
+      b.addEventListener("click",function(){
+        algoSelected=b.dataset.ticker;
+        Array.prototype.forEach.call(wrap.querySelectorAll("button"),function(o){
+          o.setAttribute("aria-pressed",o.dataset.ticker===algoSelected?"true":"false");
+        });
+        loadAlgo(algoSelected);
+      });
+    });
+    return loadAlgo(algoSelected);
+  }
+
+  function algoMessage(html){
+    document.getElementById("algo-note").innerHTML=html;
+    document.getElementById("algo-today").innerHTML="";
+    document.getElementById("algo-kpi").innerHTML="";
+    document.getElementById("algo-runs").innerHTML="";
+    document.getElementById("algo-foot").innerHTML="";
+    document.getElementById("algo-table-holder").hidden=true;
+    drawEmptyChart(document.getElementById("algo-chart"),"Nothing to rank against yet.",false);
+  }
+
+  function loadAlgo(t){
+    if(ALGO_CACHE[t]){ ALGO=ALGO_CACHE[t]; renderAlgo(ALGO); return Promise.resolve(); }
+    document.getElementById("algo-note").textContent="Ranking "+t+" against its own history…";
+    return apiFetch('./api/algorithm?ticker='+encodeURIComponent(t)+'&period=2y')
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,status:r.status,body:j}; }); })
+      .then(function(res){
+        if(!res.ok){
+          if(res.status===409){
+            algoMessage("Not enough price history for "+esc(t)+" yet. The longest window looks back two years, so every displayed day needs two full years behind it — run <code>node backfill-history.js "+esc(t)+" --years 5</code> to fill it in.");
+          } else {
+            algoMessage("Could not score "+esc(t)+": "+esc(res.body&&res.body.error||"unknown error"));
+          }
+          return;
+        }
+        ALGO_CACHE[t]=res.body; ALGO=res.body; renderAlgo(res.body);
+      })
+      .catch(function(){ algoMessage("Could not reach the server to score "+esc(t)+"."); });
+  }
+
+  function renderAlgo(d){
+    clearEmptyChart(document.getElementById("algo-chart"));
+    document.getElementById("algo-price").textContent=algoMoney(d.currentPrice,d.currency);
+    document.getElementById("algo-asof").textContent="close of "+algoDate(d.asOf);
+
+    var yrs=(d.days.length/252).toFixed(1);
+    document.getElementById("algo-note").innerHTML="Showing "+d.days.length+" trading days ("+comma(yrs)+" years) to "+algoDate(d.asOf)+
+      ". Every one of them has a full two years of history behind it — history reaches back to "+algoDate(d.meta.historyFrom)+".";
+
+    renderAlgoToday(d);
+    renderAlgoKpis(d);
+    drawAlgoChart(d);
+    renderAlgoRuns(d);
+    renderAlgoTable(d);
+    renderAlgoFoot(d);
+  }
+
+  function renderAlgoToday(d){
+    var lane=d.today.early, cls=algoDirClass(lane.direction), g=d.gate;
+    var call=lane.direction==="None"?"No signal today":lane.direction;
+    var html='<div class="algo-today '+cls+'"><div class="algo-today-top">'+
+      '<span class="algo-call '+cls+'">'+esc(call)+'</span>';
+    if(lane.tier) html+='<span class="algo-tier">'+esc(algoTierWord(lane.tier))+' · '+Math.round(lane.confidencePct)+'%</span>';
+    html+='<span class="algo-tier">Confirmed lane: '+esc(d.today.confirmed.direction==="None"?"silent":d.today.confirmed.direction)+'</span>';
+    if(g&&g.applicable&&(lane.direction==="Buy"||lane.direction==="Sell")){
+      html+='<span class="algo-gate '+(g.gateMet?"met":"unmet")+'">'+(g.gateMet?"Position agrees":"Position says wait")+'</span>';
+    }
+    html+='</div>';
+
+    if(g&&g.applicable){
+      var gp=Number(g.gainPct), up=gp>=0;
+      var hold=' You hold '+comma(Number(d.position.shares).toFixed(Number(d.position.shares)%1?4:0))+
+        ' at an average cost of €'+comma(Number(d.position.avgCost).toFixed(2))+'.';
+      if(lane.direction==="None"){
+        html+='<p>The price sits mid-range on every window, so there is nothing to act on.'+hold+'</p>';
+      } else {
+        // Built from the numbers rather than the server's sentence so the decimal
+        // separator matches the rest of the app, which is European throughout.
+        html+='<p><b>'+esc(g.action)+'</b> — you are '+(up?"up":"down")+' '+comma(Math.abs(gp).toFixed(1))+'% ('+d0(Number(g.gainAbs))+') on this holding, '+
+          (g.gateMet?"past":"short of")+' the '+comma(Math.abs(Number(g.need)).toFixed(0))+'% you set before '+
+          (lane.direction==="Sell"?"trimming":"adding")+'.'+hold+'</p>';
+      }
+    }
+
+    html+='<div class="algo-regimes">'+d.meta.windows.map(function(w){
+      var r=d.today.regimes[w.key], pr=d.today.percentiles[w.key];
+      return '<span class="algo-rchip">'+esc(w.label)+' <b>'+esc(algoRegimeWord(r))+'</b> · '+algoPct(pr)+' pct</span>';
+    }).join("")+'</div></div>';
+    document.getElementById("algo-today").innerHTML=html;
+  }
+
+  function algoRegimeWord(r){
+    return r==="StrongHigh"?"Strong high":r==="StrongLow"?"Strong low":r==="High"?"High":r==="Low"?"Low":"Neutral";
+  }
+
+  function renderAlgoKpis(d){
+    function kpi(k){ return '<div class="kpi"><div class="k-label">'+k.l+'</div><div class="k-val">'+k.v+'</div>'+(k.s?'<div class="k-sub '+(k.c||"")+'">'+k.s+'</div>':'')+'</div>'; }
+    var n=d.stats.totalDays, pctOf=function(x){ return comma((x/n*100).toFixed(0))+"% of the period"; };
+    document.getElementById("algo-kpi").innerHTML=[
+      {l:"Days in the sell zone", v:String(d.stats.sellDays), c:"neg", s:pctOf(d.stats.sellDays)},
+      {l:"Days in the buy zone (early)", v:String(d.stats.buyDaysEarly), c:"pos", s:pctOf(d.stats.buyDaysEarly)},
+      {l:"… of those, also confirmed", v:String(d.stats.buyDaysAlsoConfirmed), c:"pos", s:d.stats.buyDaysEarly?comma((d.stats.buyDaysAlsoConfirmed/d.stats.buyDaysEarly*100).toFixed(0))+"% of the early buys":"no early buys"},
+      {l:"Days with no signal", v:String(d.stats.noSignalDays), s:pctOf(d.stats.noSignalDays)}
+    ].map(kpi).join("");
+  }
+
+  /* ---- the chart: price line plus the two lane strips ---- */
+  var ALGO_GEO=null;
+  function drawAlgoChart(d){
+    var days=d.days, n=days.length;
+    var L=74,R=948,T=16,B=244;
+    var LANE=[{key:"e",y:276,label:"Early"},{key:"f",y:300,label:"Confirmed"}], LH=14;
+    var lo=Infinity,hi=-Infinity;
+    days.forEach(function(x){ if(x.close<lo)lo=x.close; if(x.close>hi)hi=x.close; });
+    var pad=(hi-lo)*0.06||1; lo-=pad; hi+=pad;
+    var X=function(i){ return L+(R-L)*(i+0.5)/n; };
+    var Y=function(v){ return B-(B-T)*(v-lo)/(hi-lo); };
+    var bw=Math.max((R-L)/n,0.8);
+    ALGO_GEO={L:L,R:R,T:T,B:B,n:n,X:X,Y:Y,lanes:LANE,LH:LH};
+
+    var s='';
+    // y grid + labels
+    var ticks=algoTicks(lo,hi,5);
+    ticks.forEach(function(v){
+      var y=Y(v);
+      s+='<line x1="'+L+'" y1="'+y.toFixed(1)+'" x2="'+R+'" y2="'+y.toFixed(1)+'" stroke="var(--grid)" stroke-width="1"/>';
+      s+='<text x="'+(L-8)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end" style="font-size:11px;fill:var(--faint)">'+algoSym(d.currency)+comma(v>=100?String(Math.round(v)):v.toFixed(1))+'</text>';
+    });
+    // price line
+    var path='';
+    days.forEach(function(x,i){ path+=(i?" L ":"M ")+X(i).toFixed(1)+" "+Y(x.close).toFixed(1); });
+    s+='<path d="'+path+'" fill="none" stroke="var(--s-total)" stroke-width="1.6" stroke-linejoin="round"/>';
+
+    // x labels
+    var every=Math.max(1,Math.round(n/6));
+    for(var i=0;i<n;i+=every){
+      var p=days[i].date.split("-"), mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+p[1]-1];
+      s+='<text x="'+X(i).toFixed(1)+'" y="262" text-anchor="middle" style="font-size:11px;fill:var(--faint)">'+mn+" "+p[0]+'</text>';
+    }
+
+    // the two lanes
+    LANE.forEach(function(ln){
+      s+='<text class="algo-lanelab" data-lane="'+(ln.key==="e"?"early":"confirmed")+'" x="'+(L-8)+'" y="'+(ln.y+LH/2+4)+'" text-anchor="end">'+ln.label+'</text>';
+      s+='<rect x="'+L+'" y="'+ln.y+'" width="'+(R-L)+'" height="'+LH+'" fill="var(--grid)" opacity="0.5" rx="2"/>';
+      days.forEach(function(x,i){
+        var lane=x[ln.key], col, op;
+        if(lane.d==="Buy"){ col="var(--pos)"; }
+        else if(lane.d==="Sell"){ col="var(--neg)"; }
+        else if(lane.d==="Mixed"){ col="#d69a2e"; }
+        else { col="var(--faint)"; }
+        op=lane.d==="None"?0.16:(0.25+0.75*(lane.c/100));
+        s+='<rect x="'+(L+(R-L)*i/n).toFixed(2)+'" y="'+ln.y+'" width="'+bw.toFixed(2)+'" height="'+LH+'" fill="'+col+'" opacity="'+op.toFixed(2)+'"/>';
+      });
+    });
+
+    // crosshair + hover target, added last so it sits on top
+    s+='<line id="algo-cross" x1="0" y1="'+T+'" x2="0" y2="'+(LANE[1].y+LH)+'" stroke="var(--muted)" stroke-width="1" opacity="0"/>';
+    s+='<circle id="algo-dot" r="3.5" fill="var(--s-total)" opacity="0"/>';
+    s+='<rect id="algo-hit" x="'+L+'" y="'+T+'" width="'+(R-L)+'" height="'+(LANE[1].y+LH-T)+'" fill="transparent" style="cursor:crosshair"/>';
+
+    var svg=document.getElementById("algo-chart");
+    svg.innerHTML=s;
+    bindAlgoHover(d);
+  }
+
+  function algoTicks(lo,hi,count){
+    var span=hi-lo; if(span<=0) return [lo];
+    var raw=span/count, mag=Math.pow(10,Math.floor(Math.log(raw)/Math.LN10)), norm=raw/mag, step;
+    if(norm<1.5) step=mag; else if(norm<3) step=2*mag; else if(norm<7) step=5*mag; else step=10*mag;
+    var out=[], v=Math.ceil(lo/step)*step;
+    for(;v<=hi;v+=step) out.push(Math.round(v*1e6)/1e6);
+    return out;
+  }
+
+  function bindAlgoHover(d){
+    var svg=document.getElementById("algo-chart"), tip=document.getElementById("algo-tip");
+    var hit=document.getElementById("algo-hit"), cross=document.getElementById("algo-cross"), dot=document.getElementById("algo-dot");
+    var g=ALGO_GEO;
+
+    function toViewBox(ev){
+      var r=svg.getBoundingClientRect();
+      return {x:(ev.clientX-r.left)*(960/r.width), rect:r};
+    }
+    function laneLine(x,key,name){
+      var l=x[key];
+      if(l.d==="None") return name+": <span style=\"color:var(--faint)\">nothing</span>";
+      var col=l.d==="Buy"?"var(--pos)":l.d==="Sell"?"var(--neg)":"#d69a2e";
+      return name+': <b style="color:'+col+'">'+l.d+'</b> · '+esc(algoTierWord(l.t))+' '+l.c+'%';
+    }
+    hit.addEventListener("mousemove",function(ev){
+      var v=toViewBox(ev);
+      var i=Math.round((v.x-g.L)/(g.R-g.L)*g.n-0.5);
+      if(i<0) i=0; if(i>g.n-1) i=g.n-1;
+      var x=d.days[i], px=g.X(i);
+      cross.setAttribute("x1",px); cross.setAttribute("x2",px); cross.setAttribute("opacity","0.45");
+      dot.setAttribute("cx",px); dot.setAttribute("cy",g.Y(x.close)); dot.setAttribute("opacity","1");
+      tip.innerHTML='<div style="font-weight:600;margin-bottom:5px">'+algoDate(x.date)+'</div>'+
+        '<div style="font-variant-numeric:tabular-nums;margin-bottom:6px">'+algoMoney(x.close,d.currency)+'</div>'+
+        '<div style="font-size:11.5px;line-height:1.7">'+
+        laneLine(x,"e","Early")+'<br>'+laneLine(x,"f","Confirmed")+
+        '<div style="margin-top:6px;border-top:1px solid var(--hair);padding-top:5px;color:var(--muted)">'+
+        d.meta.windows.map(function(w){
+          return w.key+' '+esc(algoRegimeWord(x.rg[w.key]))+' <span style="color:var(--faint)">('+algoPct(x.pr[w.key])+')</span>';
+        }).join("<br>")+'</div></div>';
+      var left=px/960*v.rect.width;
+      tip.style.left=Math.max(90,Math.min(v.rect.width-90,left))+"px";
+      tip.style.top="8px";
+      tip.style.opacity="1";
+    });
+    hit.addEventListener("mouseleave",function(){
+      tip.style.opacity="0"; cross.setAttribute("opacity","0"); dot.setAttribute("opacity","0");
+    });
+
+    // Lane-name tooltips are driven from here rather than a title attribute: the
+    // native one is slow to appear and is suppressed entirely inside an embedded
+    // preview, which is exactly where these most need to be readable.
+    Array.prototype.forEach.call(svg.querySelectorAll(".algo-lanelab"),function(el){
+      el.addEventListener("mouseenter",function(){
+        var r=svg.getBoundingClientRect(), box=el.getBoundingClientRect();
+        tip.innerHTML='<div style="font-size:11.5px;line-height:1.6">'+ALGO_LANE_TEXT[el.dataset.lane]+'</div>';
+        tip.style.left=Math.min(r.width-120,140)+"px";
+        tip.style.top=(box.top-r.top-8)+"px";
+        tip.style.opacity="1";
+      });
+      el.addEventListener("mouseleave",function(){ tip.style.opacity="0"; });
+    });
+  }
+
+  function renderAlgoRuns(d){
+    function col(title,runs,cls,empty){
+      var body=runs.length?runs.slice(0,6).map(function(r){
+        return '<div class="algo-run '+cls+'"><div class="r-d">'+algoDate(r.start)+' &rarr; '+algoDate(r.end)+'</div>'+
+          '<div class="r-p">'+r.days+' day'+(r.days===1?"":"s")+' · '+algoMoney(r.startClose,d.currency)+' &rarr; '+algoMoney(r.endClose,d.currency)+
+          ' · peak '+Math.round(r.peakConfidence)+'%</div></div>';
+      }).join(""):'<div class="algo-runempty">'+empty+'</div>';
+      var more=runs.length>6?'<div class="r-p" style="color:var(--faint);font-size:11px">and '+(runs.length-6)+' earlier</div>':'';
+      return '<div class="algo-runcol"><h4>'+title+'</h4>'+body+more+'</div>';
+    }
+    document.getElementById("algo-runs").innerHTML=
+      col("Sell-zone runs",d.runs.sell,"sell","No sell run reached Signal strength in this period.")+
+      col("Buy-zone runs — early",d.runs.buyEarly,"buy","No early buy run in this period.")+
+      col("Buy-zone runs — confirmed",d.runs.buyConfirmed,"buy","No buy run had two windows agreeing.");
+  }
+
+  function renderAlgoTable(d){
+    var rows=d.days.slice().reverse();
+    function cell(l){ return '<td class="algo-cell-'+algoDirClass(l.d)+'">'+(l.d==="None"?"—":esc(l.d)+" "+l.c+"%")+'</td>'; }
+    document.getElementById("algo-table").innerHTML=
+      '<thead><tr><th>Date</th><th>Close</th><th>6M</th><th>1Y</th><th>2Y</th><th>Early</th><th>Confirmed</th></tr></thead><tbody>'+
+      rows.map(function(x){
+        return '<tr><td>'+x.date+'</td><td>'+algoMoney(x.close,d.currency)+'</td>'+
+          ['6M','1Y','2Y'].map(function(k){
+            return '<td>'+esc(algoRegimeWord(x.rg[k]))+' <span style="color:var(--faint)">'+algoPct(x.pr[k])+'</span></td>';
+          }).join("")+cell(x.e)+cell(x.f)+'</tr>';
+      }).join("")+'</tbody>';
+  }
+
+  function renderAlgoFoot(d){
+    var g=d.gate;
+    var txt="What this catches: stretches where this stock&rsquo;s price is unusual <b>by its own recent standards</b>. What it cannot catch: anything about the company. "+
+      "A price low enough to flag Buy is equally consistent with a bargain and with something genuinely broken, and nothing in these numbers separates the two. "+
+      "Sell is deliberately harder to trigger than Buy, so expect the sell lane to be quiet through a long climb and the early buy lane to speak first in a fall.";
+    if(g&&g.applicable){
+      txt+=" Your own position <b>is</b> wired in: a flag only reads &ldquo;position agrees&rdquo; once you are "+
+        d.meta.gates.strongHighGainPct+"–"+d.meta.gates.highGainPct+"% ahead for a sell, or "+
+        Math.abs(d.meta.gates.lowLossPct)+"–"+Math.abs(d.meta.gates.strongLowLossPct)+"% behind for a buy. The lanes above stay purely technical either way.";
+    } else {
+      txt+=" Position-aware gating is inactive for this holding because there is no share count and average cost to gate against.";
+    }
+    document.getElementById("algo-foot").innerHTML=txt;
+  }
+
+  (function(){
+    var btn=document.getElementById("algo-table-btn");
+    if(!btn) return;
+    btn.addEventListener("click",function(){
+      var holder=document.getElementById("algo-table-holder"), show=holder.hidden;
+      holder.hidden=!show;
+      btn.setAttribute("aria-expanded",show?"true":"false");
+      btn.textContent=show?"Hide the full data table":"Show the full data table";
+    });
+  })();
+
   /* ================= tabs ================= */
-  var TABS=[["tab-total","view-total"],["tab-detail","view-detail"],["tab-stocks","view-stocks"],["tab-dca","view-dca"],["tab-add","view-add"]];
+  var TABS=[["tab-total","view-total"],["tab-detail","view-detail"],["tab-stocks","view-stocks"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-add","view-add"]];
   TABS.forEach(function(pair){
     document.getElementById(pair[0]).addEventListener("click",function(){
       TABS.forEach(function(p){
@@ -1040,6 +1365,7 @@
       var btn=document.getElementById(pair[0]);
       if(btn.scrollIntoView) btn.scrollIntoView({block:"nearest",inline:"nearest",behavior:"smooth"});
       if(pair[0]==="tab-dca") loadAndRenderDCA();
+      if(pair[0]==="tab-algo") loadAndRenderAlgo();
     });
   });
 

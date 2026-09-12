@@ -13,6 +13,9 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
     gateways that auto-fetch links to scan them (e.g. Microsoft Safe Links) can't burn the
     one-time token before the user clicks it
 - **Transactions:** Buy/sell registration with automatic snapshot derivation (Node.js backend)
+- **Algorithm tab:** the position-timing signal — every holding's close ranked against its own
+  trailing 6M/1Y/2Y history, with two signal lanes (Early / Confirmed), notable runs, a full data
+  table and a position-gated recommendation. Rules in `algorithm.js`, details under *Algorithm tab*.
 - **DCA tab:** analyses any holding against its own trailing average and Bollinger bands.
   The selector lists what you hold, taken from `/api/avg-cost`. It used to be driven by the
   chart's universe, whose keys are the short names this app started with (`asml`, `vw`, `spy`)
@@ -346,6 +349,53 @@ Also fixed here: `CURRENT_MARKET_VALUE` and `CURRENT_COST_BASIS` were only ever 
 dead for every account since it was written. They now come from the last snapshot, where the
 numbers actually are.
 
+### 🧮 Algorithm tab — the position-timing signal
+
+Built from a written specification (2026-09-12). `algorithm.js` holds the rules, all pure
+functions of a price array; `/api/algorithm` serves them; the Algorithm tab draws them.
+`test/algorithm.test.js` pins every threshold — they look arbitrary because they were
+*chosen*, so a retune must break a test rather than change meaning silently.
+
+**The rules.** Each day's close is given a percentile rank inside three trailing windows —
+6 months, 1 year, 2 years (calendar days: 182 / 365 / 730, the window open at the far end
+and closed at the near one). A rank of ≥95 is StrongHigh, ≥80 High, ≤20 Low, ≤5 StrongLow,
+anything else Neutral; Strong counts 2, plain 1. Two lanes then read the same regimes with
+different bars: **Sell needs two of three windows in both lanes; Buy needs two in the
+Confirmed lane but only one in the Early lane.** Confidence is the agreeing weight over the
+maximum possible (2 × 3 = 6) → Watch / Signal / Strong / Very Strong at 25 / 50 / 75%.
+
+The Buy asymmetry is the point of running two lanes. A sentiment-driven dip shows up in the
+6-month window while the 1- and 2-year windows are still anchored to the prior run-up and
+read Neutral the whole way down — the spec cites a ~14% drawdown missed entirely by a
+2-of-3 Buy rule. The Early lane catches those; the Confirmed lane says whether anything
+broader agrees.
+
+**A 5-year window was specified as tried and rejected** — it sat High 88% of the time and
+never reached Low, biasing everything toward Sell. Do not add one back without redoing that
+test.
+
+**Where this deviates from the spec, and why:**
+
+| Spec says | Here | Why |
+|---|---|---|
+| Use Adjusted Close | `prices.price_native` | Yahoo's `chart()` close is already **split**-adjusted (verified across TSLA's 2022 3:1 — no discontinuity). It is not dividend-adjusted. Storing a dividend-adjusted price would misstate portfolio value, which is the same column's day job, so the small ranking effect is accepted and recorded here rather than fixed. |
+| Pick a market-data API | The existing `prices` table | The data layer was already solved; `backfill-history.js --years 5` filled the depth. No new provider, no new key. |
+| Step 6 gate "not yet wired in" | **Wired in** | The spec defers it only because the reference build had no `shares_held` / `avg_cost_basis`. This app has both, from `portfolio.js`. It is applied as a *visual distinction* — the spec's own permitted option — so a flag still shows but reads "position agrees" or "position says wait". The lanes stay purely technical. |
+| Prices in `$` | Native currency for ranking, **EUR** for the gate | A stock's stretch must be measured in its own currency or FX moves invent signals; a gain must be measured in euros because euros are what left the account. Same split as everywhere else in this app. |
+| Agreement counts hardcoded 2-of-3 | `agreementRules(n)` | The spec asks for this if the window set becomes configurable. Two of three is two-thirds, so that ratio is what generalises; at three windows it returns exactly 2 / 1 / 2. |
+
+**Not implemented, deliberately:** Step 8 position sizing (how many shares to trade) and the
+z-score alternative to percentile rank. Both are specified as optional; percentile rank is
+what the reference build used and what is here.
+
+**History requirement.** The longest window looks back two years, so a *displayed* day needs
+two full years behind it. `backfill-history.js --years 5` was run for all ten holdings on
+2026-09-12, taking `prices` from 6,144 to 13,123 rows and giving ~500 displayable days per
+ticker. A ticker without that depth returns 409 and the tab says so rather than ranking
+against a window it does not have. FX rates only reach back to 2022-04-17, so `price_eur`
+for older rows uses the earliest known rate — irrelevant here (ranking uses native, and no
+transaction predates 2025-01-30) but worth knowing before trusting old EUR prices.
+
 ### 📈 How the portfolio chart is built
 
 There is **no snapshots table**. `/api/snapshots` recomputes the entire series on every
@@ -497,6 +547,7 @@ Environment variables in `.env`:
 - `GET /api/price-history/:ticker` — Historical prices for one ticker
 - `GET /api/stock-splits` — Known stock splits
 - `GET /api/avg-cost` — Average cost basis per ticker
+- `GET /api/algorithm?ticker=X&period=2y` — Position-timing signal: both lanes for every day, notable runs, tile counts, and today's position-gated call
 - `GET /api/alerts` — List user's price alerts with current prices
 - `POST /api/alerts` — Create alert
 - `PUT /api/alerts/:id` — Update alert

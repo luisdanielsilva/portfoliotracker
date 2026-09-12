@@ -141,6 +141,7 @@ require('./db-migrations').ensureDropFromHighRuleType(db);
 // Average cost per share (EUR) — shared with the price-fetch job so the figure the
 // app shows and the figure dip alerts fire on cannot drift apart. See portfolio.js.
 const { getAvgCostPerShare: avgCostFor } = require('./portfolio');
+const algorithm = require('./algorithm');
 function getAvgCostPerShare(ticker, userId) {
   return avgCostFor(db, userId, ticker);
 }
@@ -1114,6 +1115,119 @@ function enrichAlert(a, userId) {
   if (priceRow) a.currentDipPct = (priceRow.price_eur / cost.avgCostEUR - 1) * 100;
   return a;
 }
+
+/**
+ * GET /api/algorithm?ticker=XYZ&period=2y — the position-timing signal.
+ *
+ * Ranks each day's close against the stock's own trailing 6M/1Y/2Y history and
+ * returns both signal lanes for every displayable day, plus the runs, the tile
+ * counts and today's position-gated recommendation. See algorithm.js for the
+ * rules and README for where the implementation departs from the spec.
+ */
+app.get('/api/algorithm', (req, res) => {
+  try {
+    const ticker = String(req.query.ticker || '').toUpperCase();
+    if (!TICKER_RE.test(ticker)) return res.status(400).json({ error: 'Invalid ticker' });
+
+    // Only what the user actually holds: this tool is about timing a position,
+    // and without one there is nothing to gate the signal against.
+    const owns = db.prepare('SELECT 1 FROM transactions WHERE user_id = ? AND ticker = ? LIMIT 1').get(req.userId, ticker);
+    if (!owns) return res.status(404).json({ error: 'No transactions for that ticker' });
+
+    const rows = db.prepare(
+      'SELECT price_date AS date, price_native AS close, price_eur AS closeEur, currency FROM prices WHERE ticker = ? AND price_native IS NOT NULL ORDER BY price_date ASC'
+    ).all(ticker);
+    if (rows.length < 30) return res.status(409).json({ error: 'Not enough price history', days: rows.length });
+
+    const scored = algorithm.scoreSeries(rows);
+
+    // A day is displayable only once every window behind it is fully populated —
+    // a 2-year rank off eight months of data is a different statistic wearing the
+    // same name. The spec's answer is to pull more history, which backfill-history.js
+    // did; this is the guard that proves it worked.
+    const usable = scored.filter(d => d.complete);
+    if (!usable.length) {
+      return res.status(409).json({
+        error: 'Not enough history for a full 2-year window',
+        have: rows.length, firstDate: rows[0].date
+      });
+    }
+
+    const PERIODS = { '1y': 365, '2y': 730, '3y': 1095, 'max': null };
+    const periodKey = Object.prototype.hasOwnProperty.call(PERIODS, req.query.period) ? req.query.period : '2y';
+    const windowDays = PERIODS[periodKey];
+    const lastTime = Date.parse(usable[usable.length - 1].date);
+    const days = windowDays === null ? usable
+      : usable.filter(d => Date.parse(d.date) > lastTime - windowDays * 864e5);
+
+    const cost = getAvgCostPerShare(ticker, req.userId);
+    const latest = rows[rows.length - 1];
+    const position = cost ? {
+      shares: cost.quantity,
+      avgCost: cost.avgCostEUR,
+      // The gate compares like with like: cost basis is in euros because euros
+      // are what left the account, so the price it is measured against is too.
+      price: latest.closeEur,
+      currency: 'EUR'
+    } : null;
+
+    const today = scored[scored.length - 1];
+    const gate = algorithm.applyPositionGate(today, position);
+
+    const count = (lane, dir) => days.filter(d => d[lane].direction === dir).length;
+    const buyEarlyDays = days.filter(d => d.early.direction === 'Buy');
+
+    res.json({
+      ticker,
+      currency: latest.currency || 'USD',
+      asOf: latest.date,
+      currentPrice: latest.close,
+      currentPriceEur: latest.closeEur,
+      period: periodKey,
+      position,
+      gate,
+      today: {
+        date: today.date,
+        regimes: today.regimes,
+        percentiles: today.percentiles,
+        early: today.early,
+        confirmed: today.confirmed
+      },
+      stats: {
+        sellDays: count('early', 'Sell'),
+        buyDaysEarly: buyEarlyDays.length,
+        buyDaysAlsoConfirmed: buyEarlyDays.filter(d => d.confirmed.direction === 'Buy').length,
+        noSignalDays: days.filter(d => d.early.direction === 'None' && d.confirmed.direction === 'None').length,
+        mixedDays: count('early', 'Mixed'),
+        totalDays: days.length
+      },
+      runs: {
+        sell: algorithm.findRuns(days, 'confirmed', 'Sell'),
+        buyEarly: algorithm.findRuns(days, 'early', 'Buy'),
+        buyConfirmed: algorithm.findRuns(days, 'confirmed', 'Buy')
+      },
+      meta: {
+        windows: algorithm.WINDOWS,
+        cutoffs: { strongHigh: algorithm.STRONG_HIGH, high: algorithm.HIGH, low: algorithm.LOW, strongLow: algorithm.STRONG_LOW },
+        gates: algorithm.DEFAULT_GATES,
+        agreement: algorithm.agreementRules(algorithm.WINDOWS.length),
+        historyFrom: rows[0].date,
+        displayableFrom: usable[0].date
+      },
+      days: days.map(d => ({
+        date: d.date,
+        close: Math.round(d.close * 100) / 100,
+        pr: { '6M': Math.round(d.percentiles['6M'] * 10) / 10, '1Y': Math.round(d.percentiles['1Y'] * 10) / 10, '2Y': Math.round(d.percentiles['2Y'] * 10) / 10 },
+        rg: d.regimes,
+        e: { d: d.early.direction, t: d.early.tier, c: Math.round(d.early.confidencePct) },
+        f: { d: d.confirmed.direction, t: d.confirmed.tier, c: Math.round(d.confirmed.confidencePct) }
+      }))
+    });
+  } catch (error) {
+    console.error('Error computing algorithm signal:', error);
+    res.status(500).json({ error: 'Failed to compute signal' });
+  }
+});
 
 // GET /api/alerts - retrieve user's alerts
 app.get('/api/alerts', (req, res) => {
