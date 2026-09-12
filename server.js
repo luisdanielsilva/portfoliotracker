@@ -1261,24 +1261,32 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
     // Someone writing in from the website. Goes to the address the site publishes,
     // which is deliberately not the inbox the job reports land in.
     const recipient = process.env.CONTACT_EMAIL_TO || process.env.ALERT_EMAIL_TO;
-    if (authMailer && recipient) {
-      try {
-        await authMailer.sendMail({
-          from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'contact@portfoliotracker.local',
-          to: recipient,
-          replyTo: email,
-          subject: `[Portfolio Tracker] ${type}: ${title}`.slice(0, 200),
-          html: `<p><strong>From:</strong> ${escapeHtml(name)} (${escapeHtml(email)})</p>
-                 <p><strong>Type:</strong> ${escapeHtml(type)}</p>
-                 <p><strong>Message:</strong></p>
-                 <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`
-        });
-      } catch (err) {
-        // Never fail the request just because the email didn't send - the submission is still logged above.
-        console.error(`Contact form email failed: ${err.message}`);
-      }
-    } else {
-      console.log(`Message: ${message}`);
+    if (!authMailer || !recipient) {
+      console.error('Contact form: no mailer or CONTACT_EMAIL_TO configured — message not delivered');
+      console.log(`Undelivered message: ${message}`);
+      return res.status(503).json({ error: 'Messages are not being delivered right now.' });
+    }
+
+    try {
+      await authMailer.sendMail({
+        from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'contact@portfoliotracker.local',
+        to: recipient,
+        replyTo: email,
+        subject: `[Portfolio Tracker] ${type}: ${title}`.slice(0, 200),
+        html: `<p><strong>From:</strong> ${escapeHtml(name)} (${escapeHtml(email)})</p>
+               <p><strong>Type:</strong> ${escapeHtml(type)}</p>
+               <p><strong>Message:</strong></p>
+               <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`
+      });
+    } catch (err) {
+      // This used to be swallowed and answered with success, on the reasoning that the
+      // submission was "still logged". A line in a log nobody reads is not delivery: the
+      // sender was thanked for a message that never arrived. It has already happened —
+      // an address our own validation accepts can still be refused by the mail provider,
+      // and then the only person who knows is the one who cannot see the log.
+      console.error(`Contact form email failed (${email}): ${err.message}`);
+      console.log(`Undelivered message: ${message}`);
+      return res.status(502).json({ error: 'That message could not be delivered. Please email us directly.' });
     }
 
     res.json({ success: true, message: "Thanks for reaching out - we'll get back to you soon." });
