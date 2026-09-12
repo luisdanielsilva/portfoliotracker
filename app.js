@@ -1370,7 +1370,7 @@
   })();
 
   /* ================= tabs ================= */
-  var TABS=[["tab-total","view-total"],["tab-detail","view-detail"],["tab-stocks","view-stocks"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-add","view-add"]];
+  var TABS=[["tab-total","view-total"],["tab-detail","view-detail"],["tab-stocks","view-stocks"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-add","view-add"],["tab-alerts","view-alerts"]];
   TABS.forEach(function(pair){
     document.getElementById(pair[0]).addEventListener("click",function(){
       TABS.forEach(function(p){
@@ -2374,7 +2374,7 @@
     document.getElementById("al-create").addEventListener("click",createAlert);
     document.getElementById("al-ticker").addEventListener("input",updateThresholdLabel);
     document.getElementById("al-rule").addEventListener("change",updateThresholdLabel);
-    document.getElementById("tab-add").addEventListener("click",function(){
+    document.getElementById("tab-alerts").addEventListener("click",function(){
       loadAlerts();
       loadAvgCostAndDipForm();
     });

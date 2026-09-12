@@ -1069,7 +1069,7 @@
       Track your investment portfolio over time with daily snapshots, historical prices, and performance analytics,
       and set rules in both directions &mdash; below your average cost when a holding is worth adding to, above it when
       it is worth taking something off, and off a holding&rsquo;s own 12-month high when a run has broken.
-      Add transactions from the <b>Add transactions and alerts</b> tab to build your portfolio history.
+      Add transactions from the <b>Transactions</b> tab to build your portfolio history.
       Your holdings are private to your account &mdash; only you can see them.
     </p>
     <div class="kpi-strip" id="kpi-strip"></div>
@@ -1083,7 +1083,8 @@
     <button id="tab-stocks" role="tab" aria-selected="false">All stocks at a glance</button>
     <button id="tab-dca" role="tab" aria-selected="false">DCA</button>
     <button id="tab-algo" role="tab" aria-selected="false">Algorithm</button>
-    <button id="tab-add" role="tab" aria-selected="false">Add transactions and alerts</button>
+    <button id="tab-add" role="tab" aria-selected="false">Transactions</button>
+    <button id="tab-alerts" role="tab" aria-selected="false">Alerts</button>
   </div>
 </div>
 
@@ -1218,7 +1219,7 @@
         <div class="tip" id="dca-tip"></div>
       </div>
       <h3 class="ind-h">Notable dips</h3>
-      <p class="microcopy" style="margin:0 0 12px">The deepest below-average stretches in the window, most recent first. This table is deliberately one-sided &mdash; it is the buying-opportunity log. For the other direction, the alert map under <b>Add transactions and alerts</b> shows where a target or trailing rule would have fired.</p>
+      <p class="microcopy" style="margin:0 0 12px">The deepest below-average stretches in the window, most recent first. This table is deliberately one-sided &mdash; it is the buying-opportunity log. For the other direction, the alert map under <b>Alerts</b> shows where a target or trailing rule would have fired.</p>
       <div class="tablewrap"><table id="dca-table"></table></div>
     </div>
   </section>
@@ -1280,7 +1281,7 @@
     </div>
   </section>
 
-  <!-- ===== VIEW 4: ADD DATA ===== -->
+  <!-- ===== VIEW 6: TRANSACTIONS ===== -->
   <section id="view-add" hidden>
     <div class="panel">
       <div class="addcard">
@@ -1348,6 +1349,12 @@
         <p class="hint">Automatically synced to server. Each transaction creates a derived snapshot.</p>
         <div class="uslist" id="tx-list"></div>
       </div>
+    </div>
+  </section>
+
+  <!-- ===== VIEW 7: ALERTS ===== -->
+  <section id="view-alerts" hidden>
+    <div class="panel">
 
       <div class="addcard">
         <h3>Create dip alert</h3>

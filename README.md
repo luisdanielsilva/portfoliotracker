@@ -12,7 +12,12 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
   - Magic-link verify is a two-step GET (confirm page) → POST (consume) flow, so corporate mail
     gateways that auto-fetch links to scan them (e.g. Microsoft Safe Links) can't burn the
     one-time token before the user clicks it
-- **Transactions:** Buy/sell registration with automatic snapshot derivation (Node.js backend)
+- **Transactions tab:** buy/sell registration with automatic snapshot derivation, and the
+  transaction list. Split out of the old combined "Add transactions and alerts" tab on
+  2026-09-12 — registering a holding and deciding when to be told about it are different
+  jobs, and one screen was doing both.
+- **Alerts tab:** the four alert forms (dip, target, trailing, price), the alert map and the
+  alert list. **Algorithm alerts are not built yet** — deliberately deferred, see Open Items.
 - **Algorithm tab:** the position-timing signal — every holding's close ranked against its own
   trailing 6M/1Y/2Y history, with two signal lanes (Early / Confirmed), notable runs, a full data
   table and a position-gated recommendation. Rules in `algorithm.js`, details under *Algorithm tab*.
@@ -126,11 +131,25 @@ against real data.** Every other check in that phase was.
 session cookies `HttpOnly; Secure; SameSite=Lax`; magic-link tokens hashed, single-use and
 consumed only on POST; `trust proxy` set so rate limits see the real client; Google OAuth
 state cookie; no XSS in the server-rendered confirm page; no console errors or failed
-requests across all five tabs; no duplicate element ids; every chart carries an aria-label.
+requests across all seven tabs; no duplicate element ids; every chart carries an aria-label.
 
 ### ⏳ Open Items / Backlog
 
-**Testing — 34 tests, in CI since 2026-09-12.**
+**Algorithm alerts — specified but not built (2026-09-12).**
+
+The Alerts tab now covers dip, target, trailing and price rules. What it does not cover is
+the Algorithm tab's own signal: there is no way to be emailed when a holding crosses into a
+tier. The user asked for the tab split and the existing alert types first, and explicitly
+deferred this one.
+
+Two things to settle before building it, because they decide whether it is useful or noise:
+*what fires it* (entering a tier? only very strong? only when the position gate agrees?) and
+*how often* — the sell side reads Sell on 39% of days across the current holdings, so an
+unfiltered daily email would be ignored within a week and would take the alert digest's
+credibility with it. See the *Algorithm tab* section and `algorithm_backtest_findings` for why.
+
+
+**Testing — 52 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,
