@@ -123,7 +123,9 @@ human. Everything else — pm2, cron, npm, the app, backups — runs unprivilege
 | `SMTP_*` | Resend. `secure` is derived from the port; `SMTP_USE_TLS` is legacy and unread |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | OAuth client. Changing `APP_BASE_URL` **requires** updating the redirect URI in Google Cloud Console, or sign-in breaks |
 | `APP_BASE_URL` | Builds magic-link URLs and the OAuth redirect URI |
-| `ALERT_EMAIL_TO` | Where job reports and health alerts go |
+| `CONTACT_EMAIL_TO` | Where contact-form messages go — the address the website publishes |
+| `OPS_EMAIL_TO` | Where the price-fetch run report and the job watchdog go |
+| `ALERT_EMAIL_TO` | Legacy. Both of the above fall back to it, so an older `.env` keeps working |
 | `PRICE_FETCH_REPORT` | `false` disables the per-run status email |
 
 Changing `.env` restarts the app automatically.

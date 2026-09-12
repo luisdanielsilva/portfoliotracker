@@ -1258,7 +1258,9 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
 
     console.log(`Contact form submission: Type=${type}, Name=${name}, Email=${email}, Title=${title}`);
 
-    const recipient = process.env.ALERT_EMAIL_TO;
+    // Someone writing in from the website. Goes to the address the site publishes,
+    // which is deliberately not the inbox the job reports land in.
+    const recipient = process.env.CONTACT_EMAIL_TO || process.env.ALERT_EMAIL_TO;
     if (authMailer && recipient) {
       try {
         await authMailer.sendMail({

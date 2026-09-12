@@ -212,7 +212,8 @@ history now asks how far back to fetch (6mo / 1y / 2y / 5y) and calls the same c
 - No load testing has been done — response times under real concurrent load are unverified
 
 *(Alerts have been emailed to each rule's own owner since the multi-user work — `evaluateAlerts`
-joins `users` and sends to `owner_email`, with `ALERT_EMAIL_TO` only as a fallback. The alerts
+joins `users` and sends to `owner_email`, and since 2026-09-12 to nothing else — the old
+fallback would have posted one person's holdings to the operator's inbox. The alerts
 card claimed a placeholder address until 2026-09-11; the copy was simply stale.)*
 
 *(Historical euro values were recomputed from real per-date FX on 2026-09-09 — see
@@ -400,8 +401,14 @@ Environment variables in `.env`:
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` — Resend SMTP config (already set).
   `secure` is derived from the port (`465` → true, else false) — the legacy `SMTP_USE_TLS` var is
   no longer read by the code.
-- `AUTH_EMAIL_FROM` / `ALERT_EMAIL_FROM` / `ALERT_EMAIL_TO` — sender/recipient addresses for
-  magic links, alerts, and the contact form
+- `AUTH_EMAIL_FROM` / `ALERT_EMAIL_FROM` — the two sender addresses
+- `CONTACT_EMAIL_TO` — where contact-form messages land: the address the website publishes
+- `OPS_EMAIL_TO` — where the machine writes: the per-run price-fetch report and the watchdog
+- `ALERT_EMAIL_TO` — legacy single address; both of the above fall back to it
+
+  **No environment variable decides who gets an alert.** A digest goes to the account that
+  created the rule, read from `users.email` — `ALERT_EMAIL_TO` never named the recipient of
+  an alert despite what it sounds like, which is why the two were split on 2026-09-12.
 - `COOKIE_INSECURE` — For local dev without HTTPS
 - `PRICE_FETCH_REPORT` — set to `false` to stop the per-run status email (default: on)
 - `MAX_RUN_AGE_HOURS` — how stale a successful run may get before the watchdog complains
@@ -435,7 +442,7 @@ Environment variables in `.env`:
 - `DELETE /api/alerts/:id` — Remove alert
 
 **Public:**
-- `POST /api/contact` — Contact form; emails `ALERT_EMAIL_TO` with the submitter set as reply-to
+- `POST /api/contact` — Contact form; emails `CONTACT_EMAIL_TO` with the submitter as reply-to
 
 ### 🗓️ Scheduled Tasks
 
@@ -505,7 +512,7 @@ deliberately independent:
 A run that skips daily is now distinguishable from one that never fires.
 
 **2. Every run emails what it did.** Market check, per-ticker results, alerts evaluated and
-triggered, duration — sent to `ALERT_EMAIL_TO`. A crash reports before exiting. Turn it off with
+triggered, duration — sent to `OPS_EMAIL_TO`. A crash reports before exiting. Turn it off with
 `PRICE_FETCH_REPORT=false` in `.env`; no code change, and the watchdog keeps working regardless.
 
 **3. A watchdog notices silence.** The run email only arrives *when the job runs*, so it cannot

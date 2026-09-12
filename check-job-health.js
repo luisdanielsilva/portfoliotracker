@@ -13,7 +13,7 @@
  *   node check-job-health.js          check, email if stale, exit 1 if unhealthy
  *   node check-job-health.js --status just print, never email
  *
- * Env: MAX_RUN_AGE_HOURS (default 26), ALERT_EMAIL_TO, SMTP_*
+ * Env: MAX_RUN_AGE_HOURS (default 26), OPS_EMAIL_TO, SMTP_*
  */
 
 const path = require('path');
@@ -92,10 +92,10 @@ const body = [
 
 console.log('\n--- sending staleness alert ---\n' + body);
 
-const to = process.env.ALERT_EMAIL_TO;
+const to = process.env.OPS_EMAIL_TO || process.env.ALERT_EMAIL_TO;
 const m = mailer();
 if (!m || !to) {
-  console.error('No mailer or ALERT_EMAIL_TO configured; could not send.');
+  console.error('No mailer or OPS_EMAIL_TO configured; could not send.');
   db.close();
   process.exit(1);
 }

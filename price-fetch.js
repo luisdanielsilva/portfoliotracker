@@ -317,8 +317,9 @@ function renderRunReport(status, d) {
 
 async function sendRunReport(mailer, status, d) {
   if (!RUN_REPORT_ENABLED) return;
-  const to = process.env.ALERT_EMAIL_TO;
-  if (!mailer || !to) { log('  📌 run report not sent (no mailer or ALERT_EMAIL_TO)'); return; }
+  // Operational mail: how the job went. Goes to whoever runs the server, never to a user.
+  const to = process.env.OPS_EMAIL_TO || process.env.ALERT_EMAIL_TO;
+  if (!mailer || !to) { log('  📌 run report not sent (no mailer or OPS_EMAIL_TO)'); return; }
   const subject = status === 'success'
     ? `Prices updated — ${d.successCount}/${d.tickerCount} tickers, ${d.alertsTriggered ?? 0} alert(s)`
     : status === 'skipped' ? `Price fetch skipped — ${d.reason}`
@@ -506,7 +507,14 @@ async function evaluateAlerts(db, mailer) {
 
       // Collect rather than send: everything that fired for one person goes out
       // as a single digest below, so three rules never mean three emails.
-      const recipient = alert.owner_email || process.env.ALERT_EMAIL_TO;
+      // A digest is somebody's portfolio. It goes to the account that created the rule
+      // and nowhere else — the old fallback would have posted one person's holdings to
+      // the operator's inbox if their user row ever lost its address.
+      const recipient = alert.owner_email;
+      if (!recipient) {
+        log(`  ⚠ Alert ${alert.id} (${alert.ticker}) has no owner address, skipping`);
+        continue;
+      }
       let item;
       if (rule === 'dip_from_avg_cost') {
         item = { kind: 'dip', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
