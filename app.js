@@ -1130,7 +1130,11 @@
     var call=lane.direction==="None"?"No signal today":lane.direction;
     var html='<div class="algo-today '+cls+'"><div class="algo-today-top">'+
       '<span class="algo-call '+cls+'">'+esc(call)+'</span>';
-    if(lane.tier) html+='<span class="algo-tier">'+esc(algoTierWord(lane.tier))+' · '+Math.round(lane.confidencePct)+'%</span>';
+    if(lane.tier){
+      // Same palette as the lane bars, so the badge and the strip agree at a glance.
+      var tierCls={VeryStrong:"t-verystrong",Strong:"t-strong",Signal:"t-signal",Watch:"t-watch"}[lane.tier]||"t-watch";
+      html+='<span class="algo-tier-badge '+cls+' '+tierCls+'">'+esc(algoTierWord(lane.tier))+' · '+Math.round(lane.confidencePct)+'%</span>';
+    }
     html+='<span class="algo-tier">Confirmed lane: '+esc(d.today.confirmed.direction==="None"?"silent":d.today.confirmed.direction)+'</span>';
     if(g&&g.applicable&&(lane.direction==="Buy"||lane.direction==="Sell")){
       html+='<span class="algo-gate '+(g.gateMet?"met":"unmet")+'">'+(g.gateMet?"Position agrees":"Position says wait")+'</span>';
