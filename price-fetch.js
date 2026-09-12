@@ -374,8 +374,10 @@ function getTickerExchange(ticker) {
 
 // Check if all relevant markets are closed
 // Returns { isClosed: boolean, reason: string }
-function areMarketsClosedForFetch() {
-  const now = new Date();
+function areMarketsClosedForFetch(when) {
+  // Takes the moment as an argument so it can be asked about all 24 hours of a weekday
+  // and a weekend without waiting a week. Defaults to now, which is every caller in the app.
+  const now = when || new Date();
   const utcHour = now.getUTCHours();
   const utcMinute = now.getUTCMinutes();
   const dayOfWeek = now.getUTCDay(); // 0=Sunday, 6=Saturday
@@ -733,4 +735,5 @@ if (require.main === module) {
   });
 }
 
-module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts };
+module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts,
+                   areMarketsClosedForFetch };

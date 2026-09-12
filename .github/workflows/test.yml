@@ -1,0 +1,33 @@
+# Runs the suite on every push and pull request.
+#
+# This is a quality gate on the repository, not on the deployment: editing a file on the
+# server *is* deploying it, and CI only runs after a push. What it catches is a regression
+# arriving in the history — which is what it is for.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'          # node:test is built in; there is no test framework to install
+
+      - run: npm ci --omit=dev
+
+      - run: npm test
+
+      # The suite must never read or write a real database. Nothing should have appeared.
+      - name: no stray database
+        run: |
+          if [ -e data.db ]; then echo "the suite created data.db"; exit 1; fi
+
+      - name: audit
+        run: npm audit --omit=dev --audit-level=high

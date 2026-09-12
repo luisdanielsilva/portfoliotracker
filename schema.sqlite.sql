@@ -99,3 +99,32 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
 -- Unique constraint for exchange rate pairs
 CREATE UNIQUE INDEX IF NOT EXISTS unique_pair_date ON exchange_rates(from_currency, to_currency, date);
 CREATE INDEX IF NOT EXISTS idx_pair_date ON exchange_rates(from_currency, to_currency, date DESC);
+
+-- Known stock splits, applied when computing historical snapshots and average cost.
+--
+-- This table and job_runs below existed only in the live database: created by hand,
+-- in no schema file and no migration. Everything kept working because the file they
+-- were missing from is only read to create what is absent — so a restored backup had
+-- them and a fresh deployment would not, and /api/snapshots would have failed on the
+-- first request. Found by writing tests against a database built from this file.
+CREATE TABLE IF NOT EXISTS stock_splits (
+  id INTEGER PRIMARY KEY,
+  ticker TEXT NOT NULL,
+  split_date TEXT NOT NULL,
+  ratio REAL NOT NULL,
+  description TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- One row per price-fetch run: success / skipped / failed, plus a summary. This is what
+-- makes "ran and skipped" distinguishable from "never ran"; before it existed, both
+-- outages looked identical in the logs.
+CREATE TABLE IF NOT EXISTS job_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('success','skipped','failed')),
+  summary TEXT,
+  ran_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_runs_job_time ON job_runs(job, ran_at DESC);

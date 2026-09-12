@@ -103,8 +103,6 @@ left is marked at the end of this section.
 
 | # | Severity | Finding |
 |---|---|---|
-| 15 | Low | No test suite still — see the Testing section above; the blocker list is down to three files. |
-| 17 | Low | No load testing. Response times under real concurrent load are still unverified — the snapshots endpoint recomputes the whole series per request. |
 | 18 | Low | Signing in is registration: anyone with the URL can create an account. `noindex` keeps it out of search but is not a gate. Deliberate for now; an invite code or email allow-list is the fix if it ever matters. |
 
 **Cleared 2026-09-12:** the row `verify-portfolio.js` had been flagging — 1,984 AAPL for
@@ -129,39 +127,42 @@ requests across all five tabs; no duplicate element ids; every chart carries an 
 
 ### ⏳ Open Items / Backlog
 
-**Testing — on hold, and CI-only when resumed:**
+**Testing — 34 tests, in CI since 2026-09-12.**
 
-There are no automated tests. A suite was planned (see below) and deliberately parked
-(2026-09-09). **When it resumes it must run in GitHub Actions CI, not locally** — the user
-wants tests that gate code quality in a pipeline, not pre-commit hooks or cron jobs. Do not
-propose local-only test running again.
+`npm test` runs them; `node:test` is built into Node 22, so there is no framework to
+install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,
+asserts no database was created, and fails on a high npm advisory. `package-lock.json` is
+tracked now because `npm ci` needs it.
 
-Note this does not prevent a bad edit reaching production: editing a file here *is* deploying,
-since pm2 restarts on save and CI only runs after a push. CI is a quality gate on the
-repository, not a deployment gate. A real deployment gate would need a staging copy.
+They are scoped to what has actually broken here, not to a coverage number:
 
-The planned coverage, grounded in bugs actually found:
-- `areMarketsClosedForFetch()` across all 24h × weekday/weekend — would have caught the bug
-  where the scheduled job never ran once
-- Currency conversion: native→EUR, a EUR-quoted stock not double-converted, a missing rate
-  skipping rather than inventing a value
-- Average cost across buys, sells, mixed currencies, and full exit
-- Alert semantics: price rules against the native price, dips against the EUR cost basis,
-  the 24h throttle
-- Migrations on a temp database, run twice to prove idempotency, including that threshold
-  restatement preserves meaning
+- **Market hours**, every hour of a weekday and a weekend — the check that once read its own
+  09:00 timer slot as "still trading" and skipped every scheduled run.
+- **Average cost**: buying lower, selling, full exit, one user's holdings invisible to
+  another, and a split that multiplies only the shares held when it happened.
+- **Alert semantics**: a dip against the euro cost basis, a target above it, a price level
+  in the market's own currency and not in euros, a trailing rule against the 365-day high,
+  a disabled rule, and the 24-hour throttle.
+- **Migrations**: run twice and nothing changes; a table rebuild keeps existing rules; a
+  euro threshold is *converted* into the market currency rather than relabelled.
+- **HTTP**, against a real server on a throwaway database: `/data.db` and `/server.js` are
+  404, the four public files are 200, the API is 401 unauthenticated, the security headers
+  are present, and the contact form rejects a bad type, a bad address and an over-long
+  message.
 
-**Blocker still to clear before writing tests:**
-- `check-job-health.js`, `recompute-eur.js` and `verify-portfolio.js` call their entry point at
-  module scope, so `require()`-ing them runs the real job. They need `if (require.main === module)`
-  guards and `module.exports`. (`portfolio.js`, `db-migrations.js`, `backfill-history.js` and —
-  since 2026-09-10 — `price-fetch.js` are importable; its digest renderers and `evaluateAlerts`
-  are exported, which is how the trailing rule was verified against a copy of the database
-  without sending mail or touching `last_triggered_at`.)
+Two of them were checked by reintroducing the original bug: putting back `hour < close`
+fails two tests, and putting back `express.static(__dirname)` fails the two that fetch
+`/data.db` and `/server.js`. A test nobody has seen fail is a guess.
 
-*Cleared 2026-09-09:* `getAvgCostPerShare` was implemented twice with different signatures; it
-now lives once in `portfolio.js` and both callers use it.
+**What this does not do**, and it is worth being clear: editing a file on the server *is*
+deploying it, and CI runs after a push. This is a gate on the repository, not on the
+deployment. A real deployment gate needs a staging copy.
 
+**`check-job-health.js`, `recompute-eur.js` and `verify-portfolio.js` were listed as
+blockers and are not.** They are operational scripts, not libraries; the valuable tests do
+not need to `require()` them, and refactoring three working scripts to satisfy a plan would
+be work with no test behind it. `verify-portfolio.js` also needs the production database,
+which CI will never have.
 
 **The sell side — done (2026-09-10):**
 
