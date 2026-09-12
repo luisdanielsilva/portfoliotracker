@@ -108,7 +108,6 @@ left is marked at the end of this section.
 | 13 | Low | `logrotate.portfoliotracker` is written but not installed — one `sudo cp` away. |
 | 14 | Low | The CSP carries `'unsafe-inline'` for scripts because `index.html` is one large inline script. Moving that script to its own file would let the directive tighten to `'self'`. |
 | 15 | Low | No test suite still — see the Testing section above; the blocker list is down to three files. |
-| 16 | Low | No per-user notification address. Alerts go to whatever address the account signed in with, because there is no profile page — fine for magic links, where the address *is* the identity, but someone who signed in with Google cannot redirect their alerts elsewhere. |
 | 17 | Low | No load testing. Response times under real concurrent load are still unverified — the snapshots endpoint recomputes the whole series per request. |
 | 18 | Low | Signing in is registration: anyone with the URL can create an account. `noindex` keeps it out of search but is not a gate. Deliberate for now; an invite code or email allow-list is the fix if it ever matters. |
 
@@ -232,6 +231,15 @@ Exchange Rates below. No longer an open item.)*
   removed. Explicitly parked (2026-09-09); do not pick it up without asking.
 
 **Settled, recorded so it is not re-litigated:**
+- **Alerts go to the address you authenticated with. Decided 2026-09-12 — do not propose a
+  `notify_email` column, a profile page or a per-alert recipient again.** The address *is*
+  the identity: `findOrCreateUserByEmail` keys the account on it, so a magic link and a
+  Google sign-in for the same address reach the same account, and `evaluateAlerts` sends to
+  `users.email` with no environment variable involved. A Google sign-in therefore delivers
+  to whatever address that Google account carries, which is often not a gmail.com one —
+  three of the five accounts here are corporate. The simplicity is the point: one address
+  per account, nothing to configure, nothing to verify a second time, no way for alerts
+  about someone's holdings to be pointed at an address they have not proved they own.
 - The EUR/USD toggle on the portfolio chart **stays**. Portfolio value defaults to euros; the
   toggle is an explicit user action, not a default display.
 - **The site stays out of search results while in development** (2026-09-09). All three public
