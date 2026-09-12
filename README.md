@@ -103,7 +103,6 @@ left is marked at the end of this section.
 
 | # | Severity | Finding |
 |---|---|---|
-| 12 | Medium | `data.db` remains in the git history, including session tokens from before they were hashed. Contained only by the repository being private. Rewriting history (`git filter-repo`) would remove it; verify the repo is private before any visibility change either way. |
 | 15 | Low | No test suite still — see the Testing section above; the blocker list is down to three files. |
 | 17 | Low | No load testing. Response times under real concurrent load are still unverified — the snapshots endpoint recomputes the whole series per request. |
 | 18 | Low | Signing in is registration: anyone with the URL can create an account. `noindex` keeps it out of search but is not a gate. Deliberate for now; an invite code or email allow-list is the fix if it ever matters. |
@@ -226,6 +225,29 @@ Exchange Rates below. No longer an open item.)*
 **Not planned for now:**
 - AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built then
   removed. Explicitly parked (2026-09-09); do not pick it up without asking.
+
+**`data.db` removed from the git history — 2026-09-12.** `git filter-repo --invert-paths
+--path data.db` stripped it from all 14 commits that carried it, and the result was
+force-pushed. 110 commits became 106: four had only ever touched the database and were left
+empty. The current code is byte-identical — the tree hash at HEAD is the same before and
+after (`5b5c4866868a`) — and a fresh clone now holds 106 commits, zero `data.db` blobs, and
+792 KB instead of 7.1 MB.
+
+What was actually in there, having checked rather than assumed: sessions were stored
+unhashed until `5151e45`, so those blobs did hold live-shaped cookies — but they were inert,
+because the lookup hashes what you present and the rows they matched were deleted long ago.
+The real portfolio was never committed: tracking stopped at 16:40 on 9 September and the
+sixteen real transactions were entered at 22:52 the same day. What genuinely remained was
+**five email addresses**, three of them other people's, which is what made the rewrite worth
+doing.
+
+**One loose end, and it needs you.** GitHub keeps unreachable objects until it
+garbage-collects, so an old blob is *still* fetchable by exact SHA through the API — but
+only with a token that already has access to this private repository. Unauthenticated
+requests get 404, and a fresh clone does not contain it. To have them provably gone, open a
+support request at https://support.github.com asking GitHub to run `gc` on
+`luisdanielsilva/portfoliotracker` after a history rewrite. Until then the exposure is
+limited to people who can already read the whole repository.
 
 **CSP tightened and the XSS shape removed — 2026-09-12.** The application moved out of
 `index.html` into `app.js` (142 KB, 2,643 lines) so `script-src` could drop
