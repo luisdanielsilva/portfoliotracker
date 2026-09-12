@@ -1213,22 +1213,24 @@
       s+='<text class="algo-lanelab" data-lane="'+(ln.key==="e"?"early":"confirmed")+'" x="'+(L-8)+'" y="'+(ln.y+LH/2+4)+'" text-anchor="end">'+ln.label+'</text>';
       s+='<rect x="'+L+'" y="'+ln.y+'" width="'+(R-L)+'" height="'+LH+'" fill="var(--grid)" opacity="0.5" rx="2"/>';
       days.forEach(function(x,i){
-        // Four states, strongest first. Very strong reads green or red by direction;
-        // merely strong reads amber in both directions, because telling those apart
-        // is not worth the ink yet.
+        // One hue per direction, three intensities by tier: bright for very strong,
+        // light for strong, palest for a plain signal. Grey below that.
         //
-        // Signal gets a pale wash of its direction colour, and that tier is not
-        // cosmetic: a buy only the Early lane sees comes from one window, one window
-        // is worth at most 2 of the maximum 6, and 33% can never reach the 50% amber
-        // needs. Without this step the two lanes were provably identical — 0 days out
-        // of 7,560 differed — and the single thing the Early lane exists to catch was
-        // invisible. Watch and no-signal stay grey.
+        // The steps are deliberately separated rather than following confidence
+        // continuously — the spec's smooth opacity ramp put 67% and 83% within a
+        // hair of each other, and the whole point of the tiers is that you can tell
+        // them apart at a glance.
+        //
+        // The palest step is not cosmetic: a buy only the Early lane sees comes from
+        // one window, one window is worth at most 2 of the maximum 6, and 33% can
+        // never climb higher. Without it the two lanes were provably identical on
+        // every one of 7,560 displayable days.
         var lane=x[ln.key], col, op;
         var dirCol=lane.d==="Buy"?"var(--pos)":lane.d==="Sell"?"var(--neg)":"var(--warn)";
-        if(lane.t==="VeryStrong"&&(lane.d==="Buy"||lane.d==="Sell")){ col=dirCol; op=0.25+0.75*(lane.c/100); }
-        else if(lane.t==="VeryStrong"||lane.t==="Strong"){ col="var(--warn)"; op=0.25+0.75*(lane.c/100); }
-        else if(lane.t==="Signal"){ col=dirCol; op=0.34; }
-        else { col="var(--faint)"; op=0.16; }
+        if(lane.d==="None"||lane.t==="Watch"){ col="var(--faint)"; op=0.16; }
+        else if(lane.t==="VeryStrong"){ col=dirCol; op=lane.c>=100?1:0.85; }
+        else if(lane.t==="Strong"){ col=dirCol; op=lane.c>=67?0.58:0.47; }
+        else { col=dirCol; op=0.26; }
         s+='<rect x="'+(L+(R-L)*i/n).toFixed(2)+'" y="'+ln.y+'" width="'+bw.toFixed(2)+'" height="'+LH+'" fill="'+col+'" opacity="'+op.toFixed(2)+'"/>';
       });
     });
