@@ -135,6 +135,40 @@ requests across all seven tabs; no duplicate element ids; every chart carries an
 
 ### ⏳ Open Items / Backlog
 
+**Donations — a way for people to support the effort (added 2026-09-13, not built).**
+
+No payment support exists anywhere in the app. The ask is a way for users to contribute
+voluntarily, not a paywall or a subscription.
+
+*The cheap route and the expensive one are very far apart here, and this codebase has
+already picked a side by accident:*
+
+- **A plain outbound link** to a hosted page — GitHub Sponsors, Ko-fi, Liberapay, PayPal.me,
+  a Stripe Payment Link — needs **no change to any security header**. An `<a href>` is not a
+  script, a form post or a fetch, so `script-src 'self'`, `form-action 'self'` and
+  `connect-src 'self'` all stay exactly as they are. No card data touches this server, so
+  there is no PCI question to answer. This is the default unless there is a reason not to.
+- **An embedded checkout** (Stripe Elements, a payment button) would require loosening
+  `script-src`, `connect-src` and `frame-src`, undoing part of the CSP tightening done on
+  2026-09-11 — *and* editing `Permissions-Policy`, which currently ships `payment=()`,
+  switching the Payment Request API off outright. Three deliberate hardening decisions would
+  have to be reversed to embed a widget that a link achieves without them.
+
+*Open questions, none of which are technical:*
+
+1. **Tax and legal status.** Donations are income in most jurisdictions. Which one applies,
+   and does receiving them change what this site has to say about itself? Not a question to
+   guess at.
+2. **`privacy.html` and `terms.html` would both need a clause** naming the processor and what
+   it receives. Today they describe a service that takes no money and shares nothing.
+3. **Discoverability.** `index.html` carries `noindex, nofollow` and the registration page is
+   unlisted, so the audience is people who already use the app — a handful of accounts. Worth
+   being clear-eyed that this is a gesture of support from existing users, not a revenue plan.
+4. **Where it goes.** The footer already reads *Made by Luís Silva · email · Support* and is
+   the obvious home. `contact.js` injects the support widget into every page, so a donate link
+   added there would appear on the landing, privacy and terms pages too, for free.
+
+
 **Algorithm alerts — specified but not built (2026-09-12).**
 
 The Alerts tab now covers dip, target, trailing and price rules. What it does not cover is
