@@ -1,8 +1,91 @@
-# portfolio tracker
+# Portfolio Tracker
 
-Personal stock portfolio tracking app with 74+ historical snapshots, transaction registration, price alerts, and passwordless authentication.
+A personal tool for someone who buys a few companies, holds them for years, and keeps adding
+to them. It records what you actually bought, values it over time in euros, and tells you when
+a holding has moved far enough from its own normal to be worth a look.
 
 **Live:** https://www.singleuseapps.com/portfoliotracker/
+
+> ### This is not financial advice
+>
+> Nothing this tool produces is a recommendation to buy or sell anything. It does not know
+> what a company is worth, whether its business is sound, or what is about to happen. Every
+> signal in it is arithmetic on past closing prices, and past prices are not a forecast.
+>
+> **Use it at your own risk.** The numbers can be wrong: a price feed can be stale or
+> mistaken, a stock split can be missed, and the code is written by one person for their own
+> use. Check anything that matters against your broker before acting on it. If you need
+> advice, ask a qualified financial adviser.
+
+## What it does
+
+- **Records transactions.** Buys and sells, with the amount you actually paid. Foreign
+  purchases convert to euros at the rate **on the day of the trade**, not today's.
+- **Values the portfolio over time.** A daily price fetch builds the history; the chart shows
+  what the holdings were worth on any past date, adjusted for stock splits.
+- **Follows your real cost basis.** Every alert that talks about being "up" or "down" measures
+  against what you actually paid, recalculated as you keep buying.
+- **Watches in both directions.** Most tools only ever suggest buying more. This one also
+  tells you when a holding is unusually expensive by its own history.
+- **Emails you, sparingly.** Alerts you write yourself, plus one fixed signal from the
+  Algorithm tab that works out to a handful of emails a year.
+
+## How to use it
+
+1. **Sign in** with a login link sent to your email, or with Google. There is no password.
+2. **Register your transactions** on the *Transactions* tab — date, ticker, quantity, and the
+   amount that left your account. Each new ticker offers to load its price history.
+3. **Wait a day.** Prices are fetched once every weekday morning. History appears immediately
+   for a backfilled ticker; today's value updates each morning after that.
+4. **Set the alerts you want** on the *Alerts* tab: a dip below your average cost, a profit
+   target, a fall from a 12-month high, or a plain price level.
+5. **Read the *Algorithm* tab** when deciding where to add next. It ranks each holding's price
+   against its own 6-month, 1-year and 2-year history, and explains every number it shows.
+
+The other tabs — *Portfolio over time*, *Portfolio in detail*, *All stocks at a glance*, *DCA*
+— are ways of looking at the same data.
+
+## What it is good at
+
+- **It uses your numbers, not generic ones.** A dip alert fires against your average cost, so
+  it stays meaningful as you keep buying. Most trackers can only compare against a fixed price.
+- **Currency is handled honestly.** Euros for what you paid, the market's own currency for what
+  a share costs, and real historical exchange rates for past dates.
+- **It explains itself.** Every chart says what it measures and what it cannot tell you. The
+  Algorithm tab shows the percentile behind each reading rather than a verdict.
+- **It is quiet by design.** The one automatic alert is deliberately rare, and there is no
+  sell alert at all, because the underlying reading is true too often to be worth an email.
+- **Your data stays yours.** No ads, no analytics, no third-party trackers, nothing sold. The
+  holdings are visible only to the account that entered them.
+
+## What it is not good at
+
+Worth reading before trusting it with anything:
+
+- **Closing prices only.** No intraday, no volume, no order book. A signal is at best a
+  statement about where today's close sits in a distribution of past closes.
+- **It knows nothing about the companies.** No earnings, revenue, debt or news. A price that
+  looks unusually cheap is equally consistent with a bargain and with something genuinely
+  broken, and no arrangement of these numbers separates the two.
+- **The signal has a known bias.** Ranking a *price level* means a stock in a long uptrend sits
+  near its own top almost permanently, so the sell side reads "expensive" most of the time for
+  a winner. This is measured and documented rather than hidden — see *Algorithm tab* below.
+- **Transactions are typed in by hand.** There is no broker connection, so the records are only
+  as good as what you enter. A reconciliation script exists because mistakes happen.
+- **Prices come from an unofficial source.** Yahoo Finance via a community library. It is
+  free and usually right, with no guarantee of either.
+- **One machine, one person.** A single small server and a nightly backup. It is a personal
+  tool that other people are welcome to use, not a service with an uptime promise.
+- **Euro-centric.** Cost basis and portfolio value are in euros. It works with dollar and other
+  foreign holdings, but a non-euro investor would find the framing odd.
+
+## Running your own
+
+Node 22, SQLite, and an SMTP account for the login links. `npm ci && npm start`, with `.env`
+providing `SMTP_*`, `APP_BASE_URL` and optionally Google OAuth credentials. `npm test` runs the
+suite. Everything below this line is the engineering record for the deployment above.
+
+---
 
 ## Current Status (Sept 2026)
 
@@ -135,6 +218,67 @@ state cookie; no XSS in the server-rendered confirm page; no console errors or f
 requests across all seven tabs; no duplicate element ids; every chart carries an aria-label.
 
 ### ⏳ Open Items / Backlog
+
+**Separate personal data from financial data (proposed 2026-09-13, not built).**
+
+Today one `data.db` holds both the email addresses and everything they bought. The proposal
+is two databases: identity in one, portfolio in the other, joined by a key rather than an
+address.
+
+*One correction to the obvious design.* The link should **not** be a hash of the email. Email
+addresses are guessable, so a hashed one is weak pseudonymisation — anybody holding the
+financial file can test `sha256("someone@gmail.com")` against every row until it matches. Use a
+**random opaque key** (a UUID generated at signup, stored beside the email in the identity
+database and used as the foreign key everywhere else). It cannot be reversed by guessing,
+because it is not derived from anything.
+
+*Be clear about what this does and does not buy.* Both files would sit on the same disk, in
+the same process, in the same backup, under the same passphrase — so it is **no defence at all
+against someone who gets the server**. What it does give:
+
+- **A smaller blast radius for a single-file leak.** Exactly the accident that happened on
+  2026-09-11, when the whole directory was briefly served over HTTPS, would have exposed
+  holdings with no names attached rather than both at once.
+- **Deleting a person becomes one row.** Remove the identity row and the financial history is
+  already anonymous, rather than needing to be hunted down.
+- **The financial data becomes shareable** for analysis or debugging without carrying anyone's
+  address along with it.
+
+*Rough shape of the work:* two `better-sqlite3` handles; every query routed to the right one;
+no cross-database joins (SQLite `ATTACH` would allow them but reunites both files in one
+connection, which gives back part of what was bought); a migration that rewrites `user_id`
+into the new key across `transactions`, `alerts`, `algo_alert_log`, `algo_settings_log`; the
+backup scripts to cover two files; and the test helpers to build both.
+
+**Recommendation: do it, but not as an afterthought to another change, and not first.** It
+touches every query in the app on live data for six real accounts. The registration gate is
+the higher priority — an open front door matters more than which cupboard things are kept in.
+
+**Load and denial of service — audited 2026-09-13, partly fixed.**
+
+*What was measured, not assumed:* `better-sqlite3` is synchronous and Node is one thread, so an
+expensive endpoint blocks **every** other request, not just its own caller. Twenty concurrent
+`/api/snapshots` took 966ms and made an unrelated trivial request **19x slower — 51ms to
+950ms**. At roughly 48ms of blocking CPU per call, about 20 requests a second makes the site
+unresponsive for everyone, and one account is enough to do it.
+
+*Fixed now:* a blanket limit on `/api` (600 per 5 min per IP), a tighter one on the two
+expensive views (`/api/snapshots`, `/api/algorithm` — 120 per 5 min), and a strict one on
+`/api/backfill` (20/hour), which reaches out to Yahoo and writes unbounded rows into the shared
+price table on every call. `/api/backfill` also accepted **any string as a ticker** and passed
+it to Yahoo; it now validates like every other endpoint. `trust proxy` is set, so limits key on
+the real client rather than on nginx.
+
+*Still open:*
+1. **No limit in nginx.** Everything relies on the Node process being reached first. A limit at
+   the edge would shed load before it costs a thread.
+2. **`/app.js` (167KB) and `/` (112KB) are public and unlimited** — ~280KB per page load with
+   no account needed. A bandwidth drain rather than a CPU one, but nothing caps it.
+3. **`/api/snapshots` returns 463KB** and recomputes the whole series per request. Caching it
+   per user until the next price fetch would remove the pressure rather than merely rationing it.
+4. **Open registration** remains the multiplier: every authenticated limit above assumes
+   getting an account is meaningful, and right now signing in *is* registering.
+
 
 **Donations — a way for people to support the effort (added 2026-09-13, not built).**
 
@@ -273,7 +417,7 @@ unfiltered daily email would be ignored within a week and would take the alert d
 credibility with it. See the *Algorithm tab* section and `algorithm_backtest_findings` for why.
 
 
-**Testing — 66 tests, in CI since 2026-09-12.**
+**Testing — 68 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

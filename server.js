@@ -312,6 +312,53 @@ const requestLinkIpLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "If that's a valid email, a login link is on its way." }
 });
+
+/* ---- rate limits on the authenticated API ----
+ *
+ * Measured before writing these. better-sqlite3 is synchronous and Node is one
+ * thread, so an expensive endpoint does not merely slow down its own caller — it
+ * blocks every other request behind it. Twenty concurrent /api/snapshots took
+ * 966ms and made an unrelated trivial request 19x slower, from 51ms to 950ms.
+ * One account can make the site unresponsive for everyone, and signing in is
+ * currently all it takes to get an account.
+ *
+ * The numbers are set well above anything the app itself does — loading every tab
+ * and clicking through all ten holdings costs a small fraction of these — so a
+ * real user will never meet them.
+ */
+const apiLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Slow down and try again shortly.' }
+});
+
+/** The two that do real work per call: ~48ms and ~23ms of blocking CPU each. */
+const heavyLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests for this view. Try again in a few minutes.' }
+});
+
+/**
+ * Backfill is the one endpoint that reaches outside and writes unbounded rows.
+ * Each call fetches up to ten years from Yahoo for an arbitrary symbol and writes
+ * every bar into the shared prices table. Abused, it does two kinds of damage
+ * this app cannot absorb: it can get the server's IP throttled by Yahoo, which
+ * breaks the daily fetch everything else depends on, and it lets one account
+ * grow the database with tickers nobody holds.
+ */
+const backfillLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many backfill requests. Try again in an hour.' }
+});
+
 /* ---- request validation ----
    The client checks these too, but the client is not where validation happens: a
    transaction posted straight at the API used to be stored whatever it said. One
@@ -560,6 +607,7 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+app.use('/api', apiLimiter);
 app.use('/api', authMiddleware);
 
 // --- everything below requires authentication ---
@@ -730,11 +778,16 @@ app.get('/api/prices', (req, res) => {
 // added holding has no past. Without one, snapshots before today fall back to cost
 // basis and there is no high to measure "near the top" against. This lets the app
 // fill that in at the moment a ticker is added, with the depth the user chooses.
-app.post('/api/backfill', async (req, res) => {
+app.post('/api/backfill', backfillLimiter, async (req, res) => {
   try {
     const ticker = String(req.body.ticker || '').toUpperCase().trim();
     const years = Math.min(Math.max(parseFloat(req.body.years) || 2, 0.25), 10);
     if (!ticker) return res.status(400).json({ error: 'ticker is required' });
+    // This one asked Yahoo about whatever string it was handed. Every other
+    // endpoint that takes a ticker checks it; this one did not.
+    if (!TICKER_RE.test(ticker)) {
+      return res.status(400).json({ error: 'Ticker must be 1-12 characters: letters, digits, dot or dash.' });
+    }
 
     const YahooFinance = require('yahoo-finance2').default;
     const { backfillTicker } = require('./backfill-history');
@@ -845,7 +898,7 @@ function generateDailySnapshots(userId) {
 }
 
 // GET /api/snapshots - compute snapshots from transactions with market value
-app.get('/api/snapshots', (req, res) => {
+app.get('/api/snapshots', heavyLimiter, (req, res) => {
   try {
     // Get all stock splits
     const splitsStmt = db.prepare('SELECT ticker, split_date, ratio FROM stock_splits ORDER BY split_date ASC');
@@ -1125,7 +1178,7 @@ function enrichAlert(a, userId) {
  * counts and today's position-gated recommendation. See algorithm.js for the
  * rules and README for where the implementation departs from the spec.
  */
-app.get('/api/algorithm', (req, res) => {
+app.get('/api/algorithm', heavyLimiter, (req, res) => {
   try {
     const ticker = String(req.query.ticker || '').toUpperCase();
     if (!TICKER_RE.test(ticker)) return res.status(400).json({ error: 'Invalid ticker' });

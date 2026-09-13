@@ -130,3 +130,39 @@ test('changing a timing saves it and records what changed', async () => {
 
   db.close();
 });
+
+/**
+ * Backfill reaches outside the process and writes unbounded rows into shared
+ * data. It used to hand Yahoo whatever string it was given.
+ */
+test('backfill refuses a ticker that is not a ticker', async () => {
+  const Database = require('better-sqlite3');
+  const crypto = require('node:crypto');
+  const db = new Database(dbFile);
+  const userId = db.prepare('INSERT INTO users (email) VALUES (?)').run('backfill@example.com').lastInsertRowid;
+  const raw = 'bf-' + crypto.randomBytes(12).toString('hex');
+  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
+    .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
+
+  for (const ticker of ['../../etc/passwd', 'A'.repeat(40), 'not a ticker', '']) {
+    const r = await fetch(base + '/api/backfill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `pt_session=${raw}` },
+      body: JSON.stringify({ ticker, years: 10 })
+    });
+    assert.strictEqual(r.status, 400, `"${ticker}" must be refused before anything is fetched`);
+  }
+  // Nothing reached the price table on the way through.
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM prices').get().c, 0);
+  db.close();
+});
+
+test('the expensive endpoints carry a rate limit', async () => {
+  // Not exercised to exhaustion here — that would take hundreds of requests and
+  // punish the suite. The header is the contract: if the limiter is removed, it
+  // disappears, and this fails.
+  const r = await fetch(base + '/api/snapshots');
+  assert.ok(r.headers.get('ratelimit-limit'), '/api/snapshots must advertise a limit');
+  const s = await fetch(base + '/api/avg-cost');
+  assert.ok(s.headers.get('ratelimit-limit'), 'the whole API sits behind a limiter');
+});
