@@ -635,7 +635,7 @@ app.get('/api/transactions', (req, res) => {
     res.json({ transactions });
   } catch (err) {
     console.error('GET /api/transactions error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -681,7 +681,7 @@ app.post('/api/transactions', (req, res) => {
     res.json({ success: true, transaction });
   } catch (err) {
     console.error('POST /api/transactions error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -720,7 +720,7 @@ app.put('/api/transactions/:id', (req, res) => {
     res.json({ success: true, transaction });
   } catch (err) {
     console.error('PUT /api/transactions error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -746,7 +746,7 @@ app.delete('/api/transactions/:id', (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /api/transactions error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -767,7 +767,7 @@ app.get('/api/prices', (req, res) => {
     res.json({ prices });
   } catch (err) {
     console.error('GET /api/prices error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -796,7 +796,7 @@ app.post('/api/backfill', backfillLimiter, async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('POST /api/backfill error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(502).json({ error: 'Could not load price history for that ticker. It may not exist, or the price source may be unavailable.' });
   }
 });
 
@@ -821,7 +821,7 @@ app.get('/api/price-history', (req, res) => {
     res.json({ series, from, days });
   } catch (err) {
     console.error('GET /api/price-history error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -839,7 +839,7 @@ app.get('/api/price-history/:ticker', (req, res) => {
     res.json({ ticker, history });
   } catch (err) {
     console.error('GET /api/price-history error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -855,7 +855,7 @@ app.get('/api/stock-splits', (req, res) => {
     res.json({ splits });
   } catch (err) {
     console.error('GET /api/stock-splits error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -1086,7 +1086,7 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
     res.json({ snapshots });
   } catch (err) {
     console.error('GET /api/snapshots error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -1121,7 +1121,7 @@ app.get('/api/avg-cost', (req, res) => {
     res.json({ tickers: result });
   } catch (err) {
     console.error('GET /api/avg-cost error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -1407,7 +1407,7 @@ app.get('/api/alerts', (req, res) => {
     res.json({ alerts });
   } catch (err) {
     console.error('GET /api/alerts error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -1479,7 +1479,7 @@ app.post('/api/alerts', (req, res) => {
     res.json({ success: true, alert: newAlert });
   } catch (err) {
     console.error('POST /api/alerts error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -1513,7 +1513,7 @@ app.put('/api/alerts/:id', (req, res) => {
     res.json({ success: true, alert });
   } catch (err) {
     console.error('PUT /api/alerts error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -1531,7 +1531,7 @@ app.delete('/api/alerts/:id', (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /api/alerts error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -1577,7 +1577,7 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
         from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'contact@portfoliotracker.local',
         to: recipient,
         replyTo: email,
-        subject: `[Portfolio Tracker] ${type}: ${title}`.slice(0, 200),
+        subject: `[Portfolio Tracker] ${type}: ${title}`.replace(/[\r\n]+/g, ' ').slice(0, 200),
         html: `<p><strong>From:</strong> ${escapeHtml(name)} (${escapeHtml(email)})</p>
                <p><strong>Type:</strong> ${escapeHtml(type)}</p>
                <p><strong>Message:</strong></p>
@@ -1597,7 +1597,7 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
     res.json({ success: true, message: "Thanks for reaching out - we'll get back to you soon." });
   } catch (err) {
     console.error('POST /api/contact error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 

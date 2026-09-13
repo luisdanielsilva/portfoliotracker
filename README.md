@@ -217,6 +217,64 @@ consumed only on POST; `trust proxy` set so rate limits see the real client; Goo
 state cookie; no XSS in the server-rendered confirm page; no console errors or failed
 requests across all seven tabs; no duplicate element ids; every chart carries an aria-label.
 
+### 🔎 Security review — 2026-09-13
+
+A full pass over auth, authorisation, injection, data exposure and host risk. Where possible
+the conclusion was **tested against the running app**, not read off the source.
+
+**Fixed in this pass:**
+
+1. **`data.db` was world-readable (0644), and so were the backups** in a world-traversable
+   directory. Any local account on the box — including a compromised process belonging to
+   another site — could read every user's holdings and email address. Now `600`, with the
+   backup directory `700`. This was the most serious finding, and it had nothing to do with
+   the application code.
+2. **Sixteen endpoints returned raw `err.message` to the client** — SQLite text, library
+   internals, file paths. Every one already logged the real error server-side, so the detail
+   bought the caller nothing and an attacker a look inside. They now return a generic message;
+   `/api/backfill` returns a useful-but-neutral 502 because its failures are usually "that
+   symbol does not exist".
+3. **Contact-form subject now strips CR/LF.** Header injection was tested and is *not*
+   exploitable — nodemailer folds a newline into a continuation line rather than starting a
+   header — but that is the library's promise rather than this app's.
+
+**Tested and sound — no change needed:**
+
+- **Cross-account isolation.** A scratch account was given a session and pointed at the real
+  account's rows: delete and edit of another user's transaction and alert both `404`, every
+  read came back empty, `/api/algorithm` refuses a ticker the caller does not own, and the
+  victim's 16 transactions were untouched afterwards. Every mutation checks `id AND user_id`
+  and returns 404 rather than 403, so it does not even confirm the row exists.
+- **Input validation.** Twelve hostile payloads — negative and zero quantities, a €1e15 amount,
+  `NaN`, an invented `tx_type`, dates in 1850 and 2200, `<script>` and `'; DROP TABLE users;--`
+  as tickers, unknown rule types, absurd thresholds — all refused with 400.
+- **No SQL injection.** Every query is a prepared statement; the single template in
+  `db-migrations.js` interpolates an internal constant, never input.
+- **No `eval`, no `child_process`, no path traversal** in application code.
+- **Google OAuth**: state CSRF cookie compared and cleared, id_token signature/issuer/audience
+  verified, and `email_verified !== true` rejected — without that last check someone could
+  claim an account belonging to another person's address.
+- **Magic link**: token stored only as a hash, single-use, expiring; the confirm page echoes
+  the token only when it is *already valid* and escapes it, so there is no reflected XSS.
+- **Sessions**: 32 random bytes, stored hashed, `HttpOnly; Secure; SameSite=Lax`. Lax is also
+  what stops cross-site POSTs from carrying the cookie, which is the CSRF defence for every
+  state-changing endpoint.
+- **Credential hygiene**: spent and expired tokens and sessions purged on boot and daily.
+- `npm audit` clean, `.env` is `600`, `.env.example` holds no real values, `.gitignore` covers
+  the database, backups and logs, and nothing sensitive is tracked.
+
+**Left open, with reasons:**
+
+1. **Ticker enumeration.** `/api/price-history/:ticker` and `/api/prices` serve the shared price
+   tables, so any signed-in user can fetch history for a symbol only someone else holds. It
+   reveals *what* is tracked, never *who* holds it or how much. Low severity; fixing it means
+   scoping shared price data per user, which costs more than it returns.
+2. **The client's `esc()` does not escape `>` or `'`.** Safe as used — every interpolation lands
+   in a text node or a double-quoted attribute, and tickers are validated server-side — but it
+   is narrower than the server's `escapeHtml` and would not survive being used in a
+   single-quoted attribute. Worth aligning.
+3. **Open registration** remains the multiplier under every authenticated limit.
+
 ### ⏳ Open Items / Backlog
 
 **Separate personal data from financial data (proposed 2026-09-13, not built).**
