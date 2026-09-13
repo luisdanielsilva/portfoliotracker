@@ -40,4 +40,22 @@ function addSplit(db, { ticker, date, ratio }) {
 
 const day = n => new Date(Date.UTC(2026, 0, n)).getTime();
 
-module.exports = { freshDb, addUser, addTx, addPrice, addSplit, day };
+
+/**
+ * The same throwaway database with every migration applied — which is what the
+ * running app actually has. schema.sqlite.sql alone is missing anything added by
+ * an ALTER, `prices.price_native` among them, so a test that inserts a price
+ * needs this rather than freshDb().
+ */
+function migratedDb() {
+  const db = freshDb();
+  const m = require('../db-migrations.js');
+  m.ensurePriceCurrencyColumns(db);
+  m.ensureAlertCurrency(db);
+  m.ensureGainRuleType(db);
+  m.ensureDropFromHighRuleType(db);
+  m.ensureAlgorithmAlertSettings(db);
+  return db;
+}
+
+module.exports = { freshDb, migratedDb, addUser, addTx, addPrice, addSplit, day };

@@ -1045,8 +1045,62 @@
   function algoDirClass(dir){ return dir==="Buy"?"buy":dir==="Sell"?"sell":"none"; }
   function algoTierWord(t){ return t==="VeryStrong"?"Very strong":t||""; }
 
+
+  /* ---- the two timings the user owns ---- */
+  var ALGO_HOLD_OPTS=[{v:1,l:"1 day"},{v:2,l:"2 days"},{v:3,l:"3 days"},{v:5,l:"5 days"},{v:10,l:"10 days"}];
+  var ALGO_COOL_OPTS=[{v:14,l:"2 weeks"},{v:30,l:"1 month"},{v:60,l:"2 months"},{v:90,l:"3 months"},{v:180,l:"6 months"}];
+  var ALGO_CFG=null;
+
+  function loadAlgoSettings(){
+    if(ALGO_CFG){ renderAlgoSettings(); return Promise.resolve(); }
+    return apiFetch('./api/algorithm/settings')
+      .then(function(r){ return r.ok?r.json():null; })
+      .then(function(cfg){ if(cfg){ ALGO_CFG=cfg; renderAlgoSettings(); } })
+      .catch(function(){});
+  }
+
+  function renderAlgoSettings(){
+    if(!ALGO_CFG) return;
+    function paint(id,opts,current,onPick){
+      var el=document.getElementById(id); if(!el) return;
+      el.innerHTML=opts.map(function(o){
+        return '<button type="button" data-v="'+o.v+'" aria-pressed="'+(o.v===current?"true":"false")+'">'+esc(o.l)+'</button>';
+      }).join("");
+      Array.prototype.forEach.call(el.querySelectorAll("button"),function(b){
+        b.addEventListener("click",function(){ onPick(parseInt(b.dataset.v,10)); });
+      });
+    }
+    paint("algo-hold-presets",ALGO_HOLD_OPTS,ALGO_CFG.holdDays,function(v){ saveAlgoSettings(v,ALGO_CFG.cooldownDays); });
+    paint("algo-cool-presets",ALGO_COOL_OPTS,ALGO_CFG.cooldownDays,function(v){ saveAlgoSettings(ALGO_CFG.holdDays,v); });
+    describeAlgoSettings();
+  }
+
+  function describeAlgoSettings(){
+    var note=document.getElementById("algo-cfg-note"); if(!note||!ALGO_CFG) return;
+    var cool=ALGO_COOL_OPTS.filter(function(o){ return o.v===ALGO_CFG.cooldownDays; })[0];
+    note.innerHTML="A holding has to read very strong buy on <b>"+ALGO_CFG.holdDays+
+      (ALGO_CFG.holdDays===1?" day":" days in a row")+"</b>, and then goes unmentioned for <b>"+
+      esc(cool?cool.l:ALGO_CFG.cooldownDays+" days")+"</b>.";
+  }
+
+  function saveAlgoSettings(hold,cool){
+    var note=document.getElementById("algo-cfg-note");
+    if(note) note.textContent="Saving…";
+    return apiFetch('./api/algorithm/settings',{method:"PUT",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({holdDays:hold,cooldownDays:cool})})
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,body:j}; }); })
+      .then(function(res){
+        if(!res.ok){ if(note) note.textContent=res.body.error||"Could not save."; return; }
+        ALGO_CFG.holdDays=res.body.holdDays; ALGO_CFG.cooldownDays=res.body.cooldownDays;
+        renderAlgoSettings();
+        toast("Alert timing saved","success");
+      })
+      .catch(function(){ if(note) note.textContent="Could not reach the server."; });
+  }
+
   function loadAndRenderAlgo(){
     var ready=Object.keys(AVG_COST).length?Promise.resolve():loadAvgCostAndDipForm();
+    loadAlgoSettings();
     return ready.then(renderAlgoTickers);
   }
 

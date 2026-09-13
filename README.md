@@ -17,7 +17,8 @@ Personal stock portfolio tracking app with 74+ historical snapshots, transaction
   2026-09-12 — registering a holding and deciding when to be told about it are different
   jobs, and one screen was doing both.
 - **Alerts tab:** the four alert forms (dip, target, trailing, price), the alert map and the
-  alert list. **Algorithm alerts are not built yet** — deliberately deferred, see Open Items.
+  alert list. The Algorithm tab has its own alert, which is deliberately *not* here — see
+  *Algorithm alerts* below.
 - **Algorithm tab:** the position-timing signal — every holding's close ranked against its own
   trailing 6M/1Y/2Y history, with two signal lanes (Early / Confirmed), notable runs, a full data
   table and a position-gated recommendation. Rules in `algorithm.js`, details under *Algorithm tab*.
@@ -169,6 +170,82 @@ already picked a side by accident:*
    added there would appear on the landing, privacy and terms pages too, for free.
 
 
+**Algorithm alerts — built 2026-09-13.** `algo-alerts.js`, tests in `test/algo-alerts.test.js`.
+
+They are deliberately *not* rows in `alerts`. That table is the one the user builds by hand
+and may empty at will; the algorithm's alert is fixed behaviour covering every holding at
+once. Mixing them would invite editing the thing that is meant not to be edited, and would
+let "delete all my alerts" silently switch the algorithm off.
+
+**It emails about exactly one thing: a holding reading very strong buy.** Not configurable —
+that is a claim about the signal, not a preference. The user owns two timings, both about
+volume rather than meaning, and both live on the Algorithm tab beside the explanation:
+`algo_hold_days` (consecutive readings before it counts, default 3) and `algo_cooldown_days`
+(how long that holding then stays quiet, default 60). `PUT /api/algorithm/settings`.
+
+**There is no sell alert, and that is a decision rather than an omission.** Measured over the
+current holdings: the sell side is on **39% of all days**, and **76%** for NVDA — whose sell
+days were followed by **+13.8% over the next 60**. An alert that is usually true and loudest
+where it is most wrong trains its reader to ignore the inbox, and would take the hand-built
+alerts' credibility with it. Selling is the target rule's job: it fires off the user's own
+cost basis, so it genuinely happens once.
+
+*Two measurements shaped the design and are worth not rediscovering:*
+
+1. **A stricter tier does not mean fewer emails — it means more.** Inside one long sell
+   stretch a higher bar keeps lapsing and re-arming, so the stretch fragments. NVDA: 572 sell
+   days → 29 entries at Signal+, but **41** at Strong+. Frequency is controlled by the
+   cooldown, not the threshold.
+2. **The position gate filters nothing on the sell side.** A portfolio this far ahead (AMD
+   +156%, ASML +110%) clears a 20–30% profit bar automatically; all three live sell signals
+   passed it.
+
+**The weekly standings** ride in the same digest every Monday — one line per holding that is
+not silent, both directions, sent whether or not anything fired. It is the only place the
+sell side appears, and a summary cannot spam because nothing triggers it. Subject and heading
+change to "Where things stand" when nothing else is in the email.
+
+Implementation notes worth keeping: `fired_at` is stamped from the **injected clock**, not
+`CURRENT_TIMESTAMP`, so the function is deterministic under test — the same principle as
+`areMarketsClosedForFetch(when)`. A price file older than `MAX_PRICE_AGE_DAYS` (5) is not
+scored at all, which also means a cooldown shorter than that cannot be observed without the
+prices moving too. `test/helpers.js` gained `migratedDb()` because `schema.sqlite.sql` alone
+lacks anything added by an ALTER, `prices.price_native` included.
+
+**Donations — a way for people to support the effort (added 2026-09-13, not built).**
+
+No payment support exists anywhere in the app. The ask is a way for users to contribute
+voluntarily, not a paywall or a subscription.
+
+*The cheap route and the expensive one are very far apart here, and this codebase has
+already picked a side by accident:*
+
+- **A plain outbound link** to a hosted page — GitHub Sponsors, Ko-fi, Liberapay, PayPal.me,
+  a Stripe Payment Link — needs **no change to any security header**. An `<a href>` is not a
+  script, a form post or a fetch, so `script-src 'self'`, `form-action 'self'` and
+  `connect-src 'self'` all stay exactly as they are. No card data touches this server, so
+  there is no PCI question to answer. This is the default unless there is a reason not to.
+- **An embedded checkout** (Stripe Elements, a payment button) would require loosening
+  `script-src`, `connect-src` and `frame-src`, undoing part of the CSP tightening done on
+  2026-09-11 — *and* editing `Permissions-Policy`, which currently ships `payment=()`,
+  switching the Payment Request API off outright. Three deliberate hardening decisions would
+  have to be reversed to embed a widget that a link achieves without them.
+
+*Open questions, none of which are technical:*
+
+1. **Tax and legal status.** Donations are income in most jurisdictions. Which one applies,
+   and does receiving them change what this site has to say about itself? Not a question to
+   guess at.
+2. **`privacy.html` and `terms.html` would both need a clause** naming the processor and what
+   it receives. Today they describe a service that takes no money and shares nothing.
+3. **Discoverability.** `index.html` carries `noindex, nofollow` and the registration page is
+   unlisted, so the audience is people who already use the app — a handful of accounts. Worth
+   being clear-eyed that this is a gesture of support from existing users, not a revenue plan.
+4. **Where it goes.** The footer already reads *Made by Luís Silva · email · Support* and is
+   the obvious home. `contact.js` injects the support widget into every page, so a donate link
+   added there would appear on the landing, privacy and terms pages too, for free.
+
+
 **Algorithm alerts — specified but not built (2026-09-12).**
 
 The Alerts tab now covers dip, target, trailing and price rules. What it does not cover is
@@ -183,7 +260,7 @@ unfiltered daily email would be ignored within a week and would take the alert d
 credibility with it. See the *Algorithm tab* section and `algorithm_backtest_findings` for why.
 
 
-**Testing — 52 tests, in CI since 2026-09-12.**
+**Testing — 65 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

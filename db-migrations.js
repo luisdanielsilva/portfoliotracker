@@ -180,7 +180,54 @@ function recentHigh(db, ticker, days = HIGH_WINDOW_DAYS) {
   return row && row.peak ? row : null;
 }
 
+
+/**
+ * Settings and state for the Algorithm tab's own alerts.
+ *
+ * These alerts are deliberately not rows in `alerts`. That table is the one the
+ * user builds by hand, one rule per holding, and it is theirs to fill with
+ * whatever they like. The algorithm's alert is fixed behaviour that applies to
+ * every holding at once — putting it in the same list would invite editing the
+ * thing that is meant not to be edited, and would make "delete all my alerts"
+ * silently switch the algorithm off too.
+ *
+ * Two timings are the user's, because they are about how often they want to hear
+ * from it rather than about what the signal means:
+ *   algo_hold_days     — how many consecutive readings before it counts
+ *   algo_cooldown_days — how long the same holding then stays quiet (calendar days)
+ */
+function ensureAlgorithmAlertSettings(db) {
+  const cols = columnNames(db, 'users');
+  if (!cols.includes('algo_hold_days')) {
+    db.exec('ALTER TABLE users ADD COLUMN algo_hold_days INTEGER NOT NULL DEFAULT 3');
+  }
+  if (!cols.includes('algo_cooldown_days')) {
+    db.exec('ALTER TABLE users ADD COLUMN algo_cooldown_days INTEGER NOT NULL DEFAULT 60');
+  }
+  if (!cols.includes('algo_alerts_enabled')) {
+    db.exec('ALTER TABLE users ADD COLUMN algo_alerts_enabled INTEGER NOT NULL DEFAULT 1');
+  }
+
+  // One row per holding per time it spoke. The cooldown reads the newest row;
+  // keeping the history means "why did I not hear about this?" is answerable.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS algo_alert_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      ticker TEXT NOT NULL,
+      fired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      signal_date DATE NOT NULL,
+      tier TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      confidence REAL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_algo_log_user_ticker ON algo_alert_log(user_id, ticker, fired_at DESC);
+  `);
+}
+
 module.exports = {
   ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
-  ensureDropFromHighRuleType, recentHigh, HIGH_WINDOW_DAYS, columnNames
+  ensureDropFromHighRuleType, ensureAlgorithmAlertSettings,
+  recentHigh, HIGH_WINDOW_DAYS, columnNames
 };

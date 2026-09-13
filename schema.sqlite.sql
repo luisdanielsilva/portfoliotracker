@@ -4,7 +4,11 @@
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT UNIQUE NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  -- Algorithm-tab alerts: fixed behaviour, but the user owns the two timings.
+  algo_alerts_enabled INTEGER NOT NULL DEFAULT 1,
+  algo_hold_days INTEGER NOT NULL DEFAULT 3,
+  algo_cooldown_days INTEGER NOT NULL DEFAULT 60
 );
 
 CREATE INDEX IF NOT EXISTS idx_email ON users(email);
@@ -128,3 +132,19 @@ CREATE TABLE IF NOT EXISTS job_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_runs_job_time ON job_runs(job, ran_at DESC);
+
+-- When the Algorithm tab last spoke about a holding, so a long signal is not
+-- re-sent every day. Deliberately separate from `alerts`, which is the list the
+-- user builds by hand.
+CREATE TABLE IF NOT EXISTS algo_alert_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  ticker TEXT NOT NULL,
+  fired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  signal_date DATE NOT NULL,
+  tier TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  confidence REAL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_algo_log_user_ticker ON algo_alert_log(user_id, ticker, fired_at DESC);

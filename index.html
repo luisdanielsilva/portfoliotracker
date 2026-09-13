@@ -154,6 +154,27 @@
   .algo-method summary{cursor:pointer;color:var(--faint)}
   .algo-method h4{margin:16px 0 0;font-size:12.5px;color:var(--ink)}
   .algo-method p{margin:7px 0 0;line-height:1.65;max-width:76ch}
+
+  .algo-alerts{margin-top:24px;border-top:1px solid var(--hair);padding-top:18px}
+  .algo-alerts-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:26px}
+  /* A grid item will not shrink below its content unless told to, and a ch-based
+     max-width is content. Both halves of that are needed or the column pushes the
+     page wider than a phone. */
+  .algo-alerts-what,.algo-alerts-cfg{min-width:0}
+  .algo-alerts-what p{margin:0 0 11px;font-size:12.5px;line-height:1.65;color:var(--muted);max-width:min(62ch,100%)}
+  .algo-alerts-what p:last-child{margin-bottom:0}
+  .algo-alerts-cfg{background:var(--surface-2);border:1px solid var(--hair);border-radius:12px;padding:16px}
+  /* Five options have to fit without the last one hanging off the edge. */
+  .algo-alerts-cfg .segmented{width:100%}
+  .algo-alerts-cfg .segmented button{padding:6px 8px;flex:1 1 0;min-width:0}
+  .algo-cfg-row+.algo-cfg-row{margin-top:18px}
+  .algo-cfg-row .lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  #algo-cfg-note{margin-top:14px;min-height:16px;font-size:12px;color:var(--muted)}
+  @media (max-width:860px){ .algo-alerts-grid{grid-template-columns:1fr} }
+  /* Narrow enough and the five options cannot share the width without the labels
+     being cut in half. Give them their natural size back and let the strip scroll,
+     which is what every other option strip in the app does. */
+  @media (max-width:560px){ .algo-alerts-cfg .segmented button{flex:0 0 auto} }
   .algo-tabletoggle{margin-top:18px}
   .algo-toggle{font:inherit;font-size:12px;color:var(--accent);background:none;border:1px solid var(--hair);border-radius:8px;padding:7px 12px;cursor:pointer}
   .algo-toggle:hover{background:var(--surface-2)}
@@ -1269,6 +1290,33 @@
         <h4>What it does not know</h4>
         <p>Nothing here has any idea what the company is worth. There are no earnings, no revenue, no news and no volume in this &mdash; only closing prices. A price can be statistically low because the market is wrong, or because it is right and something has genuinely broken, and no arrangement of these numbers can tell the two apart.</p>
       </details>
+
+      <div class="algo-alerts">
+        <h3 class="ind-h" style="margin-top:4px">Alerts from this signal</h3>
+        <p class="microcopy" style="margin:0 0 14px">This one is not a rule you build. It watches every holding, always, and it emails about exactly one thing.</p>
+
+        <div class="algo-alerts-grid">
+          <div class="algo-alerts-what">
+            <p><b>It emails you when a holding reads <span class="pos">very strong buy</span></b> &mdash; the deepest green in the strips above, which needs all three windows to agree the price is unusually low. Across these holdings that is roughly five emails a year for the whole portfolio.</p>
+            <p><b>It never emails you to sell.</b> A sell reading is not an event: it is true on 39% of all days here, and 76% of days for the best performer &mdash; whose sell days were then followed by a 13.8% rise over the next three months. An alert that is usually true, and loudest where it is most wrong, teaches you to ignore your inbox. Selling is what the <b>target alert</b> is for, on the Alerts tab: it fires off what you actually paid, so it can only happen once.</p>
+            <p>Instead, the sell side turns up in a <b>weekly summary</b> every Monday, listing where each holding stands. It is a list, not a demand &mdash; nothing in it needs doing.</p>
+          </div>
+
+          <div class="algo-alerts-cfg">
+            <div class="algo-cfg-row">
+              <label class="lbl" for="algo-hold-presets">How long it must hold</label>
+              <p class="microcopy" style="margin:2px 0 7px">Consecutive days at very strong buy before it counts. Shorter reacts faster and flickers more.</p>
+              <div class="segmented" role="group" aria-label="Days it must hold" id="algo-hold-presets"></div>
+            </div>
+            <div class="algo-cfg-row">
+              <label class="lbl" for="algo-cool-presets">Then stay quiet for</label>
+              <p class="microcopy" style="margin:2px 0 7px">How long that holding goes unmentioned afterwards, however long the signal lasts. This is what stops one long stretch becoming a daily email.</p>
+              <div class="segmented" role="group" aria-label="Quiet period" id="algo-cool-presets"></div>
+            </div>
+            <div class="frm-note" id="algo-cfg-note"></div>
+          </div>
+        </div>
+      </div>
 
       <div class="algo-tabletoggle">
         <button type="button" class="algo-toggle" id="algo-table-btn" aria-expanded="false" aria-controls="algo-table-holder">Show the full data table</button>

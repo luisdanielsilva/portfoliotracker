@@ -13,8 +13,9 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
+const { evaluateAlgorithmSignals, standingsFor, isStandingsDay } = require('./algo-alerts');
 const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
-        ensureDropFromHighRuleType, recentHigh } = require('./db-migrations');
+        ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, recentHigh } = require('./db-migrations');
 require('dotenv').config();
 
 const dbPath = path.join(__dirname, 'data.db');
@@ -85,6 +86,14 @@ function appLink() {
 }
 
 // One row: ticker and headline figure on top, the context underneath.
+/** 1st, 2nd, 3rd, 4th — including the 11th/12th/13th exceptions. */
+function ordinal(n) {
+  const v = Math.round(n);
+  const rem100 = v % 100;
+  if (rem100 >= 11 && rem100 <= 13) return v + 'th';
+  return v + (['th', 'st', 'nd', 'rd'][v % 10] || 'th');
+}
+
 function digestRow(item, isLast) {
   const border = isLast ? '' : `border-bottom:1px solid ${MAIL.hair};`;
   let headline, detail;
@@ -98,6 +107,15 @@ function digestRow(item, isLast) {
     headline = `<span style="color:${MAIL.neg}">−${item.dropPct.toFixed(1)}%</span>`;
     detail = `${fmtNative(item.price, item.currency)} now · 52-week high ${fmtNative(item.peak, item.currency)}<br>`
       + `Past your <span style="color:${MAIL.ink};font-family:${MAIL.mono}">−${item.threshold}%</span> trailing level`;
+  } else if (item.kind === 'algo') {
+    // The one thing the algorithm emails about. No threshold to quote, because
+    // the user did not set one — so the detail line says what the windows saw.
+    const pr = item.percentiles || {};
+    const at = k => (pr[k] === undefined ? '—' : ordinal(pr[k]));
+    headline = `<span style="color:${MAIL.pos}">very strong buy</span>`;
+    detail = `${fmtNative(item.price, item.currency)} now · held ${item.holdDays} day${item.holdDays === 1 ? '' : 's'} running<br>`
+      + `Ranks ${at('6M')} / ${at('1Y')} / ${at('2Y')} percentile against its own 6-month, 1-year and 2-year history`
+      + (item.gainPct === null ? '' : `<br>You are ${item.gainPct >= 0 ? 'up' : 'down'} ${Math.abs(item.gainPct).toFixed(1)}% on this holding`);
   } else if (item.kind === 'gain') {
     headline = `<span style="color:${MAIL.pos}">+${item.gainPct.toFixed(1)}%</span>`;
     detail = `${eur(item.price)} now · your average cost ${eur(item.avgCost)}<br>`
@@ -129,13 +147,36 @@ function digestSection(title, items) {
     + `</table></td></tr>`;
 }
 
-function renderAlertDigest(items) {
+
+/**
+ * The weekly standings: where every holding sits, both directions.
+ *
+ * This is the only place the sell side appears, and it appears as a table. A
+ * summary cannot train you to ignore it, because it never asks for anything.
+ */
+function renderStandings(standings) {
+  if (!standings.length) return '';
+  const tone = s => (s.direction === 'Buy' ? MAIL.pos : MAIL.neg);
+  const word = s => (s.tier === 'VeryStrong' ? 'very strong' : s.tier.toLowerCase());
+  const rows = standings.map(s => `<tr>
+      <td style="padding:7px 0;font:600 13px/1.3 ${MAIL.sans};color:${MAIL.ink}">${s.ticker}</td>
+      <td align="right" style="padding:7px 0;font:400 13px/1.3 ${MAIL.sans};color:${tone(s)}">${s.direction.toLowerCase()} · ${word(s)}</td>
+      <td align="right" style="padding:7px 0 7px 14px;font:400 13px/1.3 ${MAIL.mono};color:${MAIL.faint}">${Math.round(s.confidence)}%</td>
+    </tr>`).join('');
+  return `<tr><td style="padding:24px 0 0;font:600 11px/1 ${MAIL.sans};letter-spacing:.09em;text-transform:uppercase;color:${MAIL.faint}">Where things stand this week</td></tr>`
+    + `<tr><td style="padding-top:4px;font:400 12px/1.6 ${MAIL.sans};color:${MAIL.faint}">Everything the algorithm is not silent about. Nothing here needs doing.</td></tr>`
+    + `<tr><td><table width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table></td></tr>`;
+}
+
+function renderAlertDigest(items, standings = []) {
   const dips = items.filter(i => i.kind === 'dip');
   const gains = items.filter(i => i.kind === 'gain');
   const highs = items.filter(i => i.kind === 'high');
-  const levels = items.filter(i => !['dip','gain','high'].includes(i.kind));
+  const algo = items.filter(i => i.kind === 'algo');
+  const levels = items.filter(i => !['dip','gain','high','algo'].includes(i.kind));
   const when = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-  const heading = items.length === 1 ? 'One alert triggered' : `${items.length} alerts triggered`;
+  const heading = items.length === 0 ? 'Where things stand'
+    : items.length === 1 ? 'One alert triggered' : `${items.length} alerts triggered`;
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -150,10 +191,12 @@ function renderAlertDigest(items) {
     </td></tr>
     <tr><td style="padding:0 26px">
       <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        ${digestSection('The algorithm sees an unusually cheap moment', algo)}
         ${digestSection('Dips below your average cost', dips)}
         ${digestSection('Up on what you paid', gains)}
         ${digestSection('Down from their recent high', highs)}
         ${digestSection('Price levels you set', levels)}
+        ${renderStandings(standings)}
       </table>
     </td></tr>
     <tr><td style="padding:24px 26px 26px">
@@ -168,10 +211,20 @@ function renderAlertDigest(items) {
 </td></tr></table></body></html>`;
 }
 
-function renderAlertDigestText(items) {
-  const lines = [`${items.length === 1 ? 'One alert' : items.length + ' alerts'} triggered\n`];
+function renderAlertDigestText(items, standings = []) {
+  const lines = [items.length === 0 ? 'Where things stand\n'
+    : `${items.length === 1 ? 'One alert' : items.length + ' alerts'} triggered\n`];
   for (const i of items) {
-    if (i.kind === 'dip') {
+    if (i.kind === 'algo') {
+      const pr = i.percentiles || {};
+      const at = k => (pr[k] === undefined ? '-' : ordinal(pr[k]));
+      lines.push(`${i.ticker}  very strong buy, held ${i.holdDays} day${i.holdDays === 1 ? '' : 's'} running`);
+      lines.push(`  ${fmtNative(i.price, i.currency)} now. Ranks ${at('6M')} / ${at('1Y')} / ${at('2Y')} percentile`
+        + ` against its own 6-month, 1-year and 2-year history.`);
+      if (i.gainPct !== null && i.gainPct !== undefined) {
+        lines.push(`  You are ${i.gainPct >= 0 ? 'up' : 'down'} ${Math.abs(i.gainPct).toFixed(1)}% on this holding.`);
+      }
+    } else if (i.kind === 'dip') {
       lines.push(`${i.ticker}  -${i.dropPct.toFixed(1)}% below your average`);
       lines.push(`  ${eur(i.price)} now, average cost ${eur(i.avgCost)}. Break-even at ${eur(i.avgCost)}.`);
     } else if (i.kind === 'high') {
@@ -185,6 +238,13 @@ function renderAlertDigestText(items) {
       const cur = i.currency || 'USD';
       lines.push(`${i.ticker}  ${above ? 'above' : 'below'} ${fmtNative(i.threshold, cur)}`);
       lines.push(`  ${fmtNative(i.price, cur)} now.`);
+    }
+  }
+  if (standings.length) {
+    lines.push('\nWhere things stand this week (nothing here needs doing):');
+    for (const s of standings) {
+      const word = s.tier === 'VeryStrong' ? 'very strong' : s.tier.toLowerCase();
+      lines.push(`  ${s.ticker.padEnd(9)} ${s.direction.toLowerCase()} · ${word}  ${Math.round(s.confidence)}%`);
     }
   }
   lines.push(`\nOpen Portfolio Tracker: ${appLink()}`);
@@ -334,8 +394,10 @@ async function sendRunReport(mailer, status, d) {
 }
 
 function alertSubject(items) {
+  if (items.length === 0) return 'Where your holdings stand this week';
   if (items.length === 1) {
     const i = items[0];
+    if (i.kind === 'algo') return `${i.ticker} looks unusually cheap by its own history`;
     if (i.kind === 'dip') return `${i.ticker} is ${i.dropPct.toFixed(1)}% below your average cost`;
     if (i.kind === 'gain') return `${i.ticker} is up ${i.gainPct.toFixed(1)}% on what you paid`;
     if (i.kind === 'high') return `${i.ticker} is ${i.dropPct.toFixed(1)}% off its 52-week high`;
@@ -444,6 +506,29 @@ async function evaluateAlerts(db, mailer) {
   let triggeredCount = 0;
   const byRecipient = new Map(); // email -> triggered items, sent as one digest each
 
+  // The Algorithm tab's own alert rides in the same digest rather than sending a
+  // second email. It is not a row in `alerts` — see algo-alerts.js for why — so
+  // it is evaluated separately and merged here.
+  const algoItems = evaluateAlgorithmSignals(db, new Date(), log);
+  for (const [recipient, items] of algoItems) {
+    if (!byRecipient.has(recipient)) byRecipient.set(recipient, []);
+    byRecipient.get(recipient).push(...items);
+    triggeredCount += items.length;
+  }
+
+  // Once a week the standings go out whether or not anything fired, so the sell
+  // side stays visible without ever demanding attention.
+  const standingsByRecipient = new Map();
+  if (isStandingsDay()) {
+    for (const u of db.prepare('SELECT id, email FROM users WHERE algo_alerts_enabled = 1').all()) {
+      if (!u.email) continue;
+      const rows = standingsFor(db, u.id);
+      if (!rows.length) continue;
+      standingsByRecipient.set(u.email, rows);
+      if (!byRecipient.has(u.email)) byRecipient.set(u.email, []);
+    }
+  }
+
   for (const alert of alerts) {
     try {
       const price = getPriceStmt.get(alert.ticker);
@@ -545,6 +630,8 @@ async function evaluateAlerts(db, mailer) {
   }
 
   for (const [recipient, items] of byRecipient) {
+    const standings = standingsByRecipient.get(recipient) || [];
+    if (!items.length && !standings.length) continue;
     const subject = alertSubject(items);
     if (!mailer || !recipient) {
       log(`  📌 Would email ${recipient || 'unknown recipient'}: ${subject}`);
@@ -555,8 +642,8 @@ async function evaluateAlerts(db, mailer) {
         from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
         to: recipient,
         subject,
-        text: renderAlertDigestText(items),
-        html: renderAlertDigest(items)
+        text: renderAlertDigestText(items, standings),
+        html: renderAlertDigest(items, standings)
       });
       log(`  ✉ Digest sent to ${recipient} (${items.length} alert${items.length > 1 ? 's' : ''})`);
     } catch (emailErr) {
@@ -617,6 +704,7 @@ async function fetchPrices() {
     ensureAlertCurrency(db);
     ensureGainRuleType(db);
     ensureDropFromHighRuleType(db);
+    ensureAlgorithmAlertSettings(db);
 
     const upsertStmt = db.prepare(`
       INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)
@@ -735,5 +823,5 @@ if (require.main === module) {
   });
 }
 
-module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts,
+module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts, ordinal,
                    areMarketsClosedForFetch };

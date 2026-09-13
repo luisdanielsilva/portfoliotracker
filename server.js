@@ -89,6 +89,7 @@ require('./db-migrations').ensurePriceCurrencyColumns(db);
 require('./db-migrations').ensureAlertCurrency(db);
 require('./db-migrations').ensureGainRuleType(db);
 require('./db-migrations').ensureDropFromHighRuleType(db);
+require('./db-migrations').ensureAlgorithmAlertSettings(db);
 
 // Migration: stop the same rule being saved twice. Nothing prevented it, and one
 // ticker ended up with three identical "dip 5%" rules — which would have meant the
@@ -1226,6 +1227,53 @@ app.get('/api/algorithm', (req, res) => {
   } catch (error) {
     console.error('Error computing algorithm signal:', error);
     res.status(500).json({ error: 'Failed to compute signal' });
+  }
+});
+
+/**
+ * The Algorithm tab's two timings.
+ *
+ * Only these two are the user's. What fires the alert — a very strong buy, and
+ * nothing else — is fixed, because it is a claim about the signal rather than a
+ * preference. These are about how often they want to hear from it.
+ */
+const ALGO_HOLD_MIN = 1, ALGO_HOLD_MAX = 15;
+const ALGO_COOLDOWN_MIN = 7, ALGO_COOLDOWN_MAX = 365;
+
+app.get('/api/algorithm/settings', (req, res) => {
+  try {
+    const row = db.prepare(
+      'SELECT algo_alerts_enabled AS enabled, algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays FROM users WHERE id = ?'
+    ).get(req.userId);
+    if (!row) return res.status(404).json({ error: 'No such user' });
+    res.json({
+      enabled: !!row.enabled,
+      holdDays: row.holdDays,
+      cooldownDays: row.cooldownDays,
+      limits: { holdMin: ALGO_HOLD_MIN, holdMax: ALGO_HOLD_MAX, cooldownMin: ALGO_COOLDOWN_MIN, cooldownMax: ALGO_COOLDOWN_MAX }
+    });
+  } catch (error) {
+    console.error('Error reading algorithm settings:', error);
+    res.status(500).json({ error: 'Failed to read settings' });
+  }
+});
+
+app.put('/api/algorithm/settings', (req, res) => {
+  try {
+    const { holdDays, cooldownDays, enabled } = req.body || {};
+    const hold = Number(holdDays), cool = Number(cooldownDays);
+    if (!Number.isInteger(hold) || hold < ALGO_HOLD_MIN || hold > ALGO_HOLD_MAX) {
+      return res.status(400).json({ error: `holdDays must be a whole number between ${ALGO_HOLD_MIN} and ${ALGO_HOLD_MAX}` });
+    }
+    if (!Number.isInteger(cool) || cool < ALGO_COOLDOWN_MIN || cool > ALGO_COOLDOWN_MAX) {
+      return res.status(400).json({ error: `cooldownDays must be a whole number between ${ALGO_COOLDOWN_MIN} and ${ALGO_COOLDOWN_MAX}` });
+    }
+    db.prepare('UPDATE users SET algo_hold_days = ?, algo_cooldown_days = ?, algo_alerts_enabled = ? WHERE id = ?')
+      .run(hold, cool, enabled === false ? 0 : 1, req.userId);
+    res.json({ success: true, holdDays: hold, cooldownDays: cool, enabled: enabled !== false });
+  } catch (error) {
+    console.error('Error saving algorithm settings:', error);
+    res.status(500).json({ error: 'Failed to save settings' });
   }
 });
 
