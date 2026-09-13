@@ -65,3 +65,31 @@ test('a ticker never bought returns nothing', () => {
   const db = freshDb(); const u = addUser(db);
   assert.equal(getAvgCostPerShare(db, u, 'NVDA'), null);
 });
+
+/**
+ * The case that decides which tickers the daily price fetch asks for.
+ *
+ * A raw sum of buys minus sells says this position is closed. It is not: the buy
+ * happened before a 3-for-1, so it is three shares in today's terms and only one
+ * was sold. Getting this wrong stops fetching prices for something still owned.
+ */
+test('a position bought before a split and sold after it is still held', () => {
+  const db = freshDb();
+  const u = addUser(db);
+  addSplit(db, { ticker: 'TSLA', date: '2026-03-01', ratio: 3 });
+  addTx(db, u, { ticker: 'TSLA', quantity: 1, amount: 900, ts: Date.UTC(2026, 0, 10) });   // becomes 3
+  addTx(db, u, { ticker: 'TSLA', quantity: 1, amount: 400, type: 'sell', ts: Date.UTC(2026, 3, 10) });
+
+  const held = getAvgCostPerShare(db, u, 'TSLA');
+  assert.ok(held, 'raw arithmetic would call this closed; it is not');
+  assert.strictEqual(Math.round(held.quantity), 2, 'three shares after the split, one sold');
+});
+
+test('a position sold down to nothing reports as closed', () => {
+  const db = freshDb();
+  const u = addUser(db);
+  addTx(db, u, { ticker: 'AAA', quantity: 5, amount: 500, ts: Date.UTC(2026, 0, 10) });
+  addTx(db, u, { ticker: 'AAA', quantity: 5, amount: 600, type: 'sell', ts: Date.UTC(2026, 2, 10) });
+  assert.strictEqual(getAvgCostPerShare(db, u, 'AAA'), null,
+    'the daily fetch uses this to stop asking for prices nobody needs');
+});

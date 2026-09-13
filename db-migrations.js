@@ -204,6 +204,14 @@ function ensureAlgorithmAlertSettings(db) {
   if (!cols.includes('algo_cooldown_days')) {
     db.exec('ALTER TABLE users ADD COLUMN algo_cooldown_days INTEGER NOT NULL DEFAULT 60');
   }
+  // When this account was last actually here. The only login signal before this
+  // was sessions.created_at, which the daily credential purge deletes — so who is
+  // dormant was being forgotten as fast as it was learned. Recorded now because
+  // it cannot be recovered later: the decision to fetch prices less often for
+  // nobody's benefit needs to know who nobody is.
+  if (!cols.includes('last_seen_at')) {
+    db.exec('ALTER TABLE users ADD COLUMN last_seen_at DATETIME');
+  }
   if (!cols.includes('algo_alerts_enabled')) {
     db.exec('ALTER TABLE users ADD COLUMN algo_alerts_enabled INTEGER NOT NULL DEFAULT 1');
   }

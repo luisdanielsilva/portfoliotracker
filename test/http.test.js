@@ -208,3 +208,29 @@ test('the database runs in WAL mode with a busy timeout', () => {
   assert.strictEqual(db.pragma('journal_mode', { simple: true }), 'wal');
   db.close();
 });
+
+test('being here is recorded once a day, not once a request', async () => {
+  const Database = require('better-sqlite3');
+  const crypto = require('node:crypto');
+  const db = new Database(dbFile);
+  const userId = db.prepare('INSERT INTO users (email) VALUES (?)').run('seen@example.com').lastInsertRowid;
+  const raw = 'seen-' + crypto.randomBytes(12).toString('hex');
+  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
+    .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
+  const seen = () => db.prepare('SELECT last_seen_at FROM users WHERE id = ?').get(userId).last_seen_at;
+  const visit = () => fetch(base + '/api/transactions', { headers: { Cookie: `pt_session=${raw}` } });
+
+  assert.strictEqual(seen(), null, 'a new account has never been here');
+  await visit();
+  const first = seen();
+  assert.ok(first, 'the first request stamps it');
+
+  for (let i = 0; i < 5; i++) await visit();
+  assert.strictEqual(seen(), first, 'later requests the same day must not write again');
+
+  // Backdate it and the next visit should refresh it.
+  db.prepare("UPDATE users SET last_seen_at = '2020-01-01T00:00:00.000Z' WHERE id = ?").run(userId);
+  await visit();
+  assert.notStrictEqual(seen(), '2020-01-01T00:00:00.000Z', 'a new day is recorded');
+  db.close();
+});

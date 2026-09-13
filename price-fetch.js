@@ -684,14 +684,40 @@ async function fetchPrices() {
     const yahooFinance = new YahooFinance();
 
     // Get unique tickers from transactions
-    const tickerStmt = db.prepare('SELECT DISTINCT ticker FROM transactions ORDER BY ticker');
-    const tickers = tickerStmt.all().map(row => row.ticker);
+    /**
+     * Only what somebody still owns.
+     *
+     * This used to be every ticker that had ever appeared in a transaction, so a
+     * position sold down to nothing kept costing a request every day, for ever.
+     * Old prices are still needed for the history charts — they simply do not
+     * need new ones for something nobody holds.
+     *
+     * The test is split-adjusted rather than a raw sum of buys minus sells,
+     * because those disagree: one share bought before a 3-for-1 and one share
+     * sold after it nets to zero on the raw numbers while two shares are still
+     * held. getAvgCostPerShare already does this correctly and returns null when
+     * the position is closed, so it is the authority here too.
+     */
+    const heldPairs = db.prepare('SELECT DISTINCT user_id, ticker FROM transactions').all();
+    const everSeen = db.prepare('SELECT DISTINCT ticker FROM transactions ORDER BY ticker').all().map(r => r.ticker);
+    const stillHeld = new Set();
+    for (const { user_id, ticker } of heldPairs) {
+      if (avgCostFor(db, user_id, ticker)) stillHeld.add(ticker);
+    }
+    const tickers = everSeen.filter(t => stillHeld.has(t));
+    const dropped = everSeen.filter(t => !stillHeld.has(t));
+    if (dropped.length) {
+      log(`ℹ Not fetching ${dropped.length} fully-sold position(s): ${dropped.join(', ')}`);
+    }
 
     if (tickers.length === 0) {
-      log('ℹ No tickers found in transactions table, skipping fetch');
-      recordRun(db, 'skipped', { reason: 'no tickers held' });
+      // Worth distinguishing: an empty database is normal, but transactions that
+      // all net to zero is a state somebody should be able to recognise in a log.
+      const why = everSeen.length ? 'every position has been sold' : 'no transactions yet';
+      log(`ℹ Nothing to fetch — ${why}`);
+      recordRun(db, 'skipped', { reason: why });
       await sendRunReport(initEmailTransporter(), 'skipped',
-        { reason: 'no tickers held', durationMs: Date.now() - startedAt });
+        { reason: why, durationMs: Date.now() - startedAt });
       db.close();
       process.exit(0);
     }

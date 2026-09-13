@@ -323,6 +323,46 @@ bump and watching the test fail), and the database must be in WAL mode.
 
 ### ⏳ Open Items / Backlog
 
+**Fetch cadence by demand — rule agreed 2026-09-13, half built.**
+
+*The measurement that shapes it:* Yahoo's chart endpoint is **range-based**. One request
+covering the last seven days returned every trading day inside it. So fetching a ticker weekly
+instead of daily costs a fifth of the requests and loses **no** history — the only thing traded
+away is how fast an alert notices something.
+
+*The rule, for when it is worth building:*
+
+| Tier | Condition | Cadence |
+|---|---|---|
+| Hot | a holder seen within ~7 days, **or** any enabled alert on the ticker | daily |
+| Cold | anything else | weekly, one ranged request |
+| Catch-up | a user signs in after a gap | immediate ranged fetch for their tickers |
+
+*Two traps in it.* First, **alerts exist for people who do not log in** — deferring their
+fetches silences the one feature they depend on, so a hand-made alert must pin a ticker to
+daily regardless of dormancy. Second, the Algorithm tab's own alert is **on by default for
+every account**, so it cannot count as "has an alert" or nothing is ever cold and the rule does
+nothing at all.
+
+*Not built, because today it would save exactly nothing:* one account holds all ten tickers and
+signs in constantly; the other five accounts hold nothing and already cost no fetches. Build it
+when there are dormant holders to save on, and cap any gap at ~30 days regardless.
+
+**Done now, because these two could not wait:**
+
+1. **`users.last_seen_at`.** There was no record of when anyone was last here — `sessions.created_at`
+   was the only signal and the daily credential purge deletes it, so dormancy was being forgotten
+   as fast as it was learned. Stamped from `authMiddleware` **once per account per day**, not per
+   request. Deliberately does not touch the cache version: being here changes nothing about what
+   the computed views should say. This is the piece that cannot be added retroactively.
+2. **The daily fetch now skips closed positions.** It asked for every ticker that had ever
+   appeared in a transaction, so a position sold down to nothing kept costing a request every
+   day, for ever. The test is **split-adjusted**, not a raw sum of buys minus sells, because
+   those disagree: one share bought before a 3-for-1 and one sold after it nets to zero on the
+   raw numbers while two shares are still held. `getAvgCostPerShare` is the authority, and a
+   test now pins that exact case.
+
+
 **Separate personal data from financial data (proposed 2026-09-13, not built).**
 
 Today one `data.db` holds both the email addresses and everything they bought. The proposal
@@ -521,7 +561,7 @@ unfiltered daily email would be ignored within a week and would take the alert d
 credibility with it. See the *Algorithm tab* section and `algorithm_backtest_findings` for why.
 
 
-**Testing — 70 tests, in CI since 2026-09-12.**
+**Testing — 73 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

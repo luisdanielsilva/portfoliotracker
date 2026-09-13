@@ -649,7 +649,7 @@ function authMiddleware(req, res, next) {
   // Look the session up by the hash of the cookie, never the cookie itself.
   const sessionKey = hashToken(rawSessionId);
   const row = db.prepare(`
-    SELECT s.user_id, s.expires_at, u.email
+    SELECT s.user_id, s.expires_at, u.email, u.last_seen_at
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.id = ?
   `).get(sessionKey);
@@ -662,6 +662,20 @@ function authMiddleware(req, res, next) {
 
   req.userId = row.user_id;
   req.userEmail = row.email;
+
+  // Stamp the day, not the moment: one write per account per day rather than one
+  // per request. This is what will later answer "is anybody actually waiting for
+  // this ticker's price?", and it deliberately does not touch the cache version —
+  // being here changes nothing about what the computed views should say.
+  const today = new Date().toISOString().slice(0, 10);
+  if (!row.last_seen_at || String(row.last_seen_at).slice(0, 10) !== today) {
+    try {
+      db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').run(new Date().toISOString(), row.user_id);
+    } catch (err) {
+      console.error('last_seen_at update failed:', err.message);   // never block a request for this
+    }
+  }
+
   next();
 }
 

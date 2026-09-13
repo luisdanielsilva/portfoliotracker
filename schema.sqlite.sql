@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT UNIQUE NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   -- Algorithm-tab alerts: fixed behaviour, but the user owns the two timings.
+  last_seen_at DATETIME,
   algo_alerts_enabled INTEGER NOT NULL DEFAULT 1,
   algo_hold_days INTEGER NOT NULL DEFAULT 3,
   algo_cooldown_days INTEGER NOT NULL DEFAULT 60
