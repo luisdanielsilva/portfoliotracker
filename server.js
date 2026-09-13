@@ -1175,6 +1175,50 @@ app.get('/api/algorithm', (req, res) => {
     const today = scored[scored.length - 1];
     const gate = algorithm.applyPositionGate(today, position);
 
+    // Two kinds of event, drawn on one timeline under the chart.
+    //
+    // An email is about this holding. A settings change is not — the two timings
+    // are per account and apply to everything at once — but it belongs on every
+    // stock's timeline precisely because it changed the rules this stock was being
+    // judged by. The label says which is which so the distinction is never guessed.
+    const from = days.length ? days[0].date : '1970-01-01';
+    const events = [];
+
+    for (const row of db.prepare(
+      `SELECT fired_at, signal_date, tier, direction, confidence FROM algo_alert_log
+       WHERE user_id = ? AND ticker = ? AND date(fired_at) >= ? ORDER BY fired_at ASC`
+    ).all(req.userId, ticker, from)) {
+      events.push({
+        date: String(row.fired_at).slice(0, 10),
+        type: 'email',
+        scope: 'ticker',
+        label: 'Email sent',
+        detail: `${ticker} read ${row.tier === 'VeryStrong' ? 'very strong' : String(row.tier).toLowerCase()} `
+          + `${String(row.direction).toLowerCase()} at ${Math.round(row.confidence)}% — signal dated ${row.signal_date}`
+      });
+    }
+
+    const FIELD_WORDS = {
+      holdDays: 'days it must hold',
+      cooldownDays: 'quiet period (days)',
+      enabled: 'algorithm alerts'
+    };
+    for (const row of db.prepare(
+      `SELECT changed_at, field, old_value, new_value FROM algo_settings_log
+       WHERE user_id = ? AND date(changed_at) >= ? ORDER BY changed_at ASC`
+    ).all(req.userId, from)) {
+      const asWords = v => (row.field === 'enabled' ? (v ? 'on' : 'off') : String(v));
+      events.push({
+        date: String(row.changed_at).slice(0, 10),
+        type: 'setting',
+        scope: 'account',
+        label: 'Setting changed',
+        detail: `${FIELD_WORDS[row.field] || row.field}: `
+          + `${row.old_value === null ? 'unset' : asWords(row.old_value)} → ${asWords(row.new_value)}`
+      });
+    }
+    events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
     const count = (lane, dir) => days.filter(d => d[lane].direction === dir).length;
     const buyEarlyDays = days.filter(d => d.early.direction === 'Buy');
 
@@ -1202,6 +1246,7 @@ app.get('/api/algorithm', (req, res) => {
         mixedDays: count('early', 'Mixed'),
         totalDays: days.length
       },
+      events,
       runs: {
         sell: algorithm.findRuns(days, 'confirmed', 'Sell'),
         buyEarly: algorithm.findRuns(days, 'early', 'Buy'),
@@ -1268,8 +1313,26 @@ app.put('/api/algorithm/settings', (req, res) => {
     if (!Number.isInteger(cool) || cool < ALGO_COOLDOWN_MIN || cool > ALGO_COOLDOWN_MAX) {
       return res.status(400).json({ error: `cooldownDays must be a whole number between ${ALGO_COOLDOWN_MIN} and ${ALGO_COOLDOWN_MAX}` });
     }
-    db.prepare('UPDATE users SET algo_hold_days = ?, algo_cooldown_days = ?, algo_alerts_enabled = ? WHERE id = ?')
-      .run(hold, cool, enabled === false ? 0 : 1, req.userId);
+    const before = db.prepare(
+      'SELECT algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays, algo_alerts_enabled AS enabled FROM users WHERE id = ?'
+    ).get(req.userId) || {};
+    const wantEnabled = enabled === false ? 0 : 1;
+
+    // Only real changes are logged. A click that re-selects what was already
+    // chosen is not an event, and a timeline full of those is a timeline nobody
+    // reads.
+    const logChange = db.prepare(
+      'INSERT INTO algo_settings_log (user_id, field, old_value, new_value) VALUES (?,?,?,?)'
+    );
+    const apply = db.transaction(() => {
+      db.prepare('UPDATE users SET algo_hold_days = ?, algo_cooldown_days = ?, algo_alerts_enabled = ? WHERE id = ?')
+        .run(hold, cool, wantEnabled, req.userId);
+      if (before.holdDays !== hold) logChange.run(req.userId, 'holdDays', before.holdDays ?? null, hold);
+      if (before.cooldownDays !== cool) logChange.run(req.userId, 'cooldownDays', before.cooldownDays ?? null, cool);
+      if (before.enabled !== wantEnabled) logChange.run(req.userId, 'enabled', before.enabled ?? null, wantEnabled);
+    });
+    apply();
+
     res.json({ success: true, holdDays: hold, cooldownDays: cool, enabled: enabled !== false });
   } catch (error) {
     console.error('Error saving algorithm settings:', error);

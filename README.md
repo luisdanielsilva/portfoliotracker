@@ -200,6 +200,19 @@ cost basis, so it genuinely happens once.
    +156%, ASML +110%) clears a 20–30% profit bar automatically; all three live sell signals
    passed it.
 
+**Everything is on a timeline.** Two logs feed a third lane under the main chart:
+`algo_alert_log` (every email this algorithm sent about that holding) and
+`algo_settings_log` (every change to the two timings, with the value it had before).
+`GET /api/algorithm` returns them merged as `events`, and the chart draws a green pin per
+email and a grey tick per settings change, with the detail in the hover.
+
+The settings log matters more than it looks. Without it, a chart showing "it emailed here,
+and not there" is unreadable, because the usual reason for the gap is that the rules changed
+in between and nothing recorded it. Only real changes are written — re-selecting what is
+already selected is not an event, and a timeline full of those is one nobody reads. A
+settings change is account-wide rather than per holding, so it appears on every stock's
+timeline; the label says so, because the difference would otherwise have to be guessed.
+
 **The weekly standings** ride in the same digest every Monday — one line per holding that is
 not silent, both directions, sent whether or not anything fired. It is the only place the
 sell side appears, and a summary cannot spam because nothing triggers it. Subject and heading
@@ -260,7 +273,7 @@ unfiltered daily email would be ignored within a week and would take the alert d
 credibility with it. See the *Algorithm tab* section and `algorithm_backtest_findings` for why.
 
 
-**Testing — 65 tests, in CI since 2026-09-12.**
+**Testing — 66 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

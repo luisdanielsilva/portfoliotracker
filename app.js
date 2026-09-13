@@ -1032,7 +1032,8 @@
 
   var ALGO_LANE_TEXT={
     early:"Early — Sell needs two of the three windows to read High. Buy needs only one, because a real dip shows up in the 6-month window first, while the 1- and 2-year windows are still anchored to the prior run-up.",
-    confirmed:"Confirmed — the same Sell rule, but Buy now needs two windows to agree as well. Slower, and it misses early pullbacks the other lane catches."
+    confirmed:"Confirmed — the same Sell rule, but Buy now needs two windows to agree as well. Slower, and it misses early pullbacks the other lane catches.",
+    events:"Events — a green mark is an email this algorithm sent you about this holding. A grey mark is a change you made to its timings, which applies to every holding at once. Both are here so a gap in the emails can be read against the rules that were in force at the time."
   };
 
   function algoSym(cur){ return cur==="EUR"?"€":cur==="USD"?"$":cur==="GBP"?"£":(cur+" "); }
@@ -1238,6 +1239,7 @@
     var days=d.days, n=days.length;
     var L=74,R=948,T=16,B=244;
     var LANE=[{key:"e",y:276,label:"Early"},{key:"f",y:300,label:"Confirmed"}], LH=14;
+    var EVY=334;   // the events timeline, clear of the signal lanes above it
     var lo=Infinity,hi=-Infinity;
     days.forEach(function(x){ if(x.close<lo)lo=x.close; if(x.close>hi)hi=x.close; });
     var pad=(hi-lo)*0.06||1; lo-=pad; hi+=pad;
@@ -1295,14 +1297,52 @@
       });
     });
 
+    // ---- events timeline ----
+    // Not one bar per day like the lanes above: these are moments, so they are
+    // marks. Anything dated outside the displayed window is simply not drawn.
+    s+='<text class="algo-lanelab" data-lane="events" x="'+(L-8)+'" y="'+(EVY+5)+'" text-anchor="end">Events</text>';
+    s+='<line x1="'+L+'" y1="'+EVY+'" x2="'+R+'" y2="'+EVY+'" stroke="var(--hair)" stroke-width="1"/>';
+    var evByIndex={};
+    (d.events||[]).forEach(function(ev){
+      var i=algoIndexForDate(days,ev.date);
+      if(i<0) return;
+      (evByIndex[i]||(evByIndex[i]=[])).push(ev);
+    });
+    var evIdx=Object.keys(evByIndex);
+    if(!evIdx.length){
+      s+='<text x="'+((L+R)/2)+'" y="'+(EVY+5)+'" text-anchor="middle" style="font-size:11px;fill:var(--faint)">no emails sent and no settings changed in this period</text>';
+    } else {
+      evIdx.forEach(function(k){
+        var i=parseInt(k,10), list=evByIndex[i], x=X(i);
+        var hasEmail=list.some(function(e){ return e.type==="email"; });
+        var col=hasEmail?"var(--pos)":"var(--muted)";
+        s+='<line x1="'+x.toFixed(1)+'" y1="'+(EVY-7)+'" x2="'+x.toFixed(1)+'" y2="'+(EVY+7)+'" stroke="'+col+'" stroke-width="1.5" opacity="0.85"/>';
+        if(hasEmail){
+          // an email is the rarer, louder thing: give it a head so it reads at a glance
+          s+='<circle cx="'+x.toFixed(1)+'" cy="'+(EVY-9)+'" r="3" fill="var(--pos)"/>';
+        }
+      });
+    }
+
     // crosshair + hover target, added last so it sits on top
-    s+='<line id="algo-cross" x1="0" y1="'+T+'" x2="0" y2="'+(LANE[1].y+LH)+'" stroke="var(--muted)" stroke-width="1" opacity="0"/>';
+    s+='<line id="algo-cross" x1="0" y1="'+T+'" x2="0" y2="'+(EVY+10)+'" stroke="var(--muted)" stroke-width="1" opacity="0"/>';
     s+='<circle id="algo-dot" r="3.5" fill="var(--s-total)" opacity="0"/>';
-    s+='<rect id="algo-hit" x="'+L+'" y="'+T+'" width="'+(R-L)+'" height="'+(LANE[1].y+LH-T)+'" fill="transparent" style="cursor:crosshair"/>';
+    s+='<rect id="algo-hit" x="'+L+'" y="'+T+'" width="'+(R-L)+'" height="'+(EVY+12-T)+'" fill="transparent" style="cursor:crosshair"/>';
 
     var svg=document.getElementById("algo-chart");
     svg.innerHTML=s;
     bindAlgoHover(d);
+  }
+
+  /**
+   * Which displayed trading day an event belongs to. An event dated on a weekend
+   * or a market holiday attaches to the next trading day rather than vanishing;
+   * one before the window starts is dropped.
+   */
+  function algoIndexForDate(days,date){
+    if(!days.length||date<days[0].date) return -1;
+    for(var i=0;i<days.length;i++) if(days[i].date>=date) return i;
+    return days.length-1;
   }
 
   function algoTicks(lo,hi,count){
@@ -1336,6 +1376,7 @@
       var x=d.days[i], px=g.X(i);
       cross.setAttribute("x1",px); cross.setAttribute("x2",px); cross.setAttribute("opacity","0.45");
       dot.setAttribute("cx",px); dot.setAttribute("cy",g.Y(x.close)); dot.setAttribute("opacity","1");
+      var evHere=(d.events||[]).filter(function(ev){ return algoIndexForDate(d.days,ev.date)===i; });
       tip.innerHTML='<div style="font-weight:600;margin-bottom:5px">'+algoDate(x.date)+'</div>'+
         '<div style="font-variant-numeric:tabular-nums;margin-bottom:6px">'+algoMoney(x.close,d.currency)+'</div>'+
         '<div style="font-size:11.5px;line-height:1.7">'+
@@ -1343,7 +1384,11 @@
         '<div style="margin-top:6px;border-top:1px solid var(--hair);padding-top:5px;color:var(--muted)">'+
         d.meta.windows.map(function(w){
           return w.key+' '+esc(algoRegimeWord(x.rg[w.key]))+' <span style="color:var(--faint)">('+algoPct(x.pr[w.key])+')</span>';
-        }).join("<br>")+'</div></div>';
+        }).join("<br>")+'</div>'+
+        (evHere.length?'<div style="margin-top:6px;border-top:1px solid var(--hair);padding-top:5px">'+
+          evHere.map(function(ev){
+            return '<span style="color:'+(ev.type==="email"?"var(--pos)":"var(--muted)")+'">&#9679;</span> '+esc(ev.label)+': '+esc(ev.detail);
+          }).join("<br>")+'</div>':'')+'</div>';
       var left=px/960*v.rect.width;
       tip.style.left=Math.max(90,Math.min(v.rect.width-90,left))+"px";
       tip.style.top="8px";

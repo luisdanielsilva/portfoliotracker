@@ -48,7 +48,8 @@ test('the four public files are served', async () => {
 });
 
 test('the API refuses an unauthenticated request', async () => {
-  for (const p of ['/api/snapshots', '/api/transactions', '/api/alerts', '/api/avg-cost']) {
+  for (const p of ['/api/snapshots', '/api/transactions', '/api/alerts', '/api/avg-cost',
+                   '/api/algorithm?ticker=TSLA', '/api/algorithm/settings']) {
     assert.equal((await fetch(base + p)).status, 401, `${p} must require a session`);
   }
 });
@@ -79,8 +80,53 @@ test('a database built from schema.sqlite.sql alone has every table the app quer
   const db = new Database(dbFile, { readonly: true });
   const have = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
   for (const t of ['users', 'sessions', 'login_tokens', 'transactions', 'prices', 'alerts',
-                   'exchange_rates', 'stock_splits', 'job_runs']) {
+                   'exchange_rates', 'stock_splits', 'job_runs',
+                   'algo_alert_log', 'algo_settings_log']) {
     assert.ok(have.includes(t), `${t} missing — a fresh deployment would fail on it`);
   }
+  db.close();
+});
+
+/**
+ * The Algorithm tab's two timings, over HTTP and with a real session — the only
+ * level at which the change log can be tested, because that is where it is written.
+ */
+test('changing a timing saves it and records what changed', async () => {
+  const Database = require('better-sqlite3');
+  const crypto = require('node:crypto');
+  const db = new Database(dbFile);
+  const userId = db.prepare('INSERT INTO users (email) VALUES (?)').run('timings@example.com').lastInsertRowid;
+  const raw = 'httptest-' + crypto.randomBytes(12).toString('hex');
+  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
+    .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
+
+  const call = (method, body) => fetch(base + '/api/algorithm/settings', {
+    method,
+    headers: { 'Content-Type': 'application/json', Cookie: `pt_session=${raw}` },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const logRows = () => db.prepare('SELECT field, old_value, new_value FROM algo_settings_log WHERE user_id = ? ORDER BY id').all(userId);
+
+  const defaults = await (await call('GET')).json();
+  assert.strictEqual(defaults.holdDays, 3, 'a new account starts at the documented defaults');
+  assert.strictEqual(defaults.cooldownDays, 60);
+  assert.strictEqual(logRows().length, 0, 'reading changes nothing');
+
+  assert.strictEqual((await call('PUT', { holdDays: 5, cooldownDays: 90 })).status, 200);
+  assert.deepStrictEqual(logRows(), [
+    { field: 'holdDays', old_value: 3, new_value: 5 },
+    { field: 'cooldownDays', old_value: 60, new_value: 90 }
+  ], 'both changes are recorded, with what they were before');
+
+  // Re-choosing what is already chosen is not an event. A timeline full of those
+  // is a timeline nobody reads.
+  assert.strictEqual((await call('PUT', { holdDays: 5, cooldownDays: 90 })).status, 200);
+  assert.strictEqual(logRows().length, 2, 'a no-op change adds nothing to the log');
+
+  const bad = await call('PUT', { holdDays: 99, cooldownDays: 90 });
+  assert.strictEqual(bad.status, 400, 'out-of-range values are refused');
+  assert.strictEqual(logRows().length, 2, 'and a refused change is not logged');
+  assert.strictEqual((await (await call('GET')).json()).holdDays, 5, 'nor does it corrupt what was saved');
+
   db.close();
 });

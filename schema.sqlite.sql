@@ -148,3 +148,16 @@ CREATE TABLE IF NOT EXISTS algo_alert_log (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_algo_log_user_ticker ON algo_alert_log(user_id, ticker, fired_at DESC);
+
+-- Every change to the Algorithm tab's two timings. The signal history is only
+-- readable against the settings that were in force at the time.
+CREATE TABLE IF NOT EXISTS algo_settings_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  field TEXT NOT NULL,
+  old_value INTEGER,
+  new_value INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_algo_settings_user ON algo_settings_log(user_id, changed_at DESC);

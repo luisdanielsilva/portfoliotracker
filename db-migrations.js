@@ -208,6 +208,23 @@ function ensureAlgorithmAlertSettings(db) {
     db.exec('ALTER TABLE users ADD COLUMN algo_alerts_enabled INTEGER NOT NULL DEFAULT 1');
   }
 
+  // Every change to the two timings, kept so the signal history can be read
+  // against the settings that were in force at the time. Without this, a chart
+  // showing "it emailed here, and not there" is unreadable — the reason is
+  // usually that the rules changed in between, and nothing recorded that.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS algo_settings_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      field TEXT NOT NULL,
+      old_value INTEGER,
+      new_value INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_algo_settings_user ON algo_settings_log(user_id, changed_at DESC);
+  `);
+
   // One row per holding per time it spoke. The cooldown reads the newest row;
   // keeping the history means "why did I not hear about this?" is answerable.
   db.exec(`
