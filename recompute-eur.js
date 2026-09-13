@@ -33,6 +33,7 @@ const dbPath = process.env.DB_PATH || path.join(__dirname, 'data.db');
 
 (async () => {
   const db = new Database(dbPath);
+  db.pragma('busy_timeout = 5000');
   ensurePriceCurrencyColumns(db);
 
   const span = db.prepare(

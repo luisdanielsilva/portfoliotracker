@@ -22,6 +22,8 @@ const argUser = process.argv.indexOf('--user');
 const onlyUser = argUser > -1 ? parseInt(process.argv[argUser + 1], 10) : null;
 
 const db = new Database(dbPath, { readonly: true });
+
+db.pragma('busy_timeout = 5000');
 let problems = 0;
 const fail = m => { console.log(`   ✗ ${m}`); problems++; };
 const ok = m => console.log(`   ✓ ${m}`);

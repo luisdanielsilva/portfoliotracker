@@ -103,6 +103,7 @@ async function backfillTicker(db, yf, ticker, years, { dryRun = false } = {}) {
 async function main() {
   const { years, dryRun, tickers } = parseArgs(process.argv);
   const db = new Database(process.env.DB_PATH || path.join(__dirname, 'data.db'));
+  db.pragma('busy_timeout = 5000');
   ensurePriceCurrencyColumns(db);
 
   const list = tickers.length

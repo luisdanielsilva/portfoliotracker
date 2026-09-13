@@ -36,6 +36,8 @@ function mailer() {
 
 const db = new Database(dbPath, { readonly: true });
 
+
+db.pragma('busy_timeout = 5000');
 // No table at all means the job has not completed once since this was added.
 const hasTable = db.prepare(
   "SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='job_runs'"

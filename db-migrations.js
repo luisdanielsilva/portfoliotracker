@@ -243,8 +243,29 @@ function ensureAlgorithmAlertSettings(db) {
   `);
 }
 
+
+/**
+ * A single counter bumped whenever anything the computed views depend on
+ * changes. It is what makes caching those views safe across processes: a cache
+ * entry is keyed by this number, so a write in one process retires every other
+ * process's copy without any of them having to talk to each other.
+ *
+ * Coarse on purpose — one number for the whole database rather than one per
+ * user. Over-invalidating costs a recomputation; under-invalidating serves
+ * somebody yesterday's portfolio.
+ */
+function ensureDataVersion(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS data_version (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      version INTEGER NOT NULL
+    );
+  `);
+  db.prepare('INSERT OR IGNORE INTO data_version (id, version) VALUES (1, 1)').run();
+}
+
 module.exports = {
   ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
-  ensureDropFromHighRuleType, ensureAlgorithmAlertSettings,
+  ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureDataVersion,
   recentHigh, HIGH_WINDOW_DAYS, columnNames
 };

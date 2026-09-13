@@ -161,3 +161,11 @@ CREATE TABLE IF NOT EXISTS algo_settings_log (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_algo_settings_user ON algo_settings_log(user_id, changed_at DESC);
+
+-- Bumped on every write that could change a computed view. Cache entries are
+-- keyed by it, so one process's write retires another process's cached copy.
+CREATE TABLE IF NOT EXISTS data_version (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  version INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO data_version (id, version) VALUES (1, 1);

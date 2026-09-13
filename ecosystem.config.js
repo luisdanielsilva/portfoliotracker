@@ -11,8 +11,18 @@ module.exports = {
       name: 'portfolio-api',
       script: 'server.js',
       cwd: '/var/www/portfoliotracker',
-      instances: 1,
-      exec_mode: 'fork',
+      // Two workers on a two-core box. SQLite is fine with this *because* the
+      // database is in WAL mode with a busy timeout: readers no longer block on a
+      // writer, and a writer that finds the file locked waits its turn instead of
+      // failing. Without both of those this would trade a queue for SQLITE_BUSY
+      // errors. Do not raise this above the core count — these are CPU-bound
+      // requests, and more workers than cores just adds context switching.
+      //
+      // Two consequences worth knowing: the rate limiters keep their counters in
+      // each process's memory, so the effective limit is roughly doubled; and the
+      // computed-view caches are per-process, so each warms up separately.
+      instances: 2,
+      exec_mode: 'cluster',
 
       // Only files that require a process restart to take effect.
       watch: ['server.js', 'schema.sqlite.sql', '.env'],

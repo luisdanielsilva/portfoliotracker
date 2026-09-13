@@ -34,10 +34,26 @@ restore_backup() {
   read -r -p "Type 'restore' to confirm: " reply
   [ "$reply" = "restore" ] || { echo "Aborted."; exit 1; }
 
-  # Never discard the current database on the way in.
+  # Never discard the current database on the way in. In WAL mode the newest
+  # committed rows may still be in data.db-wal, so a plain copy of data.db alone
+  # can silently omit them — checkpoint first, and this "just in case" copy is
+  # then actually the whole thing.
   local safety="$DB_PATH.replaced-$(date +%Y%m%d-%H%M%S)"
+  node -e "
+    const D=require('$APP_DIR/node_modules/better-sqlite3');
+    const db=new D('$DB_PATH');
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    db.close();
+  " 2>/dev/null || true
   cp "$DB_PATH" "$safety"
+
+  # Replacing the file while the old -wal and -shm are still beside it is the way
+  # to corrupt a restore: SQLite finds a write-ahead log belonging to a different
+  # database and replays it onto the new one. Remove them with the file they
+  # describe.
+  rm -f "$DB_PATH-wal" "$DB_PATH-shm"
   gunzip -c "$src" > "$DB_PATH"
+  rm -f "$DB_PATH-wal" "$DB_PATH-shm"
   echo "Restored. Previous database kept at $safety"
   echo "Restart the app so it reopens the file:  pm2 restart portfolio-api"
 }

@@ -275,6 +275,52 @@ the conclusion was **tested against the running app**, not read off the source.
    single-quoted attribute. Worth aligning.
 3. **Open registration** remains the multiplier under every authenticated limit.
 
+### ⚡ Capacity work — 2026-09-13
+
+Done because the app is meant to be open to anyone signing in, which makes a registration
+gate the wrong answer: the fix is to survive the load, not to ration the door.
+
+**Measured before and after, same test — 20 concurrent `/api/snapshots` plus one unrelated
+trivial request fired during the burst:**
+
+| | Before | After |
+|---|---|---|
+| The burst | 966 ms | **169 ms** |
+| A bystander's trivial request | 950 ms (19x slower than idle) | **84 ms** (2x) |
+
+Three changes, in this order, because each depends on the one before it.
+
+**1. WAL, with a busy timeout.** The database ran in the default rollback-journal mode, where
+a write locks out every reader. On a copy of this database, 2,500 single-row inserts — one
+backfill — took **6,895 ms in the old mode and 114 ms in WAL**, and in the old mode every
+other request queued behind it. `busy_timeout = 5000` is set on *every* process that opens
+the file (it is a connection setting, not a database one), so a writer that finds the file
+locked waits rather than failing with SQLITE_BUSY.
+
+*The restore path had to be fixed first.* The nightly backup was already WAL-safe — it uses
+SQLite's online backup API and verifies integrity afterwards. `backup-db.sh restore` was not:
+it took its "just in case" copy with a plain `cp` of `data.db` alone, which in WAL mode can
+omit the newest committed rows, and it then overwrote the database while the **old `-wal` file
+was still beside it** — which SQLite would replay onto the restored file. It now checkpoints
+before copying and removes the stale `-wal`/`-shm` with the file they describe.
+
+**2. Caching the computed views.** `/api/snapshots` rebuilt a user's whole history on every
+request (463KB, ~48ms of blocking work) for a page that had not changed; `/api/algorithm`
+re-scored a full price series per request, and that scoring is *identical for every user* —
+only the position gate differs. Both are now keyed by a database-wide `data_version` counter,
+bumped by a single middleware after any successful write and by the price-fetch job after it
+writes. Keying on the data rather than on a clock is what makes it correct across processes:
+neither worker has to hear about the other's writes, because the key changes underneath both.
+Result: **71ms → 2.9ms** for snapshots, 25ms → 7ms for the algorithm.
+
+**3. Two workers.** pm2 moved from one forked process to two clustered ones on a two-core box —
+half the machine had been idle. This is only safe *because* of (1). Two consequences worth
+remembering: rate-limit counters live in each process's memory, so the effective limit is
+roughly doubled, and the caches are per-process, so each warms separately.
+
+Pinned by tests: a write must retire the cached portfolio (verified by removing the version
+bump and watching the test fail), and the database must be in WAL mode.
+
 ### ⏳ Open Items / Backlog
 
 **Separate personal data from financial data (proposed 2026-09-13, not built).**
@@ -475,7 +521,7 @@ unfiltered daily email would be ignored within a week and would take the alert d
 credibility with it. See the *Algorithm tab* section and `algorithm_backtest_findings` for why.
 
 
-**Testing — 68 tests, in CI since 2026-09-12.**
+**Testing — 70 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

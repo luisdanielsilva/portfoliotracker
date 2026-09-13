@@ -15,7 +15,8 @@ const YahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
 const { evaluateAlgorithmSignals, standingsFor, isStandingsDay } = require('./algo-alerts');
 const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
-        ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, recentHigh } = require('./db-migrations');
+        ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureDataVersion,
+        recentHigh } = require('./db-migrations');
 require('dotenv').config();
 
 const dbPath = path.join(__dirname, 'data.db');
@@ -665,6 +666,7 @@ async function fetchPrices() {
   const results = [];
   try {
     db = new Database(dbPath);
+    db.pragma('busy_timeout = 5000');   // shares the file with the web process
     db.pragma('foreign_keys = ON');
 
     const { isClosed, reason } = areMarketsClosedForFetch();
@@ -705,6 +707,7 @@ async function fetchPrices() {
     ensureGainRuleType(db);
     ensureDropFromHighRuleType(db);
     ensureAlgorithmAlertSettings(db);
+    ensureDataVersion(db);
 
     const upsertStmt = db.prepare(`
       INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)
@@ -769,6 +772,13 @@ async function fetchPrices() {
       upsertStmt.run(q.ticker, priceEur, priceUsd, q.priceNative, q.currency);
       successCount++;
       results.push({ ticker: q.ticker, ok: true, priceNative: q.priceNative, currency: q.currency, priceEur });
+    }
+
+    // New prices change every computed view. The web process caches those by a
+    // version counter rather than by time, so this is what tells it to let go of
+    // yesterday's answers — without the two processes needing to talk.
+    if (successCount > 0) {
+      db.prepare('UPDATE data_version SET version = version + 1 WHERE id = 1').run();
     }
 
     // Log summary

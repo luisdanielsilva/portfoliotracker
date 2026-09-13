@@ -166,3 +166,45 @@ test('the expensive endpoints carry a rate limit', async () => {
   const s = await fetch(base + '/api/avg-cost');
   assert.ok(s.headers.get('ratelimit-limit'), 'the whole API sits behind a limiter');
 });
+
+/**
+ * The computed-view cache. A stale entry here would show somebody yesterday's
+ * portfolio as though it were today's, which is worse than any slowness it saves.
+ */
+test('a write retires the cached portfolio', async () => {
+  const Database = require('better-sqlite3');
+  const crypto = require('node:crypto');
+  const db = new Database(dbFile);
+  const userId = db.prepare('INSERT INTO users (email) VALUES (?)').run('cache@example.com').lastInsertRowid;
+  const raw = 'cache-' + crypto.randomBytes(12).toString('hex');
+  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
+    .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
+  const headers = { 'Content-Type': 'application/json', Cookie: `pt_session=${raw}` };
+  const snapshots = () => fetch(base + '/api/snapshots', { headers }).then(r => r.text());
+  const buy = (ticker, qty, amount, ts) => fetch(base + '/api/transactions', {
+    method: 'POST', headers, body: JSON.stringify({ ticker, quantity: qty, amountEUR: amount, type: 'buy', ts })
+  });
+
+  assert.strictEqual((await buy('AAA', 1, 100, Date.UTC(2026, 0, 10))).status, 200);
+  const first = await snapshots();
+  await snapshots();                                   // now certainly cached
+
+  const version = () => db.prepare('SELECT version FROM data_version WHERE id = 1').get().version;
+  const before = version();
+  assert.strictEqual((await buy('BBB', 5, 500, Date.UTC(2026, 1, 10))).status, 200);
+  assert.ok(version() > before, 'a write must bump the version the cache is keyed by');
+
+  const after = await snapshots();
+  assert.notStrictEqual(after, first, 'the cached response must not survive the write');
+  assert.ok(after.includes('BBB'), 'the new holding has to appear immediately');
+  db.close();
+});
+
+test('the database runs in WAL mode with a busy timeout', () => {
+  // Both are required before a second worker is safe: WAL so readers do not block
+  // on a writer, busy_timeout so a blocked writer waits rather than erroring.
+  const Database = require('better-sqlite3');
+  const db = new Database(dbFile, { readonly: true });
+  assert.strictEqual(db.pragma('journal_mode', { simple: true }), 'wal');
+  db.close();
+});
