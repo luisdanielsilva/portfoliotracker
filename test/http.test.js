@@ -14,10 +14,12 @@ const path = require('node:path');
 
 const PORT = 3199;
 const base = `http://127.0.0.1:${PORT}`;
-let server, dbFile;
+let server, dbFile, identityFile;
 
 test.before(async () => {
-  dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pt-test-')), 'test.db');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-test-'));
+  dbFile = path.join(dir, 'test.db');
+  identityFile = path.join(dir, 'identity.db');   // where the server will look for it
   server = spawn('node', [path.join(__dirname, '..', 'server.js')], {
     env: { ...process.env, DB_PATH: dbFile, API_PORT: String(PORT), SMTP_HOST: '', COOKIE_INSECURE: 'true' },
     stdio: ['ignore', 'ignore', 'pipe']
@@ -29,6 +31,26 @@ test.before(async () => {
 });
 
 test.after(() => { if (server) server.kill(); });
+
+
+/**
+ * Create an account and a usable session across the split: the identity and the
+ * session go in identity.db, the settings row on the financial side, and what
+ * comes back is the opaque key the app will see as req.userId.
+ */
+function signIn(email) {
+  const Database = require('better-sqlite3');
+  const crypto = require('node:crypto');
+  const idb = new Database(identityFile);
+  const pdb = new Database(dbFile);
+  const key = crypto.randomUUID();
+  const userId = idb.prepare('INSERT INTO users (user_key, email) VALUES (?, ?)').run(key, email).lastInsertRowid;
+  const raw = 'test-' + crypto.randomBytes(12).toString('hex');
+  idb.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
+    .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
+  pdb.prepare('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)').run(key);
+  return { key, userId, raw, idb, pdb, headers: { 'Content-Type': 'application/json', Cookie: `pt_session=${raw}` } };
+}
 
 test('the database is not downloadable', async () => {
   assert.equal((await fetch(base + '/data.db')).status, 404);
@@ -75,16 +97,28 @@ test('the contact form validates and caps its input', async () => {
   assert.equal((await post({ ...good, name: '' })).status, 400, 'empty field');
 });
 
-test('a database built from schema.sqlite.sql alone has every table the app queries', () => {
+test('a fresh deployment gets every table, on the correct side of the split', () => {
   const Database = require('better-sqlite3');
-  const db = new Database(dbFile, { readonly: true });
-  const have = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
-  for (const t of ['users', 'sessions', 'login_tokens', 'transactions', 'prices', 'alerts',
-                   'exchange_rates', 'stock_splits', 'job_runs',
-                   'algo_alert_log', 'algo_settings_log']) {
-    assert.ok(have.includes(t), `${t} missing — a fresh deployment would fail on it`);
+  const pdb = new Database(dbFile, { readonly: true });
+  const idb = new Database(identityFile, { readonly: true });
+  const tablesIn = h => h.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
+  const financial = tablesIn(pdb), identity = tablesIn(idb);
+
+  for (const t of ['transactions', 'prices', 'alerts', 'exchange_rates', 'stock_splits',
+                   'job_runs', 'algo_alert_log', 'algo_settings_log', 'user_settings', 'data_version']) {
+    assert.ok(financial.includes(t), `${t} missing from the financial database`);
   }
-  db.close();
+  for (const t of ['users', 'sessions', 'login_tokens']) {
+    assert.ok(identity.includes(t), `${t} missing from the identity database`);
+  }
+
+  // The whole point of the split, asserted rather than assumed.
+  assert.ok(!financial.includes('users'), 'the financial database must not hold identities');
+  for (const t of financial) {
+    const cols = pdb.prepare(`SELECT name FROM pragma_table_info('${t}')`).all().map(c => c.name);
+    assert.ok(!cols.some(c => /email/i.test(c)), `${t} has an email column on the financial side`);
+  }
+  pdb.close(); idb.close();
 });
 
 /**
@@ -92,20 +126,11 @@ test('a database built from schema.sqlite.sql alone has every table the app quer
  * level at which the change log can be tested, because that is where it is written.
  */
 test('changing a timing saves it and records what changed', async () => {
-  const Database = require('better-sqlite3');
-  const crypto = require('node:crypto');
-  const db = new Database(dbFile);
-  const userId = db.prepare('INSERT INTO users (email) VALUES (?)').run('timings@example.com').lastInsertRowid;
-  const raw = 'httptest-' + crypto.randomBytes(12).toString('hex');
-  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
-    .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
-
+  const s = signIn('timings@example.com');
   const call = (method, body) => fetch(base + '/api/algorithm/settings', {
-    method,
-    headers: { 'Content-Type': 'application/json', Cookie: `pt_session=${raw}` },
-    body: body === undefined ? undefined : JSON.stringify(body)
+    method, headers: s.headers, body: body === undefined ? undefined : JSON.stringify(body)
   });
-  const logRows = () => db.prepare('SELECT field, old_value, new_value FROM algo_settings_log WHERE user_id = ? ORDER BY id').all(userId);
+  const logRows = () => s.pdb.prepare('SELECT field, old_value, new_value FROM algo_settings_log WHERE user_id = ? ORDER BY id').all(s.key);
 
   const defaults = await (await call('GET')).json();
   assert.strictEqual(defaults.holdDays, 3, 'a new account starts at the documented defaults');
@@ -127,8 +152,7 @@ test('changing a timing saves it and records what changed', async () => {
   assert.strictEqual(bad.status, 400, 'out-of-range values are refused');
   assert.strictEqual(logRows().length, 2, 'and a refused change is not logged');
   assert.strictEqual((await (await call('GET')).json()).holdDays, 5, 'nor does it corrupt what was saved');
-
-  db.close();
+  s.idb.close(); s.pdb.close();
 });
 
 /**
@@ -136,25 +160,15 @@ test('changing a timing saves it and records what changed', async () => {
  * data. It used to hand Yahoo whatever string it was given.
  */
 test('backfill refuses a ticker that is not a ticker', async () => {
-  const Database = require('better-sqlite3');
-  const crypto = require('node:crypto');
-  const db = new Database(dbFile);
-  const userId = db.prepare('INSERT INTO users (email) VALUES (?)').run('backfill@example.com').lastInsertRowid;
-  const raw = 'bf-' + crypto.randomBytes(12).toString('hex');
-  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
-    .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
-
+  const s = signIn('backfill@example.com');
   for (const ticker of ['../../etc/passwd', 'A'.repeat(40), 'not a ticker', '']) {
     const r = await fetch(base + '/api/backfill', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: `pt_session=${raw}` },
-      body: JSON.stringify({ ticker, years: 10 })
+      method: 'POST', headers: s.headers, body: JSON.stringify({ ticker, years: 10 })
     });
     assert.strictEqual(r.status, 400, `"${ticker}" must be refused before anything is fetched`);
   }
-  // Nothing reached the price table on the way through.
-  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM prices').get().c, 0);
-  db.close();
+  assert.strictEqual(s.pdb.prepare('SELECT COUNT(*) c FROM prices').get().c, 0);
+  s.idb.close(); s.pdb.close();
 });
 
 test('the expensive endpoints carry a rate limit', async () => {
@@ -172,14 +186,9 @@ test('the expensive endpoints carry a rate limit', async () => {
  * portfolio as though it were today's, which is worse than any slowness it saves.
  */
 test('a write retires the cached portfolio', async () => {
-  const Database = require('better-sqlite3');
-  const crypto = require('node:crypto');
-  const db = new Database(dbFile);
-  const userId = db.prepare('INSERT INTO users (email) VALUES (?)').run('cache@example.com').lastInsertRowid;
-  const raw = 'cache-' + crypto.randomBytes(12).toString('hex');
-  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
-    .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
-  const headers = { 'Content-Type': 'application/json', Cookie: `pt_session=${raw}` };
+  const s = signIn('cache@example.com');
+  const { headers } = s;
+  const db = s.pdb;
   const snapshots = () => fetch(base + '/api/snapshots', { headers }).then(r => r.text());
   const buy = (ticker, qty, amount, ts) => fetch(base + '/api/transactions', {
     method: 'POST', headers, body: JSON.stringify({ ticker, quantity: qty, amountEUR: amount, type: 'buy', ts })
@@ -197,7 +206,7 @@ test('a write retires the cached portfolio', async () => {
   const after = await snapshots();
   assert.notStrictEqual(after, first, 'the cached response must not survive the write');
   assert.ok(after.includes('BBB'), 'the new holding has to appear immediately');
-  db.close();
+  s.idb.close(); s.pdb.close();
 });
 
 test('the database runs in WAL mode with a busy timeout', () => {
@@ -210,15 +219,10 @@ test('the database runs in WAL mode with a busy timeout', () => {
 });
 
 test('being here is recorded once a day, not once a request', async () => {
-  const Database = require('better-sqlite3');
-  const crypto = require('node:crypto');
-  const db = new Database(dbFile);
-  const userId = db.prepare('INSERT INTO users (email) VALUES (?)').run('seen@example.com').lastInsertRowid;
-  const raw = 'seen-' + crypto.randomBytes(12).toString('hex');
-  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
-    .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
-  const seen = () => db.prepare('SELECT last_seen_at FROM users WHERE id = ?').get(userId).last_seen_at;
-  const visit = () => fetch(base + '/api/transactions', { headers: { Cookie: `pt_session=${raw}` } });
+  // last_seen_at is identity, not money — it must be written on that side only.
+  const s = signIn('seen@example.com');
+  const seen = () => s.idb.prepare('SELECT last_seen_at FROM users WHERE id = ?').get(s.userId).last_seen_at;
+  const visit = () => fetch(base + '/api/transactions', { headers: { Cookie: `pt_session=${s.raw}` } });
 
   assert.strictEqual(seen(), null, 'a new account has never been here');
   await visit();
@@ -229,8 +233,8 @@ test('being here is recorded once a day, not once a request', async () => {
   assert.strictEqual(seen(), first, 'later requests the same day must not write again');
 
   // Backdate it and the next visit should refresh it.
-  db.prepare("UPDATE users SET last_seen_at = '2020-01-01T00:00:00.000Z' WHERE id = ?").run(userId);
+  s.idb.prepare("UPDATE users SET last_seen_at = '2020-01-01T00:00:00.000Z' WHERE id = ?").run(s.userId);
   await visit();
   assert.notStrictEqual(seen(), '2020-01-01T00:00:00.000Z', 'a new day is recorded');
-  db.close();
+  s.idb.close(); s.pdb.close();
 });

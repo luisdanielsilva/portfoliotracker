@@ -18,6 +18,13 @@ yarn-error.log*
 data.db
 data.db-wal
 data.db-shm
+# Since the split there are two of them, plus their write-ahead logs.
+portfolio.db
+portfolio.db-wal
+portfolio.db-shm
+identity.db
+identity.db-wal
+identity.db-shm
 
 # Database backups and legacy files
 *.backup*

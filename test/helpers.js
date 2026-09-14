@@ -3,20 +3,44 @@
  * app does without touching data.db. Nothing here reads or writes the live database.
  */
 const Database = require('better-sqlite3');
+const crypto = require('node:crypto');
 const fs = require('fs');
 const path = require('path');
 
 const SCHEMA = fs.readFileSync(path.join(__dirname, '..', 'schema.sqlite.sql'), 'utf-8');
+const IDENTITY_SCHEMA = fs.readFileSync(path.join(__dirname, '..', 'schema.identity.sql'), 'utf-8');
 
+/**
+ * The financial database, with its identity counterpart hanging off it as
+ * `db.identity`. Two files in production, two connections here, joined by the
+ * same opaque key — so a test exercises the split rather than pretending it away.
+ */
 function freshDb() {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  const identity = new Database(':memory:');
+  identity.pragma('foreign_keys = ON');
+  identity.exec(IDENTITY_SCHEMA);
+  db.identity = identity;
   return db;
 }
 
+/**
+ * Creates an identity and returns its **key**, not its row id — because the key
+ * is what every financial table stores. Tests written before the split keep
+ * working unchanged: the value they pass around simply became a string.
+ */
 function addUser(db, email = 'someone@example.com') {
-  return db.prepare('INSERT INTO users (email) VALUES (?)').run(email).lastInsertRowid;
+  const key = crypto.randomUUID();
+  db.identity.prepare('INSERT INTO users (user_key, email) VALUES (?, ?)').run(key, email);
+  db.prepare('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)').run(key);
+  return key;
+}
+
+/** The identity row id, for the few tests that need to write a session. */
+function identityIdFor(db, key) {
+  return db.identity.prepare('SELECT id FROM users WHERE user_key = ?').get(key).id;
 }
 
 function addTx(db, userId, { ticker, quantity, amount, type = 'buy', ts, currency = 'EUR', rate = 1 }) {
@@ -58,4 +82,4 @@ function migratedDb() {
   return db;
 }
 
-module.exports = { freshDb, migratedDb, addUser, addTx, addPrice, addSplit, day };
+module.exports = { freshDb, migratedDb, addUser, identityIdFor, addTx, addPrice, addSplit, day };

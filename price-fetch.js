@@ -19,7 +19,10 @@ const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
         recentHigh } = require('./db-migrations');
 require('dotenv').config();
 
-const dbPath = path.join(__dirname, 'data.db');
+// Hardcoded until the database split, which is exactly the kind of thing that
+// keeps writing to a file nobody reads any more. It honours DB_PATH now, like
+// every other entry point.
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'portfolio.db');
 const logsDir = path.join(__dirname, 'logs');
 const logFile = path.join(logsDir, 'price-fetch.log');
 
@@ -478,17 +481,54 @@ function areMarketsClosedForFetch(when) {
   };
 }
 
-async function evaluateAlerts(db, mailer) {
+
+/* ---- reaching across the split ----
+ *
+ * The financial database holds an opaque key where a person used to be. Anything
+ * that has to *tell* somebody something — an alert email, a digest — needs the
+ * address, and the address is deliberately somewhere else. These two functions
+ * are the only places that cross, and they cross in one direction: key to email,
+ * never the reverse.
+ */
+function identityFor(db) {
+  if (db && db.identity) return db.identity;          // tests hand theirs over directly
+  const file = process.env.IDENTITY_DB_PATH
+    || path.join(path.dirname(process.env.DB_PATH || path.join(__dirname, 'portfolio.db')), 'identity.db');
+  try {
+    const handle = new Database(file, { readonly: true });
+    handle.pragma('busy_timeout = 5000');
+    return handle;
+  } catch {
+    return null;   // no identities available: nothing can be emailed, and the caller says so
+  }
+}
+
+/** key -> email, as a plain lookup. Returns a function so callers cannot hold the table. */
+function emailsByKey(identityDb) {
+  const map = new Map();
+  if (identityDb) {
+    try {
+      for (const r of identityDb.prepare('SELECT user_key, email FROM users').all()) map.set(r.user_key, r.email);
+    } catch (err) {
+      log(`  ⚠ could not read identities: ${err.message}`);
+    }
+  }
+  return key => map.get(key) || null;
+}
+
+async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
   log('\n📢 Evaluating active alerts...');
 
   // Join to users so each alert is emailed to the person who created it.
+  // This used to be one JOIN. It cannot be any more: the addresses live in a
+  // different file on purpose, and the whole point is that the financial database
+  // cannot name anybody. So the rows come from here and the addresses from there,
+  // joined in memory by the opaque key.
   const getAlertsStmt = db.prepare(`
-    SELECT a.id, a.user_id, a.ticker, a.rule_type, a.threshold, a.currency, a.last_triggered_at,
-           u.email AS owner_email
-    FROM alerts a
-    JOIN users u ON u.id = a.user_id
-    WHERE a.enabled = 1
+    SELECT a.id, a.user_id, a.ticker, a.rule_type, a.threshold, a.currency, a.last_triggered_at
+    FROM alerts a WHERE a.enabled = 1
   `);
+  const emailOf = emailsByKey(identityDb);
 
   const getPriceStmt = db.prepare(`
     SELECT price_eur, price_native, currency FROM prices
@@ -510,7 +550,7 @@ async function evaluateAlerts(db, mailer) {
   // The Algorithm tab's own alert rides in the same digest rather than sending a
   // second email. It is not a row in `alerts` — see algo-alerts.js for why — so
   // it is evaluated separately and merged here.
-  const algoItems = evaluateAlgorithmSignals(db, new Date(), log);
+  const algoItems = evaluateAlgorithmSignals(db, new Date(), log, identityDb);
   for (const [recipient, items] of algoItems) {
     if (!byRecipient.has(recipient)) byRecipient.set(recipient, []);
     byRecipient.get(recipient).push(...items);
@@ -521,12 +561,13 @@ async function evaluateAlerts(db, mailer) {
   // side stays visible without ever demanding attention.
   const standingsByRecipient = new Map();
   if (isStandingsDay()) {
-    for (const u of db.prepare('SELECT id, email FROM users WHERE algo_alerts_enabled = 1').all()) {
-      if (!u.email) continue;
+    for (const u of db.prepare('SELECT user_id AS id FROM user_settings WHERE algo_alerts_enabled = 1').all()) {
+      const email = emailOf(u.id);
+      if (!email) continue;
       const rows = standingsFor(db, u.id);
       if (!rows.length) continue;
-      standingsByRecipient.set(u.email, rows);
-      if (!byRecipient.has(u.email)) byRecipient.set(u.email, []);
+      standingsByRecipient.set(email, rows);
+      if (!byRecipient.has(email)) byRecipient.set(email, []);
     }
   }
 
@@ -598,7 +639,7 @@ async function evaluateAlerts(db, mailer) {
       // A digest is somebody's portfolio. It goes to the account that created the rule
       // and nowhere else — the old fallback would have posted one person's holdings to
       // the operator's inbox if their user row ever lost its address.
-      const recipient = alert.owner_email;
+      const recipient = emailOf(alert.user_id);
       if (!recipient) {
         log(`  ⚠ Alert ${alert.id} (${alert.ticker}) has no owner address, skipping`);
         continue;
@@ -676,14 +717,22 @@ async function evaluateAlerts(db, mailer) {
 const HOT_SEEN_DAYS = 7;        // a holder here this recently keeps it daily
 const COLD_INTERVAL_DAYS = 7;   // otherwise, at most one catch-up a week
 
-function tickerTier(db, ticker, now) {
-  const seen = db.prepare(`
-    SELECT 1 FROM transactions t JOIN users u ON u.id = t.user_id
-    WHERE t.ticker = ? AND u.last_seen_at IS NOT NULL
-      AND julianday(?) - julianday(u.last_seen_at) <= ?
-    LIMIT 1
-  `).get(ticker, now.toISOString(), HOT_SEEN_DAYS);
-  if (seen) return 'hot';
+function tickerTier(db, ticker, now, identityDb = identityFor(db)) {
+  // "Who holds this" is a financial question; "were they here lately" is an
+  // identity one. Since the split they are two files, so this is two queries and
+  // a loop rather than a join — the cost of not being able to name anybody from
+  // the financial side alone.
+  const holders = db.prepare('SELECT DISTINCT user_id FROM transactions WHERE ticker = ?').all(ticker);
+  if (identityDb && holders.length) {
+    const seenStmt = identityDb.prepare(`
+      SELECT 1 FROM users WHERE user_key = ? AND last_seen_at IS NOT NULL
+        AND julianday(?) - julianday(last_seen_at) <= ?
+    `);
+    const stamp = now.toISOString();
+    for (const h of holders) {
+      if (seenStmt.get(h.user_id, stamp, HOT_SEEN_DAYS)) return 'hot';
+    }
+  }
 
   const watched = db.prepare(
     'SELECT 1 FROM alerts WHERE ticker = ? AND enabled = 1 LIMIT 1'
@@ -776,7 +825,7 @@ async function fetchPrices() {
     const now = new Date();
     const plan = { quote: [], range: [], skip: [] };
     for (const ticker of tickers) {
-      const tier = tickerTier(db, ticker, now);
+      const tier = tickerTier(db, ticker, now, identityDb);
       const gap = priceGapDays(db, ticker, now);
       if (tier === 'hot') {
         // More than a day behind means days are actually missing, and a quote
@@ -805,6 +854,7 @@ async function fetchPrices() {
     ensureDropFromHighRuleType(db);
     ensureAlgorithmAlertSettings(db);
     ensureDataVersion(db);
+    const identityDb = identityFor(db);
 
     const upsertStmt = db.prepare(`
       INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)
@@ -948,5 +998,6 @@ if (require.main === module) {
 }
 
 module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts, ordinal,
+  identityFor, emailsByKey,
   tickerTier, priceGapDays, HOT_SEEN_DAYS, COLD_INTERVAL_DAYS,
                    areMarketsClosedForFetch };

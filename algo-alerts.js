@@ -114,11 +114,21 @@ function standingsFor(db, userId, now = new Date()) {
  * the cooldown unset would retry the same alert every day until it succeeded,
  * which is the one failure mode worse than not sending it.
  */
-function evaluateAlgorithmSignals(db, now = new Date(), log = () => {}) {
+function evaluateAlgorithmSignals(db, now = new Date(), log = () => {}, identityDb = null) {
   const byRecipient = new Map();
+  // Settings live on the financial side keyed by the opaque id; the address that
+  // the email actually goes to lives in the identity database and is fetched
+  // separately. Nothing here can turn a key back into a person without it.
+  const idb = identityDb || (db && db.identity) || null;
+  const emailOf = new Map();
+  if (idb) {
+    try {
+      for (const r of idb.prepare('SELECT user_key, email FROM users').all()) emailOf.set(r.user_key, r.email);
+    } catch { /* no identities reachable */ }
+  }
   const users = db.prepare(
-    'SELECT id, email, algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays FROM users WHERE algo_alerts_enabled = 1'
-  ).all();
+    'SELECT user_id AS id, algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays FROM user_settings WHERE algo_alerts_enabled = 1'
+  ).all().map(u => ({ ...u, email: emailOf.get(u.id) || null }));
 
   const record = db.prepare(
     'INSERT INTO algo_alert_log (user_id, ticker, fired_at, signal_date, tier, direction, confidence) VALUES (?,?,?,?,?,?,?)'

@@ -92,7 +92,7 @@ test('the same holding is not emailed twice inside the quiet period', () => {
   const u = addUser(db, 'owner@example.com');
   addTx(db, u, { ticker: 'DIP', quantity: 10, amount: 1000, ts: day(1) });
   const asOf = buildCheap(db, 'DIP');
-  db.prepare('UPDATE users SET algo_hold_days = 3, algo_cooldown_days = 60 WHERE id = ?').run(u);
+  db.prepare('UPDATE user_settings SET algo_hold_days = 3, algo_cooldown_days = 60 WHERE user_id = ?').run(u);
 
   const first = A.evaluateAlgorithmSignals(db, asOf);
   assert.strictEqual(first.get('owner@example.com').length, 1, 'fires the first time');
@@ -113,7 +113,7 @@ test('a shorter quiet period lets it speak again sooner', () => {
   const u = addUser(db, 'owner@example.com');
   addTx(db, u, { ticker: 'DIP', quantity: 10, amount: 1000, ts: day(1) });
   const asOf = buildCheap(db, 'DIP');
-  db.prepare('UPDATE users SET algo_hold_days = 3, algo_cooldown_days = 7 WHERE id = ?').run(u);
+  db.prepare('UPDATE user_settings SET algo_hold_days = 3, algo_cooldown_days = 7 WHERE user_id = ?').run(u);
 
   A.evaluateAlgorithmSignals(db, asOf);
   // Move the world on eight days — prices included, or the freshness guard would
@@ -147,7 +147,7 @@ test('switching the algorithm alerts off silences them', () => {
   const u = addUser(db, 'owner@example.com');
   addTx(db, u, { ticker: 'DIP', quantity: 10, amount: 1000, ts: day(1) });
   const asOf = buildCheap(db, 'DIP');
-  db.prepare('UPDATE users SET algo_alerts_enabled = 0 WHERE id = ?').run(u);
+  db.prepare('UPDATE user_settings SET algo_alerts_enabled = 0 WHERE user_id = ?').run(u);
   assert.strictEqual(A.evaluateAlgorithmSignals(db, asOf).size, 0);
 });
 

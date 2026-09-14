@@ -14,14 +14,21 @@
  */
 
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const Database = require('better-sqlite3');
 const { getAvgCostPerShare } = require('./portfolio');
 
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'data.db');
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'portfolio.db');
 const argUser = process.argv.indexOf('--user');
 const onlyUser = argUser > -1 ? parseInt(process.argv[argUser + 1], 10) : null;
 
 const db = new Database(dbPath, { readonly: true });
+
+// Identities live in their own file since the split. This script names people in
+// its output, so it needs both — and it opens the identity side read-only, which
+// is all a reconciliation report should ever need.
+const identityPath = process.env.IDENTITY_DB_PATH || path.join(path.dirname(dbPath), 'identity.db');
+const identityDb = new Database(identityPath, { readonly: true });
 
 db.pragma('busy_timeout = 5000');
 let problems = 0;
@@ -29,8 +36,8 @@ const fail = m => { console.log(`   ✗ ${m}`); problems++; };
 const ok = m => console.log(`   ✓ ${m}`);
 const eur = n => '€' + n.toFixed(2);
 
-const users = db.prepare(
-  onlyUser ? 'SELECT id, email FROM users WHERE id = ?' : 'SELECT id, email FROM users'
+const users = identityDb.prepare(
+  onlyUser ? 'SELECT user_key AS id, email FROM users WHERE user_key = ?' : 'SELECT user_key AS id, email FROM users'
 ).all(...(onlyUser ? [onlyUser] : []));
 
 for (const user of users) {

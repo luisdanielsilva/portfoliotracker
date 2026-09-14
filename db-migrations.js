@@ -197,7 +197,13 @@ function recentHigh(db, ticker, days = HIGH_WINDOW_DAYS) {
  *   algo_cooldown_days — how long the same holding then stays quiet (calendar days)
  */
 function ensureAlgorithmAlertSettings(db) {
-  const cols = columnNames(db, 'users');
+  // Since the split there is no users table on the financial side — the settings
+  // moved to user_settings and the identity lives in another file entirely. The
+  // column work below only applies to a pre-split database.
+  const hasUsers = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+  ).get();
+  const cols = hasUsers ? columnNames(db, 'users') : ['algo_hold_days', 'algo_cooldown_days', 'algo_alerts_enabled', 'last_seen_at'];
   if (!cols.includes('algo_hold_days')) {
     db.exec('ALTER TABLE users ADD COLUMN algo_hold_days INTEGER NOT NULL DEFAULT 3');
   }

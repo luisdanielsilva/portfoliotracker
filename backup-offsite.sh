@@ -17,7 +17,9 @@
 #   ./backup-offsite.sh --dry-run    do everything except send and push
 #
 # Restore:
-#   gpg -d data.db.<stamp>.gz.gpg > data.db.gz && gunzip data.db.gz
+#   gpg -d portfoliotracker.<stamp>.tar.gpg | tar -x
+#   gunzip portfolio.db.<stamp>.gz identity.db.<stamp>.gz
+# (older snapshots are a single data.db.<stamp>.gz.gpg, from before the split)
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,22 +40,39 @@ fail() { say "ERROR: $*" >&2; exit 1; }
 # 1. a fresh, integrity-checked snapshot from the existing script
 say "taking a snapshot"
 ./backup-db.sh >/dev/null || fail "backup-db.sh failed — not shipping anything"
-SNAPSHOT="$(ls -1t "$BACKUP_DIR"/data.db.*.gz | head -1)"
-[ -s "$SNAPSHOT" ] || fail "no snapshot found in $BACKUP_DIR"
-STAMP="$(basename "$SNAPSHOT" | sed 's/^data\.db\.//; s/\.gz$//')"
-say "snapshot: $(basename "$SNAPSHOT") ($(du -h "$SNAPSHOT" | cut -f1))"
+# Both files, newest of each. Shipping only the financial half off-site would
+# make the off-site copy unusable on its own — no identities means nobody can
+# sign in to it — and shipping only the identity half would be an address book.
+SNAPSHOTS=()
+for BASE in portfolio.db identity.db; do
+  NEWEST="$(ls -1t "$BACKUP_DIR/$BASE".*.gz 2>/dev/null | head -1)"
+  [ -n "$NEWEST" ] && SNAPSHOTS+=("$NEWEST")
+done
+[ "${#SNAPSHOTS[@]}" -eq 2 ] || fail "expected a snapshot of each database in $BACKUP_DIR, found ${#SNAPSHOTS[@]}"
+STAMP="$(basename "${SNAPSHOTS[0]}" | sed 's/^[^.]*\.db\.//; s/\.gz$//')"
+for f in "${SNAPSHOTS[@]}"; do say "snapshot: $(basename "$f") ($(du -h "$f" | cut -f1))"; done
 
-# 2. encrypt
-ENC="$BACKUP_DIR/data.db.$STAMP.gz.gpg"
+# 2. bundle the pair, then encrypt
+#
+# One archive rather than two, because either half alone is useless: the
+# financial file with no identities cannot be signed into, and the identity file
+# alone is an address book. Keeping them in one object means a restore can never
+# end up with a mismatched pair from different weeks.
+BUNDLE="$BACKUP_DIR/portfoliotracker.$STAMP.tar"
+tar -cf "$BUNDLE" -C "$BACKUP_DIR" $(printf '%s\n' "${SNAPSHOTS[@]}" | xargs -n1 basename)
+ENC="$BACKUP_DIR/portfoliotracker.$STAMP.tar.gpg"
 printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --quiet \
   --symmetric --cipher-algo AES256 --s2k-mode 3 --s2k-count 65011712 \
-  --passphrase-fd 0 --output "$ENC" "$SNAPSHOT"
+  --passphrase-fd 0 --output "$ENC" "$BUNDLE"
+rm -f "$BUNDLE"
 [ -s "$ENC" ] || fail "encryption produced nothing"
 chmod 600 "$ENC"
 
-# prove it round-trips before trusting it anywhere
+# prove it round-trips before trusting it anywhere — and that both files are in it
 printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --quiet --decrypt --passphrase-fd 0 "$ENC" \
-  | gzip -t - 2>/dev/null || fail "the encrypted copy does not decrypt back to a valid gzip"
+  | tar -t > /dev/null 2>&1 || fail "the encrypted copy does not decrypt back to a valid archive"
+INSIDE="$(printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --quiet --decrypt --passphrase-fd 0 "$ENC" | tar -t | wc -l)"
+[ "$INSIDE" -eq 2 ] || fail "the archive holds $INSIDE file(s), expected 2"
 say "encrypted and verified: $(basename "$ENC") ($(du -h "$ENC" | cut -f1))"
 
 if $DRY_RUN; then say "dry run — not sending, not pushing"; rm -f "$ENC"; exit 0; fi
@@ -67,7 +86,7 @@ if [ -d "$GIT_MIRROR/.git" ]; then
   (
     cd "$GIT_MIRROR"
     # keep the repo from growing without bound; encrypted blobs do not delta-compress
-    ls -1t data.db.*.gz.gpg 2>/dev/null | tail -n +$((KEEP_OFFSITE + 1)) | xargs -r git rm -q --ignore-unmatch
+    ls -1t portfoliotracker.*.tar.gpg data.db.*.gz.gpg 2>/dev/null | tail -n +$((KEEP_OFFSITE + 1)) | xargs -r git rm -q --ignore-unmatch
     git add -A
     if git diff --cached --quiet; then
       say "git mirror: nothing new to commit"

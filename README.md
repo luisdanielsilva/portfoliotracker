@@ -402,40 +402,58 @@ and the reasoning. It needs root, which this account does not have without a pas
 one `sudo` edit and a reload away. It protects what the app's own limiters cannot: the ~280KB of
 static files served to anyone with no account at all.
 
-**Separate personal data from financial data (proposed 2026-09-13, not built).**
+**Personal and financial data are now separate files (done 2026-09-14).**
 
-Today one `data.db` holds both the email addresses and everything they bought. The proposal
-is two databases: identity in one, portfolio in the other, joined by a key rather than an
-address.
+`identity.db` holds the email addresses, the sessions and the login tokens. `portfolio.db`
+holds everything anybody owns. They are joined by an **opaque random key**, never by an
+address — `split-databases.js` did the migration and explains why a hash of the email would
+have been the wrong answer: addresses are guessable, so a hash of one can be tested against
+every row until it matches.
 
-*One correction to the obvious design.* The link should **not** be a hash of the email. Email
-addresses are guessable, so a hashed one is weak pseudonymisation — anybody holding the
-financial file can test `sha256("someone@gmail.com")` against every row until it matches. Use a
-**random opaque key** (a UUID generated at signup, stored beside the email in the identity
-database and used as the foreign key everywhere else). It cannot be reversed by guessing,
-because it is not derived from anything.
+**What made this a small change rather than a rewrite:** `req.userId` *is* the key. Every
+`WHERE user_id = ?` on the financial side kept working; the value simply became a string.
+Only the fifteen places that genuinely touch identity had to move.
 
-*Be clear about what this does and does not buy.* Both files would sit on the same disk, in
-the same process, in the same backup, under the same passphrase — so it is **no defence at all
-against someone who gets the server**. What it does give:
+**Where the line runs.**
 
-- **A smaller blast radius for a single-file leak.** Exactly the accident that happened on
-  2026-09-11, when the whole directory was briefly served over HTTPS, would have exposed
-  holdings with no names attached rather than both at once.
-- **Deleting a person becomes one row.** Remove the identity row and the financial history is
-  already anonymous, rather than needing to be hunted down.
-- **The financial data becomes shareable** for analysis or debugging without carrying anyone's
-  address along with it.
+| identity.db | portfolio.db |
+|---|---|
+| users (email, `user_key`, `last_seen_at`) | transactions, alerts, `user_settings` |
+| sessions, login_tokens | algo_alert_log, algo_settings_log |
+| | prices, exchange_rates, stock_splits, job_runs, data_version |
 
-*Rough shape of the work:* two `better-sqlite3` handles; every query routed to the right one;
-no cross-database joins (SQLite `ATTACH` would allow them but reunites both files in one
-connection, which gives back part of what was bought); a migration that rewrites `user_id`
-into the new key across `transactions`, `alerts`, `algo_alert_log`, `algo_settings_log`; the
-backup scripts to cover two files; and the test helpers to build both.
+The algorithm's two timings moved from columns on `users` into `user_settings` on the
+financial side: they are preferences about alerting, not identity.
 
-**Recommendation: do it, but not as an afterthought to another change, and not first.** It
-touches every query in the app on live data for six real accounts. The registration gate is
-the higher priority — an open front door matters more than which cupboard things are kept in.
+**Four joins had to become two lookups.** The alert digest, the weekly standings, the
+algorithm's alert and the fetch-cadence tier all needed "who is this and what is their
+address". They now read the rows on one side and resolve `key → email` on the other, in
+memory, one direction only. `emailsByKey()` in `price-fetch.js` is the only crossing point.
+
+**What it buys, and what it does not.** A leak of one file is no longer a leak of both — the
+accident of 2026-09-11, when the whole directory was briefly served over HTTPS, would have
+exposed holdings with nobody's name on them. Deleting a person is one row, and what remains is
+already anonymous. It is **no defence against losing the server**: both files sit on the same
+disk, in the same backup, under the same passphrase.
+
+**Everything downstream had to follow, and three things nearly did not:**
+
+- **`price-fetch.js` hardcoded `data.db`** and ignored `DB_PATH` entirely. The daily job would
+  have cheerfully written tomorrow's prices into the dead file.
+- **`verify-portfolio.js`, `recompute-eur.js` and `backfill-history.js`** defaulted to `data.db`
+  and never loaded `.env`, so they were reading the pre-split database and reporting on it.
+- **`.env` still said `DB_PATH=./data.db`**, so for a few minutes the new code ran against the
+  old data and showed an empty portfolio.
+
+**Backups cover both, as one object.** `backup-db.sh` snapshots each file and verifies each
+against what it is supposed to contain; pruning is per-file, because pooling them would let a
+run of portfolio snapshots push every identity snapshot past the "keep at least one" guard.
+`backup-offsite.sh` tars the pair *before* encrypting, so a restore can never end up with a
+mismatched pair from different weeks, and it refuses to ship an archive that does not hold
+exactly two files.
+
+**Rollback:** `data.db` is untouched and still holds everything as it was. Point `DB_PATH` back
+at it, restart, and the app is exactly where it was before the split.
 
 **Load and denial of service — audited 2026-09-13, partly fixed.**
 

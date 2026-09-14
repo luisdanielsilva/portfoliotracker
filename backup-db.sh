@@ -14,14 +14,22 @@
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DB_PATH="${DB_PATH:-$APP_DIR/data.db}"
+DB_PATH="${DB_PATH:-$APP_DIR/portfolio.db}"
+IDENTITY_PATH="${IDENTITY_DB_PATH:-$(dirname "$DB_PATH")/identity.db}"
+
+# Since the split there are two files and a backup of one is worth very little on
+# its own: the financial data with no identities cannot be signed into, and the
+# identities with no financial data are an address book. Both are snapshotted
+# every run, under their own names, and a restore puts each back where it came
+# from.
+DB_FILES=("$DB_PATH" "$IDENTITY_PATH")
 BACKUP_DIR="${BACKUP_DIR:-$HOME/backups/portfoliotracker}"
 KEEP_DAYS="${KEEP_DAYS:-30}"
 
 list_backups() {
-  if compgen -G "$BACKUP_DIR/data.db.*.gz" > /dev/null; then
-    ls -lh "$BACKUP_DIR"/data.db.*.gz | awk '{print "  "$9"  "$5"  "$6" "$7" "$8}'
-    echo "  ($(find "$BACKUP_DIR" -name 'data.db.*.gz' | wc -l) snapshots in $BACKUP_DIR)"
+  if compgen -G "$BACKUP_DIR/"*.db.*.gz > /dev/null; then
+    ls -lh "$BACKUP_DIR"/*.db.*.gz | awk '{print "  "$9"  "$5"  "$6" "$7" "$8}'
+    echo "  ($(find "$BACKUP_DIR" -name '*.db.*.gz' | wc -l) snapshots in $BACKUP_DIR)"
   else
     echo "  no snapshots yet in $BACKUP_DIR"
   fi
@@ -30,6 +38,16 @@ list_backups() {
 restore_backup() {
   local src="$1"
   [ -f "$src" ] || { echo "No such snapshot: $src" >&2; exit 1; }
+
+  # A snapshot is named <basename>.<stamp>.gz, so it knows which file it is a
+  # copy of. Restoring an identity snapshot over the portfolio database would be
+  # a very bad afternoon, so the destination is derived rather than assumed.
+  local base; base="$(basename "$src")"; base="${base%%.db.*}.db"
+  local DB_PATH
+  case "$base" in
+    "$(basename "$IDENTITY_PATH")") DB_PATH="$IDENTITY_PATH" ;;
+    *) DB_PATH="${DB_FILES[0]}" ;;
+  esac
   echo "This will REPLACE $DB_PATH with $src"
   read -r -p "Type 'restore' to confirm: " reply
   [ "$reply" = "restore" ] || { echo "Aborted."; exit 1; }
@@ -69,41 +87,59 @@ esac
 mkdir -p "$BACKUP_DIR"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
-TARGET="$BACKUP_DIR/data.db.$STAMP"
 
-# SQLite's online backup API, not cp: the app writes to this file continuously,
-# and copying it mid-transaction yields a torn snapshot. This also fails loudly
-# rather than producing a corrupt file.
-node -e "
-const Database = require('$APP_DIR/node_modules/better-sqlite3');
-const db = new Database('$DB_PATH', { readonly: true });
-db.backup('$TARGET')
-  .then(() => { db.close(); })
-  .catch(e => { console.error('backup failed: ' + e.message); process.exit(1); });
-"
+for SOURCE in "${DB_FILES[@]}"; do
+  [ -f "$SOURCE" ] || { echo "  ⚠ skipping $SOURCE — not found"; continue; }
+  TARGET="$BACKUP_DIR/$(basename "$SOURCE").$STAMP"
 
-# Verify the snapshot is readable and sane before it counts as a backup.
-node -e "
-const Database = require('$APP_DIR/node_modules/better-sqlite3');
-const db = new Database('$TARGET', { readonly: true });
-const ok = db.pragma('integrity_check')[0].integrity_check;
-if (ok !== 'ok') { console.error('integrity check failed: ' + ok); process.exit(1); }
-const n = db.prepare('SELECT COUNT(*) c FROM transactions').get().c;
-const u = db.prepare('SELECT COUNT(*) c FROM users').get().c;
-console.log('  verified: integrity ok, ' + u + ' users, ' + n + ' transactions');
-db.close();
-"
+  # SQLite's online backup API, not cp: the app writes to these files
+  # continuously, and copying one mid-transaction yields a torn snapshot. This
+  # also fails loudly rather than producing a corrupt file.
+  node -e "
+  const Database = require('$APP_DIR/node_modules/better-sqlite3');
+  const db = new Database('$SOURCE', { readonly: true });
+  db.backup('$TARGET')
+    .then(() => { db.close(); })
+    .catch(e => { console.error('backup failed: ' + e.message); process.exit(1); });
+  "
 
-gzip -f "$TARGET"
-echo "  wrote $TARGET.gz ($(du -h "$TARGET.gz" | cut -f1))"
+  # Verify the snapshot is readable and sane before it counts as a backup. What
+  # "sane" means differs per file, so count whatever that one is supposed to hold.
+  node -e "
+  const Database = require('$APP_DIR/node_modules/better-sqlite3');
+  const db = new Database('$TARGET', { readonly: true });
+  const ok = db.pragma('integrity_check')[0].integrity_check;
+  if (ok !== 'ok') { console.error('integrity check failed: ' + ok); process.exit(1); }
+  const has = t => !!db.prepare(\"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?\").get(t);
+  const count = t => db.prepare('SELECT COUNT(*) c FROM ' + t).get().c;
+  const parts = [];
+  if (has('users')) parts.push(count('users') + ' users');
+  if (has('transactions')) parts.push(count('transactions') + ' transactions');
+  if (has('prices')) parts.push(count('prices') + ' prices');
+  if (!parts.length) { console.error('snapshot holds none of the expected tables'); process.exit(1); }
+  console.log('  verified: integrity ok, ' + parts.join(', '));
+  db.close();
+  "
 
-# Prune old snapshots, but never leave zero backups behind.
+  gzip -f "$TARGET"
+  echo "  wrote $TARGET.gz ($(du -h "$TARGET.gz" | cut -f1))"
+done
+
+# Prune old snapshots, but never leave zero backups behind — and prune each file's
+# snapshots against its own set. Pooling them would let a run of portfolio backups
+# push every identity backup past the "keep at least one" guard.
 PRUNED=0
-if [ "$(find "$BACKUP_DIR" -name 'data.db.*.gz' | wc -l)" -gt 1 ]; then
-  while IFS= read -r old; do
-    rm -f "$old"; PRUNED=$((PRUNED + 1))
-  done < <(find "$BACKUP_DIR" -name 'data.db.*.gz' -mtime "+$KEEP_DAYS" | head -n -1)
-fi
+for SOURCE in "${DB_FILES[@]}"; do
+  PATTERN="$(basename "$SOURCE").*.gz"
+  if [ "$(find "$BACKUP_DIR" -name "$PATTERN" | wc -l)" -gt 1 ]; then
+    while IFS= read -r old; do
+      rm -f "$old"; PRUNED=$((PRUNED + 1))
+    done < <(find "$BACKUP_DIR" -name "$PATTERN" -mtime "+$KEEP_DAYS" | head -n -1)
+  fi
+done
 [ "$PRUNED" -gt 0 ] && echo "  pruned $PRUNED snapshot(s) older than $KEEP_DAYS days"
 
-echo "  $(find "$BACKUP_DIR" -name 'data.db.*.gz' | wc -l) snapshot(s) retained in $BACKUP_DIR"
+for SOURCE in "${DB_FILES[@]}"; do
+  echo "  $(find "$BACKUP_DIR" -name "$(basename "$SOURCE").*.gz" | wc -l) $(basename "$SOURCE") snapshot(s) retained"
+done
+echo "  in $BACKUP_DIR"

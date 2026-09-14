@@ -16,8 +16,23 @@ const app = express();
 app.set('trust proxy', 1);
 
 // SQLite database connection
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'data.db');
+/* ---- two databases, joined by an opaque key ----
+ *
+ * `db` is the financial side and keeps the name it always had, so every query
+ * against transactions, alerts and prices is untouched by the split. `identityDb`
+ * holds the email addresses and the credentials, and nothing else.
+ *
+ * What travels between them is `user_key`: a random UUID stored beside the email,
+ * used as `user_id` everywhere on the financial side. Deliberately not a hash of
+ * the address — addresses are guessable, so a hash of one is not pseudonymous.
+ *
+ * `req.userId` IS that key. That is what made the split a small change rather
+ * than a rewrite: the value became a string, the queries did not move.
+ */
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'portfolio.db');
+const identityPath = process.env.IDENTITY_DB_PATH || path.join(path.dirname(dbPath), 'identity.db');
 const db = new Database(dbPath);
+const identityDb = new Database(identityPath);
 
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
@@ -35,13 +50,17 @@ db.pragma('foreign_keys = ON');
  * The nightly backup already uses SQLite's online backup API, which is WAL-aware.
  * backup-db.sh's restore path was not, and was fixed alongside this.
  */
-db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 5000');
-db.pragma('synchronous = NORMAL');   // safe with WAL; fsync per checkpoint, not per commit
+for (const handle of [db, identityDb]) {
+  handle.pragma('journal_mode = WAL');
+  handle.pragma('busy_timeout = 5000');
+  handle.pragma('synchronous = NORMAL');   // safe with WAL; fsync per checkpoint, not per commit
+}
+identityDb.pragma('foreign_keys = ON');
 
 // Initialize database schema
 const schema = require('fs').readFileSync(path.join(__dirname, 'schema.sqlite.sql'), 'utf-8');
 db.exec(schema);
+identityDb.exec(require('fs').readFileSync(path.join(__dirname, 'schema.identity.sql'), 'utf-8'));
 
 // Migration: widen alerts.rule_type CHECK constraint to include 'dip_from_avg_cost'
 // (SQLite can't ALTER a CHECK constraint in place, so rebuild the table if needed)
@@ -83,11 +102,11 @@ function purgeExpiredCredentials() {
     // with a T and a Z, but SQLite's own datetime() produces "YYYY-MM-DD HH:MM:SS" — and a
     // space sorts before T, so a string comparison reads such a row as long expired and
     // deletes a session that is perfectly valid. julianday() parses both.
-    const sessions = db.prepare(
+    const sessions = identityDb.prepare(
       "DELETE FROM sessions WHERE julianday(expires_at) < julianday('now')"
     ).run().changes;
     // A used token is spent; an expired one can never be used. Keep neither.
-    const tokens = db.prepare(
+    const tokens = identityDb.prepare(
       "DELETE FROM login_tokens WHERE used_at IS NOT NULL OR julianday(expires_at) < julianday('now')"
     ).run().changes;
     if (sessions || tokens) {
@@ -260,7 +279,7 @@ function appUrl() {
 // browser must present cannot be derived from what is stored.
 function startSession(res, userId) {
   const rawSessionId = crypto.randomBytes(32).toString('hex');
-  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
+  identityDb.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
     .run(hashToken(rawSessionId), userId, new Date(Date.now() + SESSION_TTL_MS).toISOString());
   res.cookie(SESSION_COOKIE, rawSessionId, {
     httpOnly: true,
@@ -275,9 +294,11 @@ function startSession(res, userId) {
 // One account per email address, regardless of which sign-in path created it.
 // A Google login for an email that already exists attaches to that account.
 function findOrCreateUserByEmail(email) {
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const existing = identityDb.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (existing) return existing.id;
-  return db.prepare('INSERT INTO users (email) VALUES (?)').run(email).lastInsertRowid;
+  // The key is minted here and never derived from anything about the person.
+  return identityDb.prepare('INSERT INTO users (user_key, email) VALUES (?, ?)')
+    .run(crypto.randomUUID(), email).lastInsertRowid;
 }
 
 // Mirrors the SMTP-optional pattern in price-fetch.js: if SMTP isn't configured,
@@ -499,7 +520,7 @@ app.post('/api/auth/request-link', requestLinkIpLimiter, async (req, res) => {
     const userId = findOrCreateUserByEmail(email);
 
     const rawToken = crypto.randomBytes(32).toString('hex');
-    db.prepare('INSERT INTO login_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)')
+    identityDb.prepare('INSERT INTO login_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)')
       .run(userId, hashToken(rawToken), new Date(Date.now() + LOGIN_TOKEN_TTL_MS).toISOString());
 
     const base = (process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
@@ -522,7 +543,7 @@ app.get('/api/auth/verify', (req, res) => {
     const rawToken = String(req.query.token || '');
     if (!rawToken) return res.status(400).send('Missing token');
 
-    const row = db.prepare(`
+    const row = identityDb.prepare(`
       SELECT id, used_at, expires_at FROM login_tokens WHERE token_hash = ?
     `).get(hashToken(rawToken));
 
@@ -555,7 +576,7 @@ app.post('/api/auth/verify', (req, res) => {
     const rawToken = String(req.body.token || '');
     if (!rawToken) return res.status(400).send('Missing token');
 
-    const row = db.prepare(`
+    const row = identityDb.prepare(`
       SELECT id, user_id, expires_at, used_at FROM login_tokens WHERE token_hash = ?
     `).get(hashToken(rawToken));
 
@@ -563,7 +584,7 @@ app.post('/api/auth/verify', (req, res) => {
       return res.status(400).send('This login link is invalid or has expired. Please request a new one.');
     }
 
-    db.prepare('UPDATE login_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
+    identityDb.prepare('UPDATE login_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
 
     startSession(res, row.user_id);
     res.redirect(appUrl());
@@ -667,19 +688,21 @@ function authMiddleware(req, res, next) {
 
   // Look the session up by the hash of the cookie, never the cookie itself.
   const sessionKey = hashToken(rawSessionId);
-  const row = db.prepare(`
-    SELECT s.user_id, s.expires_at, u.email, u.last_seen_at
+  const row = identityDb.prepare(`
+    SELECT s.user_id, s.expires_at, u.email, u.last_seen_at, u.user_key
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.id = ?
   `).get(sessionKey);
 
   if (!row) return res.status(401).json({ error: 'Not authenticated' });
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionKey);
+    identityDb.prepare('DELETE FROM sessions WHERE id = ?').run(sessionKey);
     return res.status(401).json({ error: 'Session expired' });
   }
 
-  req.userId = row.user_id;
+  // The opaque key, not the identity row id — everything downstream is financial
+  // and must never be able to name anybody.
+  req.userId = row.user_key;
   req.userEmail = row.email;
 
   // Stamp the day, not the moment: one write per account per day rather than one
@@ -689,7 +712,7 @@ function authMiddleware(req, res, next) {
   const today = new Date().toISOString().slice(0, 10);
   if (!row.last_seen_at || String(row.last_seen_at).slice(0, 10) !== today) {
     try {
-      db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').run(new Date().toISOString(), row.user_id);
+      identityDb.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').run(new Date().toISOString(), row.user_id);
     } catch (err) {
       console.error('last_seen_at update failed:', err.message);   // never block a request for this
     }
@@ -724,7 +747,7 @@ app.get('/api/auth/me', (req, res) => {
 // POST /api/auth/logout - drop the session server-side and clear the cookie
 app.post('/api/auth/logout', (req, res) => {
   const rawSessionId = req.cookies ? req.cookies[SESSION_COOKIE] : null;
-  if (rawSessionId) db.prepare('DELETE FROM sessions WHERE id = ?').run(hashToken(rawSessionId));
+  if (rawSessionId) identityDb.prepare('DELETE FROM sessions WHERE id = ?').run(hashToken(rawSessionId));
   res.clearCookie(SESSION_COOKIE, { path: '/' });
   res.json({ success: true });
 });
@@ -1473,9 +1496,8 @@ const ALGO_COOLDOWN_MIN = 7, ALGO_COOLDOWN_MAX = 365;
 app.get('/api/algorithm/settings', (req, res) => {
   try {
     const row = db.prepare(
-      'SELECT algo_alerts_enabled AS enabled, algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays FROM users WHERE id = ?'
-    ).get(req.userId);
-    if (!row) return res.status(404).json({ error: 'No such user' });
+      'SELECT algo_alerts_enabled AS enabled, algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays FROM user_settings WHERE user_id = ?'
+    ).get(req.userId) || { enabled: 1, holdDays: 3, cooldownDays: 60 };
     res.json({
       enabled: !!row.enabled,
       holdDays: row.holdDays,
@@ -1499,7 +1521,7 @@ app.put('/api/algorithm/settings', (req, res) => {
       return res.status(400).json({ error: `cooldownDays must be a whole number between ${ALGO_COOLDOWN_MIN} and ${ALGO_COOLDOWN_MAX}` });
     }
     const before = db.prepare(
-      'SELECT algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays, algo_alerts_enabled AS enabled FROM users WHERE id = ?'
+      'SELECT algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays, algo_alerts_enabled AS enabled FROM user_settings WHERE user_id = ?'
     ).get(req.userId) || {};
     const wantEnabled = enabled === false ? 0 : 1;
 
@@ -1510,8 +1532,13 @@ app.put('/api/algorithm/settings', (req, res) => {
       'INSERT INTO algo_settings_log (user_id, field, old_value, new_value) VALUES (?,?,?,?)'
     );
     const apply = db.transaction(() => {
-      db.prepare('UPDATE users SET algo_hold_days = ?, algo_cooldown_days = ?, algo_alerts_enabled = ? WHERE id = ?')
-        .run(hold, cool, wantEnabled, req.userId);
+      db.prepare(`INSERT INTO user_settings (user_id, algo_hold_days, algo_cooldown_days, algo_alerts_enabled)
+                  VALUES (?,?,?,?)
+                  ON CONFLICT(user_id) DO UPDATE SET
+                    algo_hold_days = excluded.algo_hold_days,
+                    algo_cooldown_days = excluded.algo_cooldown_days,
+                    algo_alerts_enabled = excluded.algo_alerts_enabled`)
+        .run(req.userId, hold, cool, wantEnabled);
       if (before.holdDays !== hold) logChange.run(req.userId, 'holdDays', before.holdDays ?? null, hold);
       if (before.cooldownDays !== cool) logChange.run(req.userId, 'cooldownDays', before.cooldownDays ?? null, cool);
       if (before.enabled !== wantEnabled) logChange.run(req.userId, 'enabled', before.enabled ?? null, wantEnabled);
@@ -1736,5 +1763,6 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
 const PORT = process.env.API_PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Portfolio tracker server running on http://localhost:${PORT}`);
-  console.log(`Database: ${dbPath}`);
+  console.log(`Portfolio database: ${dbPath}`);
+  console.log(`Identity database:  ${identityPath}`);
 });

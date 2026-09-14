@@ -24,12 +24,13 @@
  */
 
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
 const { ensurePriceCurrencyColumns } = require('./db-migrations');
 
 const dryRun = process.argv.includes('--dry-run');
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'data.db');
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'portfolio.db');
 
 (async () => {
   const db = new Database(dbPath);
