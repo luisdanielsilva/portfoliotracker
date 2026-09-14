@@ -1,0 +1,60 @@
+# Edge rate limiting for Portfolio Tracker — needs root, so it is written here
+# rather than applied. One sudo edit and one reload.
+#
+# WHY AT THE EDGE. The limits inside the app work, but they only work after Node
+# has accepted the connection, parsed the request and looked up the session — all
+# on the single thread that serves everybody. nginx refuses in front of that, for
+# roughly nothing. It is also the only layer that can protect the *static* files:
+# index.html and app.js together are ~280KB per page load, served to anyone, with
+# no account and no in-app limit of any kind.
+#
+# THE NUMBERS, and why these ones.
+#   rate=10r/s   A real page load bursts eight to ten requests and then goes
+#                quiet, so a sustained ten per second is far more than any person
+#                produces and far less than a script needs to hurt.
+#   burst=40     Absorbs that opening burst without ever refusing a genuine load,
+#                even on a slow connection that retries.
+#   nodelay      Serve the burst immediately rather than queueing it; queueing
+#                would make a legitimate page load feel broken.
+#   limit_conn 20  One browser opens at most six connections per host. Twenty is
+#                a couple of tabs; a hundred is a tool.
+#
+# HOW TO APPLY
+#   sudo nano /etc/nginx/sites-available/singleuseapps-com
+#   ...paste the two zone lines at the top, inside http{} — if the file has no
+#      http{} block, put them in /etc/nginx/conf.d/portfoliotracker-limits.conf
+#      instead, which is included from http{} automatically...
+#   ...add the three limit_* lines inside each portfoliotracker location...
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Verify afterwards, from another machine:
+#   for i in $(seq 1 80); do curl -s -o /dev/null -w "%{http_code} " \
+#     https://www.singleuseapps.com/portfoliotracker/; done
+#   ...expect 200s, then 429s. If you never see a 429 the rules are not applied.
+
+# ---- put these two lines in http{} context (or conf.d/) ----
+limit_req_zone  $binary_remote_addr  zone=pt_req:10m   rate=10r/s;
+limit_conn_zone $binary_remote_addr  zone=pt_conn:10m;
+limit_req_status  429;
+limit_conn_status 429;
+
+# ---- then inside each of the portfoliotracker locations ----
+#
+# location /portfoliotracker/ {
+#     limit_req  zone=pt_req burst=40 nodelay;
+#     limit_conn pt_conn 20;
+#     proxy_pass http://localhost:3000/;
+#     ...existing proxy headers...
+# }
+#
+# location /portfoliotracker/api/ {
+#     limit_req  zone=pt_req burst=40 nodelay;
+#     limit_conn pt_conn 20;
+#     proxy_pass http://localhost:3000/api/;
+#     ...existing proxy headers...
+# }
+#
+# NOTE: leave the app's own limiters in place. These two do different jobs — nginx
+# counts requests per IP, the app counts them per account. An attacker with one
+# account and many addresses is stopped by the app; a script with no account and
+# one address is stopped here.

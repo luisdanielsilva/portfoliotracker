@@ -432,6 +432,21 @@ const RULE_TYPES = new Set(['price_above', 'price_below', 'dip_from_avg_cost',
                             'gain_from_avg_cost', 'drop_from_high']);
 const MIN_TX_TS = Date.UTC(1990, 0, 1);
 
+/**
+ * How many distinct tickers one account may track.
+ *
+ * Every ticker anybody holds costs a price fetch every weekday, for ever, from a
+ * source that is free and unofficial. That cost is carried by the server, not by
+ * the account that added it, so without a ceiling a single user can commit the
+ * whole system to a few hundred daily requests. Fifty is far above any real
+ * portfolio and far below anything that would hurt.
+ *
+ * It applies only to *new* tickers: selling out of something and buying back in
+ * must always work, and so must correcting the history of a position already
+ * held.
+ */
+const MAX_TICKERS_PER_USER = 50;
+
 function num(v) {
   const n = typeof v === 'number' ? v : parseFloat(v);
   return Number.isFinite(n) ? n : null;
@@ -751,6 +766,19 @@ app.post('/api/transactions', (req, res) => {
     // every chart to fit it. Two days of slack covers time zones and the form's 12:00.
     if (ts === null || ts < MIN_TX_TS || ts > Date.now() + 2 * 864e5) {
       return res.status(400).json({ error: 'Date must be between 1990 and tomorrow.' });
+    }
+
+    const known = db.prepare(
+      'SELECT COUNT(*) AS n FROM (SELECT DISTINCT ticker FROM transactions WHERE user_id = ?)'
+    ).get(req.userId).n;
+    const isNewTicker = !db.prepare(
+      'SELECT 1 FROM transactions WHERE user_id = ? AND ticker = ? LIMIT 1'
+    ).get(req.userId, ticker);
+    if (isNewTicker && known >= MAX_TICKERS_PER_USER) {
+      return res.status(409).json({
+        error: `You are tracking ${MAX_TICKERS_PER_USER} tickers, which is the limit. `
+          + 'Get in touch through the Support link if you need more — it is a limit on server cost, not a rule.'
+      });
     }
 
     const insertStmt = db.prepare(

@@ -106,6 +106,8 @@
   .caphint{margin:0 0 10px;font-size:12px;color:var(--neg)}
   .microcopy{margin:12px 0 0;font-size:12px;color:var(--faint)}
   #donate-section .donate-widget{margin:16px auto 0;max-width:420px}
+  #donate-section .donate-lead{max-width:56ch;margin-left:auto;margin-right:auto}
+
   .donate-note{margin-top:14px;font-size:11.5px;max-width:52ch;margin-left:auto;margin-right:auto}
 
 
@@ -1290,6 +1292,9 @@
         <p>Confidence is the summed weight of the agreeing windows over the maximum possible (2 &times; 3 = 6), so a single plain Low reads 17% and all three Strong reads 100%. Under 25% is <b>Watch</b>, then <b>Signal</b>, <b>Strong</b>, and <b>Very Strong</b> at 75% and above.</p>
         <h4>A 5-year window was tried and dropped</h4>
         <p>It sat in the High zone 88% of the time and never once reached Low, because it was anchored to a crash low several years old rather than to anything resembling current conditions. Adding one back would bias the whole tool toward Sell.</p>
+        <h4>Why it calls a winner &ldquo;expensive&rdquo; so often</h4>
+        <p>Ranking a <b>price level</b> means a stock in a long climb sits near the top of its own history most days &mdash; so the sell side reads high for a holding that is doing well. Across these holdings it says sell on about 44% of days, and on 76% of them for the strongest performer.</p>
+        <p>That looks like a flaw, and the obvious repair is to rank how far the price has strayed from its own moving average instead, which removes the bias entirely. It was tried, at four different averaging lengths. It <b>does</b> balance the readings &mdash; and it takes the usefulness with it: the gap between the days it rates highest and lowest collapses from about 10 percentage points to under 3. The lopsidedness is not a defect sitting on top of the signal; in this data it is most of the signal. What the score is really detecting is closer to a trend than to a stretched elastic band, and it is more honest to say so than to tune it until it looks even.</p>
         <h4>What it does not know</h4>
         <p>Nothing here has any idea what the company is worth. There are no earnings, no revenue, no news and no volume in this &mdash; only closing prices. A price can be statistically low because the market is wrong, or because it is right and something has genuinely broken, and no arrangement of these numbers can tell the two apart.</p>
       </details>
@@ -1597,8 +1602,8 @@
 
   <section id="donate-section" class="contact-section">
     <div class="contact-container">
-      <h2>Support this tool</h2>
-      <p>It is free, has no ads and does not sell anything about you. If it has been useful, a couple of euros helps keep it running. Entirely optional &mdash; nothing in the app changes either way.</p>
+      <h2>Support &mdash; entirely optional</h2>
+      <p class="donate-lead"><b>This buys you nothing.</b> Every feature is already free, for everyone, with no ads and nothing sold about you &mdash; and that does not change whether you give or not. It is only a way to help cover the server and the data if the tool has been useful to you.</p>
       <div class="donate-widget" data-label="Portfolio Tracker" data-accent="#2a78d6">
         <p class="microcopy" style="margin:0">Donations are unavailable at the moment. Everything else works as normal.</p>
       </div>

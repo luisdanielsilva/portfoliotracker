@@ -103,7 +103,17 @@
   function d0(v){ return (v>=0?"+":"\u2212")+"\u20ac"+nfEur0.format(Math.abs(Math.round(v))); }
   function dp(v){ return (v>=0?"+":"\u2212")+comma(Math.abs(v*100).toFixed(1))+"%"; }
   function slug(s){ return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"").slice(0,14)||"x"; }
-  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+  // Escapes the same five characters as escapeHtml() on the server. It used to do
+  // three, leaving > and ' alone. That was safe as it was used — every value lands
+  // in a text node or a double-quoted attribute — but it is not safe as a general
+  // tool, and the day someone writes a single-quoted attribute it becomes a hole
+  // with nothing to warn them. Two escapers with two different definitions is the
+  // real defect; now there is one definition in two places.
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
   // BKEY holds the short names this app started with, so a symbol carrying an exchange
   // suffix (ASML.AS, VOW3.DE) misses it and used to fall through to the raw symbol.
   function tickerLabel(t){

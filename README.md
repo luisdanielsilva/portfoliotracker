@@ -323,6 +323,31 @@ bump and watching the test fail), and the database must be in WAL mode.
 
 ### ⏳ Open Items / Backlog
 
+**Detrending the algorithm — proposed, tested, and rejected (2026-09-14).**
+
+The recommendation on 2026-09-13 was to rank the *deviation from a moving average* rather than
+the price level, to cure the sell side reading high for any stock in a long climb (44% of days
+across these holdings, 76% for NVDA). **Measured, it is the wrong change.** Balance improves
+exactly as predicted; the discriminating power collapses with it:
+
+| Variant | %Sell | %Buy | mean top-vs-bottom-fifth spread | positive in |
+|---|---|---|---|---|
+| price level (shipping) | 44% | 27% | **+9.9%** | 8/10 |
+| deviation, 50-day | 21% | 31% | −0.1% | 5/10 |
+| deviation, 100-day | 22% | 38% | +0.1% | 8/10 |
+| deviation, 200-day | 23% | 44% | +2.2% | 7/10 |
+| deviation, 300-day | 24% | 44% | +2.7% | 6/10 |
+
+Monotonic: the more trend you remove, the more balanced *and* the more useless. **The bias is
+where the signal was coming from.** What the score detects is closer to trend than to mean
+reversion, however much its construction suggests otherwise.
+
+So the tab now says this in its own methodology rather than the code pretending otherwise. Do
+not re-propose detrending without beating +9.9% here first. Re-run with
+`node backtest.js`-style within-stock quintile spreads; the throwaway harness used for this is
+not kept, deliberately — it should be rebuilt against whatever the data looks like then.
+
+
 **pm2 stays in fork mode — cluster was tried and reverted (2026-09-14).**
 
 Two workers were added on 2026-09-13 and taken out again a day later, because **pm2's file
@@ -337,45 +362,45 @@ second process was buying 12%. Revisit if real concurrent load ever appears, and
 the deployment model deliberately rather than inheriting a broken watcher.
 
 
-**Fetch cadence by demand — rule agreed 2026-09-13, half built.**
+**Fetch cadence by demand — built 2026-09-14.**
 
-*The measurement that shapes it:* Yahoo's chart endpoint is **range-based**. One request
-covering the last seven days returned every trading day inside it. So fetching a ticker weekly
-instead of daily costs a fifth of the requests and loses **no** history — the only thing traded
-away is how fast an alert notices something.
+Every held ticker used to be fetched every weekday whether or not anybody was in a position to
+read the answer. Now each one is classified per run:
 
-*The rule, for when it is worth building:*
-
-| Tier | Condition | Cadence |
+| Tier | Test | What happens |
 |---|---|---|
-| Hot | a holder seen within ~7 days, **or** any enabled alert on the ticker | daily |
-| Cold | anything else | weekly, one ranged request |
-| Catch-up | a user signs in after a gap | immediate ranged fetch for their tickers |
+| Hot | a holder seen within `HOT_SEEN_DAYS` (7), **or** any enabled alert on it | quote today, or one ranged request if days are missing |
+| Cold | anything else | one ranged request if `COLD_INTERVAL_DAYS` (7) have passed, otherwise nothing |
 
-*Two traps in it.* First, **alerts exist for people who do not log in** — deferring their
-fetches silences the one feature they depend on, so a hand-made alert must pin a ticker to
-daily regardless of dormancy. Second, the Algorithm tab's own alert is **on by default for
-every account**, so it cannot count as "has an alert" or nothing is ever cold and the rule does
-nothing at all.
+**No history is lost by waiting.** Yahoo's chart endpoint is range-based — one request covering
+a week returns every trading day in it — so a cold ticker costs a fifth of the requests and
+still ends up with a complete daily series. The only thing traded away is how quickly a signal
+is noticed, and a ticker with an alert on it is never cold, so nothing that emails anybody is
+delayed.
 
-*Not built, because today it would save exactly nothing:* one account holds all ten tickers and
-signs in constantly; the other five accounts hold nothing and already cost no fetches. Build it
-when there are dormant holders to save on, and cap any gap at ~30 days regardless.
+**Two traps, both now pinned by tests.** An alert exists for somebody who is *not* logging in,
+so dormancy must never be allowed to silence it — that is why an enabled alert forces daily. And
+the Algorithm tab's alert is on by default for every account, so counting it would make every
+ticker hot and the rule a no-op; it deliberately does not count. `test/fetch-cadence.test.js`
+fails if either is broken, verified by breaking them.
 
-**Done now, because these two could not wait:**
+A hot ticker that is more than a day behind also gets the ranged treatment rather than a quote,
+because a quote only ever writes *today* — it would leave a hole in the history for ever.
 
-1. **`users.last_seen_at`.** There was no record of when anyone was last here — `sessions.created_at`
-   was the only signal and the daily credential purge deletes it, so dormancy was being forgotten
-   as fast as it was learned. Stamped from `authMiddleware` **once per account per day**, not per
-   request. Deliberately does not touch the cache version: being here changes nothing about what
-   the computed views should say. This is the piece that cannot be added retroactively.
-2. **The daily fetch now skips closed positions.** It asked for every ticker that had ever
-   appeared in a transaction, so a position sold down to nothing kept costing a request every
-   day, for ever. The test is **split-adjusted**, not a raw sum of buys minus sells, because
-   those disagree: one share bought before a 3-for-1 and one sold after it nets to zero on the
-   raw numbers while two shares are still held. `getAvgCostPerShare` is the authority, and a
-   test now pins that exact case.
+**Ticker cap — 50 per account (2026-09-14).** Every ticker anybody holds costs a fetch every
+weekday for ever, paid by the server rather than by the account that added it. Fifty is far
+above any real portfolio and far below anything that hurts. It applies only to *new* tickers, so
+selling out and buying back always works, and the refusal points at the Support link — it is a
+limit on cost, not a rule about how anyone should invest.
 
+**Escaping aligned (2026-09-14).** The browser's `esc()` covered three characters where the
+server's `escapeHtml()` covers five. Safe as used, but two escapers with two definitions is the
+actual defect; there is now one definition in two places.
+
+**Edge rate limiting — written, not applied.** `nginx-rate-limit.conf.example` holds the config
+and the reasoning. It needs root, which this account does not have without a password, so it is
+one `sudo` edit and a reload away. It protects what the app's own limiters cannot: the ~280KB of
+static files served to anyone with no account at all.
 
 **Separate personal data from financial data (proposed 2026-09-13, not built).**
 
@@ -537,7 +562,7 @@ scored at all, which also means a cooldown shorter than that cannot be observed 
 prices moving too. `test/helpers.js` gained `migratedDb()` because `schema.sqlite.sql` alone
 lacks anything added by an ALTER, `prices.price_native` included.
 
-**Testing — 73 tests, in CI since 2026-09-12.**
+**Testing — 81 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

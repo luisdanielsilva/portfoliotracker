@@ -656,6 +656,50 @@ async function evaluateAlerts(db, mailer) {
   return { checked: alerts.length, triggered: triggeredCount, digests: byRecipient.size };
 }
 
+
+/* ---- how often a ticker actually needs asking about ----
+ *
+ * Every held ticker used to be fetched every weekday regardless of whether
+ * anybody was in a position to look at the answer. The saving is not in skipping
+ * data — Yahoo's chart endpoint is range-based, so one request covering a week
+ * returns every trading day inside it — it is in making one request instead of
+ * five for a holding nobody is watching.
+ *
+ * Two things keep a ticker on the daily schedule, and the second one matters
+ * more than it looks: **an alert is for somebody who is not logging in.**
+ * Deferring fetches for a dormant holder would silence exactly the feature they
+ * are relying on, so any enabled alert pins its ticker to daily whatever their
+ * habits. The Algorithm tab's own alert deliberately does not count — it is on by
+ * default for every account, so treating it as an alert would make every ticker
+ * hot and the whole rule a no-op.
+ */
+const HOT_SEEN_DAYS = 7;        // a holder here this recently keeps it daily
+const COLD_INTERVAL_DAYS = 7;   // otherwise, at most one catch-up a week
+
+function tickerTier(db, ticker, now) {
+  const seen = db.prepare(`
+    SELECT 1 FROM transactions t JOIN users u ON u.id = t.user_id
+    WHERE t.ticker = ? AND u.last_seen_at IS NOT NULL
+      AND julianday(?) - julianday(u.last_seen_at) <= ?
+    LIMIT 1
+  `).get(ticker, now.toISOString(), HOT_SEEN_DAYS);
+  if (seen) return 'hot';
+
+  const watched = db.prepare(
+    'SELECT 1 FROM alerts WHERE ticker = ? AND enabled = 1 LIMIT 1'
+  ).get(ticker);
+  return watched ? 'hot' : 'cold';
+}
+
+/** Whole days between the newest stored price and now; Infinity if there is none. */
+function priceGapDays(db, ticker, now) {
+  const row = db.prepare(
+    'SELECT MAX(price_date) AS d FROM prices WHERE ticker = ? AND price_native IS NOT NULL'
+  ).get(ticker);
+  if (!row || !row.d) return Infinity;
+  return (now.getTime() - Date.parse(row.d)) / 864e5;
+}
+
 async function fetchPrices() {
   const startedAt = Date.now();
   log('🚀 Starting price fetch job...');
@@ -722,7 +766,34 @@ async function fetchPrices() {
       process.exit(0);
     }
 
-    log(`Found ${tickers.length} unique tickers: ${tickers.join(', ')}`);
+    /*
+     * Decide, per ticker, between three outcomes:
+     *   a quote  — the cheap daily path, for a hot ticker already up to date
+     *   a range  — one request that fills whatever days are missing, for a hot
+     *              ticker with a hole in it or a cold one that is due
+     *   nothing  — a cold ticker asked about recently enough
+     */
+    const now = new Date();
+    const plan = { quote: [], range: [], skip: [] };
+    for (const ticker of tickers) {
+      const tier = tickerTier(db, ticker, now);
+      const gap = priceGapDays(db, ticker, now);
+      if (tier === 'hot') {
+        // More than a day behind means days are actually missing, and a quote
+        // only ever writes today — it would leave the hole in place for ever.
+        (gap > 1.5 ? plan.range : plan.quote).push({ ticker, gap });
+      } else if (gap >= COLD_INTERVAL_DAYS) {
+        plan.range.push({ ticker, gap });
+      } else {
+        plan.skip.push({ ticker, gap });
+      }
+    }
+
+    log(`Found ${tickers.length} held ticker(s): ${plan.quote.length} quoted, `
+      + `${plan.range.length} caught up by range, ${plan.skip.length} left alone`);
+    if (plan.skip.length) {
+      log(`  ⏭  nobody is watching, asked recently enough: ${plan.skip.map(p => p.ticker).join(', ')}`);
+    }
 
     // Fetch prices for each ticker
     let successCount = 0;
@@ -749,8 +820,25 @@ async function fetchPrices() {
     // Quotes first, then rates, then write. The set of currencies to convert is
     // only known once the quotes are in, and a price should never be stored with
     // a rate fetched for a different currency.
+    // A hot ticker with a gap is filled with one ranged request, which writes
+    // every missing trading day rather than only today.
+    if (plan.range.length) {
+      const { backfillTicker } = require('./backfill-history');
+      for (const { ticker, gap } of plan.range) {
+        try {
+          const years = Math.min(Math.max((gap + 3) / 365.25, 0.02), 1);
+          const r = await backfillTicker(db, yahooFinance, ticker, years);
+          log(`  ↻ ${ticker}: filled ${r.added} day(s) (${gap === Infinity ? 'no history' : Math.round(gap) + ' behind'})`);
+          successCount++;
+        } catch (err) {
+          log(`  ❌ ${ticker}: catch-up failed — ${err.message}`);
+          failureCount++;
+        }
+      }
+    }
+
     const quotes = [];
-    for (const ticker of tickers) {
+    for (const { ticker } of plan.quote) {
       try {
         log(`  Fetching ${ticker}...`);
         const quoteData = await yahooFinance.quote(ticker);
@@ -860,4 +948,5 @@ if (require.main === module) {
 }
 
 module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts, ordinal,
+  tickerTier, priceGapDays, HOT_SEEN_DAYS, COLD_INTERVAL_DAYS,
                    areMarketsClosedForFetch };
