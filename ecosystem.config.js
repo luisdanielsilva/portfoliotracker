@@ -21,8 +21,8 @@ module.exports = {
       // Two consequences worth knowing: the rate limiters keep their counters in
       // each process's memory, so the effective limit is roughly doubled; and the
       // computed-view caches are per-process, so each warms up separately.
-      instances: 2,
-      exec_mode: 'cluster',
+      instances: 1,
+      exec_mode: 'fork',
 
       // Only files that require a process restart to take effect.
       watch: ['server.js', 'schema.sqlite.sql', '.env'],

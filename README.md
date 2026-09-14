@@ -323,6 +323,20 @@ bump and watching the test fail), and the database must be in WAL mode.
 
 ### ⏳ Open Items / Backlog
 
+**pm2 stays in fork mode — cluster was tried and reverted (2026-09-14).**
+
+Two workers were added on 2026-09-13 and taken out again a day later, because **pm2's file
+watcher does not fire in cluster mode**. Measured: after switching, editing `server.js`
+changed nothing until `pm2 reload` was run by hand — and "editing a file on the server *is*
+deploying it" is how this project is operated everywhere else. A silent no-op deploy is a
+worse failure than a slow one.
+
+It was also worth much less than expected once the caching landed: the same 20-request burst
+took **160ms on two workers and 182ms on one**. The cache had already done the work; the
+second process was buying 12%. Revisit if real concurrent load ever appears, and if so change
+the deployment model deliberately rather than inheriting a broken watcher.
+
+
 **Fetch cadence by demand — rule agreed 2026-09-13, half built.**
 
 *The measurement that shapes it:* Yahoo's chart endpoint is **range-based**. One request
@@ -424,39 +438,49 @@ the real client rather than on nginx.
    getting an account is meaningful, and right now signing in *is* registering.
 
 
-**Donations — a way for people to support the effort (added 2026-09-13, not built).**
+**Donations — widget built 2026-09-14, NOT yet able to take money.**
 
-No payment support exists anywhere in the app. The ask is a way for users to contribute
-voluntarily, not a paywall or a subscription.
+A *Support this tool* section above the footer: three fixed amounts (2€ / 5€ / 10€), a
+**Donate** button, no email asked for. Modelled on the DupSweep buy widget, but deliberately
+not that widget with the price changed — buying a licence needs a name and an email because
+something must be delivered; a donation delivers nothing, so collecting either would be
+holding personal data for no reason. Stripe still takes an email on its own form for the
+receipt; that is Stripe's record and none of it comes back here.
 
-*The cheap route and the expensive one are very far apart here, and this codebase has
-already picked a side by accident:*
+**Three files, only one of them in this repository:**
 
-- **A plain outbound link** to a hosted page — GitHub Sponsors, Ko-fi, Liberapay, PayPal.me,
-  a Stripe Payment Link — needs **no change to any security header**. An `<a href>` is not a
-  script, a form post or a fetch, so `script-src 'self'`, `form-action 'self'` and
-  `connect-src 'self'` all stay exactly as they are. No card data touches this server, so
-  there is no PCI question to answer. This is the default unless there is a reason not to.
-- **An embedded checkout** (Stripe Elements, a payment button) would require loosening
-  `script-src`, `connect-src` and `frame-src`, undoing part of the CSP tightening done on
-  2026-09-11 — *and* editing `Permissions-Policy`, which currently ships `payment=()`,
-  switching the Payment Request API off outright. Three deliberate hardening decisions would
-  have to be reversed to embed a widget that a link achieves without them.
+| File | Where | What |
+|---|---|---|
+| `index.html`, `server.js` | this repo | the section, and the CSP hosts it needs |
+| `donate-widget.js` | `/var/www/singleuseapps-com/` | the shared widget (**new**) |
+| `src/routes/donation.js`, `src/routes/webhook.js`, `src/server.js` | `/var/www/license-service/` | the checkout endpoint and a webhook guard |
 
-*Open questions, none of which are technical:*
+**Neither of those two directories is a git repository**, so those changes exist only on
+disk. Worth fixing before they grow.
 
-1. **Tax and legal status.** Donations are income in most jurisdictions. Which one applies,
-   and does receiving them change what this site has to say about itself? Not a question to
-   guess at.
-2. **`privacy.html` and `terms.html` would both need a clause** naming the processor and what
-   it receives. Today they describe a service that takes no money and shares nothing.
-3. **Discoverability.** `index.html` carries `noindex, nofollow` and the registration page is
-   unlisted, so the audience is people who already use the app — a handful of accounts. Worth
-   being clear-eyed that this is a gesture of support from existing users, not a revenue plan.
-4. **Where it goes.** The footer already reads *Made by Luís Silva · email · Support* and is
-   the obvious home. `contact.js` injects the support widget into every page, so a donate link
-   added there would appear on the landing, privacy and terms pages too, for free.
+**It cannot take money yet, for reasons that have nothing to do with this app:**
 
+1. **The licence service is stopped** in pm2 and **nginx has no `/api` route** for it on
+   singleuseapps.com, so `POST /api/checkout/donation` 404s. *This also means DupSweep's
+   existing buy widget cannot work right now* — worth knowing, since that one is supposed to
+   be selling something.
+2. **Stripe is in test mode** (`sk_test_` / `pk_test_`). Real cards will not work until live
+   keys are set in the service's `.env` and in the publishable key inside both widgets.
+
+Until then the section fails *visibly* rather than silently — clicking Donate shows "Could not
+start checkout" and re-enables the button. A donation that fails quietly is worse than one
+refused: the giver believes they have helped and has no idea they have not.
+
+**Two things guarded on the way in.** The amounts are enforced **server-side** — a price the
+page can choose is a price anyone can choose — and the webhook now **skips donation sessions**.
+Without that it would have called `issueKey` with no `appId`, thrown, returned 500, and Stripe
+would have retried the same donation for days.
+
+**CSP had to widen**, exactly as predicted when this was only a backlog note: embedded checkout
+needs `script-src` for `singleuseapps.com` and `js.stripe.com`, `connect-src` for the API and
+`api.stripe.com`, and a new `frame-src` for Stripe's iframe. Named hosts only, no wildcards,
+and `'unsafe-inline'` stays out. A plain link to a hosted payment page would have needed none
+of it — that trade is now made rather than theoretical.
 
 **Algorithm alerts — built 2026-09-13.** `algo-alerts.js`, tests in `test/algo-alerts.test.js`.
 

@@ -105,6 +105,9 @@
   .mini{font:inherit;font-size:11.5px;font-weight:500;padding:5px 10px;border:1px solid var(--hair);border-radius:8px;background:var(--surface);color:var(--muted);cursor:pointer}
   .caphint{margin:0 0 10px;font-size:12px;color:var(--neg)}
   .microcopy{margin:12px 0 0;font-size:12px;color:var(--faint)}
+  #donate-section .donate-widget{margin:16px auto 0;max-width:420px}
+  .donate-note{margin-top:14px;font-size:11.5px;max-width:52ch;margin-left:auto;margin-right:auto}
+
 
   /* ---- algorithm tab ---- */
   .algo-head{display:flex;gap:20px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
@@ -1592,6 +1595,17 @@
     </div>
   </section>
 
+  <section id="donate-section" class="contact-section">
+    <div class="contact-container">
+      <h2>Support this tool</h2>
+      <p>It is free, has no ads and does not sell anything about you. If it has been useful, a couple of euros helps keep it running. Entirely optional &mdash; nothing in the app changes either way.</p>
+      <div class="donate-widget" data-label="Portfolio Tracker" data-accent="#2a78d6">
+        <p class="microcopy" style="margin:0">Donations are unavailable at the moment. Everything else works as normal.</p>
+      </div>
+      <p class="microcopy donate-note">Handled by Stripe. No account needed, and this app never sees or stores your card details &mdash; or your email, since a donation has nothing to deliver.</p>
+    </div>
+  </section>
+
   <footer>Made by <strong>Luís Silva</strong> with the help of AI &middot; <a href="mailto:singleuseapp@gmail.com">singleuseapp@gmail.com</a> &middot; <a href="#" id="footer-contact" data-contact-open>Support</a><br>
     <span class="footer-legal"><a href="./privacy.html">Privacy Policy</a> &middot; <a href="./terms.html">Terms of Service</a></span></footer>
 </div>
@@ -1605,5 +1619,8 @@
 
 <script src="./app.js" defer></script>
 <script src="./contact.js" defer></script>
+<!-- The donate widget is shared across the SingleUseApps sites rather than copied
+     into each one. If it fails to load the section shows its own fallback text. -->
+<script src="https://www.singleuseapps.com/donate-widget.js" defer></script>
 </body>
 </html>

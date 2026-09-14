@@ -186,11 +186,15 @@ app.disable('x-powered-by');
 // stylesheet is a far smaller problem than injected code.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  // The donate widget is served from singleuseapps.com and mounts Stripe's
+  // embedded checkout, which loads js.stripe.com and renders inside its own
+  // iframe. Named hosts only — no wildcards, and 'unsafe-inline' stays out.
+  "script-src 'self' https://www.singleuseapps.com https://singleuseapps.com https://js.stripe.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src https://fonts.gstatic.com",
   "img-src 'self' data:",
-  "connect-src 'self'",
+  "frame-src https://js.stripe.com",
+  "connect-src 'self' https://www.singleuseapps.com https://singleuseapps.com https://api.stripe.com",
   "form-action 'self'",
   "base-uri 'self'",
   "object-src 'none'",
