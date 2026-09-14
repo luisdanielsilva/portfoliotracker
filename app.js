@@ -120,6 +120,15 @@
     if(!t) return "";
     return BSHORT[BKEY.indexOf(String(t).toLowerCase())] || TICKER_NAMES[String(t).toUpperCase()] || t;
   }
+  // Symbols are stored exactly as Yahoo knows them (price-fetch.js quotes them
+  // unchanged), so the quote page is a straight substitution — suffixes included.
+  function yahooQuoteLink(t, label, cls){
+    var sym=String(t||"").trim();
+    if(!sym) return esc(label==null?t:label);
+    return '<a class="'+(cls||"tk-link")+'" href="https://finance.yahoo.com/quote/'
+      +encodeURIComponent(sym)+'/" target="_blank" rel="noopener noreferrer"'
+      +' title="'+esc(sym)+' on Yahoo Finance">'+esc(label==null?sym:label)+'</a>';
+  }
   var fmtDayY=new Intl.DateTimeFormat("en-GB",{day:"numeric",month:"short",year:"numeric"});
   var fmtDay=new Intl.DateTimeFormat("en-GB",{day:"numeric",month:"short"});
   function shortDate(ts){ return fmtDay.format(new Date(ts)); }
@@ -2292,7 +2301,7 @@
       }
 
       return '<div class="al-row'+(a.enabled?"":" off")+'">'
-        +'<div class="al-tk">'+esc(a.ticker)+(a.enabled?"":'<span class="al-off">paused</span>')+'</div>'
+        +'<div class="al-tk">'+yahooQuoteLink(a.ticker)+(a.enabled?"":'<span class="al-off">paused</span>')+'</div>'
         +'<div class="al-rule">'+rule+'</div>'
         +'<div class="al-num al-trig" data-l="fires at">'+(r.trigger!=null?fmtNative(r.trigger,r.cur):"—")+'</div>'
         +'<div class="al-num" data-l="now">'+(r.now!=null?fmtNative(r.now,r.cur):"—")+'</div>'
