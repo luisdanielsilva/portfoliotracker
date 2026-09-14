@@ -323,6 +323,29 @@ bump and watching the test fail), and the database must be in WAL mode.
 
 ### ⏳ Open Items / Backlog
 
+**The systemd unit still names the pre-split database (needs root).**
+
+`/etc/systemd/system/portfolio-price-fetch.service` sets
+`Environment="DB_PATH=/var/www/portfoliotracker/data.db"`. After the split that is the dead
+file, and the job would have gone on succeeding every morning while writing prices nothing
+reads — no error, no alert, just a portfolio that quietly stopped moving.
+
+`price-fetch.js` now guards against it: if the configured database still has a `users` table it
+is pre-split, so the job uses `portfolio.db` beside it and says so loudly. Tested, and pinned by
+`test/fetch-cadence.test.js`.
+
+**The guard is a safety net, not the fix.** One `sudo` line puts it right:
+
+```
+sudo sed -i 's|DB_PATH=/var/www/portfoliotracker/data.db|DB_PATH=/var/www/portfoliotracker/portfolio.db|' \
+  /etc/systemd/system/portfolio-price-fetch.service
+sudo systemctl daemon-reload
+```
+
+Until then, watch the first run after the split — the warning appears in the job log and in the
+daily run report.
+
+
 **Detrending the algorithm — proposed, tested, and rejected (2026-09-14).**
 
 The recommendation on 2026-09-13 was to rank the *deviation from a moving average* rather than
@@ -580,7 +603,7 @@ scored at all, which also means a cooldown shorter than that cannot be observed 
 prices moving too. `test/helpers.js` gained `migratedDb()` because `schema.sqlite.sql` alone
 lacks anything added by an ALTER, `prices.price_native` included.
 
-**Testing — 81 tests, in CI since 2026-09-12.**
+**Testing — 82 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

@@ -22,7 +22,39 @@ require('dotenv').config();
 // Hardcoded until the database split, which is exactly the kind of thing that
 // keeps writing to a file nobody reads any more. It honours DB_PATH now, like
 // every other entry point.
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'portfolio.db');
+//
+// The systemd unit that runs this job sets DB_PATH explicitly, and it is owned by
+// root — so when the split happened it went on pointing at the pre-split file
+// that nothing reads any more. This job would have carried on succeeding every
+// morning, writing prices nobody would ever see, and the only symptom would have
+// been a portfolio that quietly stopped moving.
+//
+// So: if the configured database still has a `users` table, it is the old one.
+// Prefer the split file beside it and say so loudly enough to get the unit fixed.
+function resolveDbPath() {
+  const configured = process.env.DB_PATH || path.join(__dirname, 'portfolio.db');
+  try {
+    if (!require('fs').existsSync(configured)) return configured;
+    const probe = new Database(configured, { readonly: true });
+    const preSplit = probe.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+    ).get();
+    probe.close();
+    if (!preSplit) return configured;
+
+    const beside = path.join(path.dirname(configured), 'portfolio.db');
+    if (beside !== configured && require('fs').existsSync(beside)) {
+      console.warn(`⚠ DB_PATH points at ${configured}, which is the pre-split database.`);
+      console.warn(`  Using ${beside} instead. Fix the systemd unit: DB_PATH must name portfolio.db.`);
+      return beside;
+    }
+    console.warn(`⚠ ${configured} looks like a pre-split database and no portfolio.db sits beside it.`);
+  } catch {
+    // Unreadable is somebody else's problem; let the normal open report it.
+  }
+  return configured;
+}
+const dbPath = resolveDbPath();
 const logsDir = path.join(__dirname, 'logs');
 const logFile = path.join(logsDir, 'price-fetch.log');
 
@@ -998,6 +1030,6 @@ if (require.main === module) {
 }
 
 module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts, ordinal,
-  identityFor, emailsByKey,
+  identityFor, emailsByKey, resolveDbPath,
   tickerTier, priceGapDays, HOT_SEEN_DAYS, COLD_INTERVAL_DAYS,
                    areMarketsClosedForFetch };

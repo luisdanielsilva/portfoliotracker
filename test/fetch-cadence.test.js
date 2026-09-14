@@ -8,7 +8,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert');
-const { tickerTier, priceGapDays, HOT_SEEN_DAYS } = require('../price-fetch.js');
+const { tickerTier, priceGapDays, HOT_SEEN_DAYS, resolveDbPath } = require('../price-fetch.js');
 const { migratedDb, addUser, addTx, addPrice, day } = require('./helpers.js');
 
 const NOW = new Date('2026-09-14T12:00:00.000Z');
@@ -87,4 +87,40 @@ test('the gap is measured from the newest stored price', () => {
   // dates have no time of day, so the gap is deliberately fractional rather than
   // rounded to something tidier than the truth.
   assert.strictEqual(priceGapDays(db, 'AAA', NOW), 2.5);
+});
+
+/**
+ * The daily job is started by a root-owned systemd unit that names DB_PATH
+ * explicitly. When the databases were split, that unit went on pointing at the
+ * pre-split file — and the job would have kept succeeding every morning, writing
+ * prices into a database nothing reads, with no symptom but a portfolio that
+ * quietly stopped moving. This is the guard against that.
+ */
+test('the job refuses to write into a pre-split database', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const p = require('node:path');
+  const Database = require('better-sqlite3');
+  const dir = fs.mkdtempSync(p.join(os.tmpdir(), 'pt-split-'));
+
+  const old = p.join(dir, 'data.db');
+  const split = p.join(dir, 'portfolio.db');
+  new Database(old).exec('CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)');
+  new Database(split).exec('CREATE TABLE transactions (id INTEGER PRIMARY KEY, user_id TEXT)');
+
+  const before = process.env.DB_PATH;
+  try {
+    process.env.DB_PATH = old;
+    assert.strictEqual(resolveDbPath(), split, 'a pre-split target must be redirected to the split one');
+
+    process.env.DB_PATH = split;
+    assert.strictEqual(resolveDbPath(), split, 'a correct target is left alone');
+
+    const missing = p.join(dir, 'nothing.db');
+    process.env.DB_PATH = missing;
+    assert.strictEqual(resolveDbPath(), missing, 'a path that does not exist is somebody else\'s error to report');
+  } finally {
+    if (before === undefined) delete process.env.DB_PATH; else process.env.DB_PATH = before;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
