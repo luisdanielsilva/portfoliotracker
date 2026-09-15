@@ -321,7 +321,43 @@ roughly doubled, and the caches are per-process, so each warms separately.
 Pinned by tests: a write must retire the cached portfolio (verified by removing the version
 bump and watching the test fail), and the database must be in WAL mode.
 
-### ⏳ Open Items / Backlog
+### 🚨 The 453-email morning — 2026-09-15
+
+Worth keeping because the bug was trivial and the consequences were not.
+
+**What happened.** The database split left `const identityDb` declared *after* the code that
+reads it, inside the same function. `const` is hoisted into a temporal dead zone, so this is not
+a load-time error that any check would catch — it is a throw on the line that uses it. The daily
+job died on its first piece of real work.
+
+**Why it became five hours long.** The systemd unit carries `Restart=on-failure` with
+`RestartSec=30` and no start limit. A job that cannot start is restarted for ever: **453 failed
+runs between 08:00 and 13:00**, each one emailing a failure report, until the account hit its
+daily sending quota. At that point the alert emails users actually rely on could not be sent
+either — the monitoring had taken out the thing it was monitoring.
+
+**Three lessons, two of them now enforced in code:**
+
+1. **`node --check` does not catch this.** It is valid syntax. Only running the function does.
+   82 tests passed while the job was broken, because none of them entered `fetchPrices`.
+2. **A failure report is now throttled to one an hour** (`failureRecentlyReported`). Order
+   matters and both obvious orderings are wrong: ask the throttle *before* recording the
+   failure, or it finds the row it just wrote and suppresses the first report; close the
+   database *after* asking, or it cannot read its own history and every crash mails.
+3. **The unit should give up.** `Restart=on-failure` with no `StartLimitBurst` on a
+   timer-driven oneshot means infinite retries between scheduled runs. Needs root:
+
+```
+sudo systemctl edit --full portfolio-price-fetch.service
+# under [Unit] add:   StartLimitIntervalSec=1h
+#                     StartLimitBurst=3
+sudo systemctl daemon-reload
+```
+
+**No prices were lost.** The ranged catch-up added on 2026-09-14 fills gaps: a held ticker more
+than a day behind gets one request covering the missing days rather than a quote for today, so
+the next successful run restores the whole gap.
+
 
 **The systemd unit still names the pre-split database (needs root).**
 
@@ -603,7 +639,7 @@ scored at all, which also means a cooldown shorter than that cannot be observed 
 prices moving too. `test/helpers.js` gained `migratedDb()` because `schema.sqlite.sql` alone
 lacks anything added by an ALTER, `prices.price_native` included.
 
-**Testing — 82 tests, in CI since 2026-09-12.**
+**Testing — 83 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

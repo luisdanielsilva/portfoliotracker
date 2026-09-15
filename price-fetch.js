@@ -411,8 +411,45 @@ function renderRunReport(status, d) {
 </td></tr></table></body></html>`;
 }
 
-async function sendRunReport(mailer, status, d) {
+/**
+ * How long a repeated failure stays quiet after its first report.
+ *
+ * On 2026-09-15 a crash on the first line of work met `Restart=on-failure` with
+ * `RestartSec=30` and no start limit: the job failed **453 times between 08:00 and
+ * 13:00**, emailed a report each time, and exhausted the account's daily sending
+ * quota. The alert emails that users actually depend on then could not be sent
+ * either — a monitoring feature had taken out the thing it was monitoring.
+ *
+ * One report per hour is enough to notice a broken job. It is also the difference
+ * between being told and being drowned.
+ */
+const FAILURE_REPORT_QUIET_HOURS = 1;
+
+/** Has a failure already been reported recently enough that another adds nothing? */
+function failureRecentlyReported(db, withinHours = FAILURE_REPORT_QUIET_HOURS) {
+  if (!db) return false;
+  try {
+    const row = db.prepare(`
+      SELECT 1 FROM job_runs
+      WHERE status = 'failed'
+        AND julianday('now') - julianday(ran_at) < ?
+      LIMIT 1
+    `).get(withinHours / 24);
+    return !!row;
+  } catch {
+    return false;   // never let the throttle itself be the reason nothing is sent
+  }
+}
+
+async function sendRunReport(mailer, status, d, db = null) {
   if (!RUN_REPORT_ENABLED) return;
+
+  // A job that cannot start will be restarted for as long as systemd feels like
+  // it. Reporting every attempt turns one bug into an outage of the mail channel.
+  if (status === 'failed' && failureRecentlyReported(db)) {
+    log('  🔇 failure already reported within the hour — not sending another');
+    return;
+  }
   // Operational mail: how the job went. Goes to whoever runs the server, never to a user.
   const to = process.env.OPS_EMAIL_TO || process.env.ALERT_EMAIL_TO;
   if (!mailer || !to) { log('  📌 run report not sent (no mailer or OPS_EMAIL_TO)'); return; }
@@ -854,6 +891,12 @@ async function fetchPrices() {
      *              ticker with a hole in it or a cold one that is due
      *   nothing  — a cold ticker asked about recently enough
      */
+    // Opened here rather than further down, where it used to be: the tier
+    // planning below reads it, and a `const` declared after its first use sits in
+    // the temporal dead zone — which is not a warning at load time, it is a
+    // throw at run time. The daily job failed exactly once that way.
+    const identityDb = identityFor(db);
+
     const now = new Date();
     const plan = { quote: [], range: [], skip: [] };
     for (const ticker of tickers) {
@@ -886,7 +929,6 @@ async function fetchPrices() {
     ensureDropFromHighRuleType(db);
     ensureAlgorithmAlertSettings(db);
     ensureDataVersion(db);
-    const identityDb = identityFor(db);
 
     const upsertStmt = db.prepare(`
       INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)
@@ -1011,10 +1053,21 @@ async function fetchPrices() {
     console.error(err);
     // Record and report the failure before exiting — a crash is precisely what
     // needs to reach someone, and the logs alone were not enough last time.
-    if (db) { recordRun(db, 'failed', { error: err.message, results }); try { db.close(); } catch (_) {} }
+    // Order matters here, and both orderings are wrong in different ways.
+    // Ask the throttle BEFORE recording this failure, or it finds the row it just
+    // wrote and suppresses the very first report. And close the database AFTER
+    // asking, or the throttle cannot read its own history and every crash mails.
+    const quiet = db ? failureRecentlyReported(db) : false;
+    if (db) recordRun(db, 'failed', { error: err.message, results });
     try {
-      await sendRunReport(initEmailTransporter(), 'failed', { error: err.message, results, durationMs: Date.now() - startedAt });
+      if (quiet) {
+        log('  🔇 failure already reported within the hour — not sending another');
+      } else {
+        await sendRunReport(initEmailTransporter(), 'failed',
+          { error: err.message, results, durationMs: Date.now() - startedAt });
+      }
     } catch (_) {}
+    if (db) { try { db.close(); } catch (_) {} }
     process.exit(1);
   }
 }
@@ -1030,6 +1083,6 @@ if (require.main === module) {
 }
 
 module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts, ordinal,
-  identityFor, emailsByKey, resolveDbPath,
+  identityFor, emailsByKey, resolveDbPath, failureRecentlyReported,
   tickerTier, priceGapDays, HOT_SEEN_DAYS, COLD_INTERVAL_DAYS,
                    areMarketsClosedForFetch };

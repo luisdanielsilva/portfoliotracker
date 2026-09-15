@@ -124,3 +124,43 @@ test('the job refuses to write into a pre-split database', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/**
+ * A monitoring feature must not be able to take out the thing it monitors.
+ *
+ * On 2026-09-15 a crash on the first line of work met `Restart=on-failure` with
+ * `RestartSec=30`: the job failed 453 times in five hours, emailed a report every
+ * time, and exhausted the account's daily sending quota — after which the alert
+ * emails users actually depend on could not be sent either.
+ */
+test('a repeated failure is reported once, not once per restart', () => {
+  const Database = require('better-sqlite3');
+  const { failureRecentlyReported } = require('../price-fetch.js');
+  const db = new Database(':memory:');
+  db.exec(`CREATE TABLE job_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, job TEXT,
+           status TEXT, summary TEXT, ran_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  const at = (status, minutesAgo) => db.prepare(
+    "INSERT INTO job_runs (job,status,ran_at) VALUES ('price-fetch',?,datetime('now','-'||?||' minutes'))"
+  ).run(status, minutesAgo);
+
+  assert.strictEqual(failureRecentlyReported(db), false, 'the first failure must always be reported');
+
+  at('failed', 10);
+  assert.strictEqual(failureRecentlyReported(db), true, 'a second failure minutes later must stay quiet');
+
+  const later = new Database(':memory:');
+  later.exec(`CREATE TABLE job_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, job TEXT,
+              status TEXT, summary TEXT, ran_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  later.prepare("INSERT INTO job_runs (job,status,ran_at) VALUES ('price-fetch','failed',datetime('now','-90 minutes'))").run();
+  assert.strictEqual(failureRecentlyReported(later), false, 'still broken an hour later is worth saying again');
+
+  later.prepare("INSERT INTO job_runs (job,status,ran_at) VALUES ('price-fetch','success',datetime('now','-5 minutes'))").run();
+  assert.strictEqual(failureRecentlyReported(later), false, 'a recent success must never suppress a report');
+
+  // Never let the throttle itself be the reason nothing is sent.
+  const broken = new Database(':memory:');
+  assert.strictEqual(failureRecentlyReported(broken), false, 'no job_runs table means report anyway');
+  assert.strictEqual(failureRecentlyReported(null), false, 'no database means report anyway');
+
+  db.close(); later.close(); broken.close();
+});
