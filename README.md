@@ -359,7 +359,46 @@ than a day behind gets one request covering the missing days rather than a quote
 the next successful run restores the whole gap.
 
 
-**The systemd unit still names the pre-split database (needs root).**
+### ✉️ A ceiling on outbound mail — 2026-09-15
+
+After the 453-email morning, every send goes through `mailguard.js`. Nothing calls `sendMail`
+directly any more, and a send that would exceed its budget does not happen — whichever process
+asks, however often.
+
+**Per recipient, per rolling 24 hours:**
+
+| Kind | Limit | What it is |
+|---|---|---|
+| `login` | 10 | magic links — someone mistypes, loses the mail, tries again |
+| `alert` | 5 | the daily digest: dip/target/trailing/price rules, the algorithm's buy alert and Monday's standings all ride in **one** message |
+| `contact` | 30 | support mail — silently dropping one of these is far worse than dropping a duplicate report |
+| `run-report` | 6 | one scheduled run a day; six means something is retrying |
+| `health` | 3 | the staleness check, once a day |
+| `backup` | 3 | weekly |
+| anything new | 5 | a kind nobody listed gets a budget rather than a free pass |
+
+Plus a **global ceiling of 200 a day** across all recipients and kinds. The per-recipient
+budgets would have stopped the incident at six; the global one is for the failure nobody has
+thought of yet — a loop that invents new recipients, which no per-recipient budget can see.
+
+**A normal user receives one email a day**: the digest. Everything the app knows how to tell
+them arrives inside it.
+
+**Three decisions worth keeping:**
+
+- **The ledger stores a hash, not the address.** It lives in the financial database, which since
+  the split must never hold an email address. Counting does not need to know who anybody is.
+  Matching is case- and whitespace-insensitive, so capitalisation cannot buy a second budget.
+- **The send is recorded before it goes out**, not after it succeeds. A provider error that left
+  the count unchanged would let a retry loop send for ever — the exact shape of what happened.
+- **A broken ledger lets mail through.** Backwards, that would mean a bookkeeping bug silences
+  the alerts, which is worse than the problem the bookkeeping prevents.
+
+Nine tests, verified by removing the cap and watching four of them fail.
+
+### ⏳ Open Items / Backlog
+
+**~~The systemd unit still names the pre-split database~~ — fixed 2026-09-15.**
 
 `/etc/systemd/system/portfolio-price-fetch.service` sets
 `Environment="DB_PATH=/var/www/portfoliotracker/data.db"`. After the split that is the dead
@@ -370,7 +409,9 @@ reads — no error, no alert, just a portfolio that quietly stopped moving.
 is pre-split, so the job uses `portfolio.db` beside it and says so loudly. Tested, and pinned by
 `test/fetch-cadence.test.js`.
 
-**The guard is a safety net, not the fix.** One `sudo` line puts it right:
+The unit now names `portfolio.db`, and `StartLimitIntervalSec=1h` / `StartLimitBurst=3` were
+added at the same time so a failing job gives up after three attempts instead of retrying every
+thirty seconds for ever. The guard below stays as a safety net. For reference, the fix was:
 
 ```
 sudo sed -i 's|DB_PATH=/var/www/portfoliotracker/data.db|DB_PATH=/var/www/portfoliotracker/portfolio.db|' \
@@ -639,7 +680,7 @@ scored at all, which also means a cooldown shorter than that cannot be observed 
 prices moving too. `test/helpers.js` gained `migratedDb()` because `schema.sqlite.sql` alone
 lacks anything added by an ALTER, `prices.price_native` included.
 
-**Testing — 83 tests, in CI since 2026-09-12.**
+**Testing — 92 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

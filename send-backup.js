@@ -13,6 +13,17 @@ const path = require('path');
 const nodemailer = require('nodemailer');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
+// Opened only so this send is counted against the same ledger as every other.
+// A weekly backup email is the least likely thing to run away, which is exactly
+// why it should not be the one exception to the rule.
+const Database = require('better-sqlite3');
+const mailguard = require('./mailguard');
+let ledger = null;
+try {
+  ledger = new Database(process.env.DB_PATH || path.join(__dirname, 'portfolio.db'));
+  ledger.pragma('busy_timeout = 5000');
+} catch { /* no ledger available — the send still happens, uncounted */ }
+
 const file = process.argv[2];
 if (!file || !fs.existsSync(file)) {
   console.error('send-backup: no such file:', file);
@@ -39,7 +50,7 @@ const name = path.basename(file);
 const size = (fs.statSync(file).size / 1024).toFixed(0);
 const stamp = name.replace(/^data\.db\./, '').replace(/\.gz\.gpg$/, '');
 
-transport.sendMail({
+mailguard.sendGuarded(ledger, transport, 'backup', {
   from: process.env.ALERT_EMAIL_FROM || process.env.AUTH_EMAIL_FROM,
   to,
   subject: `Portfolio Tracker backup — ${stamp}`,
@@ -57,6 +68,10 @@ transport.sendMail({
     'Keep the most recent one. Older copies are also in the private backup repository.'
   ].join('\n'),
   attachments: [{ filename: name, path: file }]
-})
-  .then(() => { console.log(`  emailed ${name} (${size} KB) to ${to}`); process.exit(0); })
+}, msg => console.log(msg))
+  .then(r => {
+    if (r && r.sent === false) { console.log(`  not emailed: ${r.reason}`); process.exit(0); }
+    console.log(`  emailed ${name} (${size} KB) to ${to}`);
+    process.exit(0);
+  })
   .catch(err => { console.error('send-backup: send failed:', err.message); process.exit(1); });

@@ -14,6 +14,7 @@ const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
 const { evaluateAlgorithmSignals, standingsFor, isStandingsDay } = require('./algo-alerts');
+const mailguard = require('./mailguard');
 const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
         ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureDataVersion,
         recentHigh } = require('./db-migrations');
@@ -458,9 +459,10 @@ async function sendRunReport(mailer, status, d, db = null) {
     : status === 'skipped' ? `Price fetch skipped — ${d.reason}`
     : `Price fetch FAILED — ${d.error}`;
   try {
-    await mailer.sendMail({ from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
-      to, subject, html: renderRunReport(status, d) });
-    log(`  ✉ run report sent to ${to}`);
+    const r = await mailguard.sendGuarded(db, mailer, 'run-report',
+      { from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
+        to, subject, html: renderRunReport(status, d) }, log);
+    if (r.sent) log(`  ✉ run report sent to ${to}`);
   } catch (e) {
     log(`  ❌ run report failed: ${e.message}`);
   }
@@ -749,13 +751,13 @@ async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
       continue;
     }
     try {
-      await mailer.sendMail({
+      await mailguard.sendGuarded(db, mailer, 'alert', {
         from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
         to: recipient,
         subject,
         text: renderAlertDigestText(items, standings),
         html: renderAlertDigest(items, standings)
-      });
+      }, log);
       log(`  ✉ Digest sent to ${recipient} (${items.length} alert${items.length > 1 ? 's' : ''})`);
     } catch (emailErr) {
       log(`  ❌ Failed to send digest to ${recipient}: ${emailErr.message}`);

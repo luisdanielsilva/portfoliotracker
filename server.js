@@ -332,14 +332,14 @@ async function sendMagicLink(email, link) {
     return;
   }
   try {
-    await authMailer.sendMail({
+    await mailguard.sendGuarded(db, authMailer, 'login', {
       from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'login@portfoliotracker.local',
       to: email,
       subject: 'Your Portfolio Tracker login link',
       html: `<p>Click below to sign in. This link works once and expires in 15 minutes.</p>
              <p><a href="${link}">Sign in to Portfolio Tracker</a></p>
              <p style="color:#666;font-size:12px">If you didn't request this, you can ignore this email.</p>`
-    });
+    }, msg => console.log(msg));
   } catch (err) {
     // Never let a broken mailer swallow the only way in — log it instead.
     console.error(`Magic-link email to ${email} failed: ${err.message}`);
@@ -1732,7 +1732,7 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
     }
 
     try {
-      await authMailer.sendMail({
+      await mailguard.sendGuarded(db, authMailer, 'contact', {
         from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'contact@portfoliotracker.local',
         to: recipient,
         replyTo: email,
@@ -1741,7 +1741,7 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
                <p><strong>Type:</strong> ${escapeHtml(type)}</p>
                <p><strong>Message:</strong></p>
                <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`
-      });
+      }, msg => console.log(msg));
     } catch (err) {
       // This used to be swallowed and answered with success, on the reasoning that the
       // submission was "still logged". A line in a log nobody reads is not delivery: the

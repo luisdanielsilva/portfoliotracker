@@ -34,7 +34,10 @@ function mailer() {
   });
 }
 
-const db = new Database(dbPath, { readonly: true });
+// Writable, not because this script changes anything it reports on, but because
+// the mail ledger has to record what it sends — a cap that cannot write is not a
+// cap, it is a suggestion.
+const db = new Database(dbPath);
 
 
 db.pragma('busy_timeout = 5000');
@@ -102,12 +105,12 @@ if (!m || !to) {
   process.exit(1);
 }
 
-m.sendMail({
+require('./mailguard').sendGuarded(db, m, 'health', {
   from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
   to,
   subject: `Portfolio Tracker: price fetch has not succeeded in ${ageHours === Infinity ? 'any recorded run' : ageHours.toFixed(0) + 'h'}`,
   text: body
-}).then(() => {
+}, msg => console.log(msg)).then(() => {
   console.log('staleness alert sent to ' + to);
   db.close();
   process.exit(1);
