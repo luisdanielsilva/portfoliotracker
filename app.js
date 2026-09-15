@@ -400,11 +400,19 @@
   var svg=document.getElementById("chart"), tip=document.getElementById("tip"), box=svg.parentNode;
   var D={w:960,h:540,l:72,r:140,t:28,b:44};
   var pW=D.w-D.l-D.r, pH=D.h-D.t-D.b;
-  var mode="eur", CAP=8, DOMc=[0,1], selected=["_total"], capTimer;
+  var mode="eur", DOMc=[0,1], selected=["_total"], capTimer;
   var CURRENT_EUR_TO_USD=1.087; // Default exchange rate, updated from latest prices
   var timePeriod="all"; // Current time period filter: 1m, 3m, 6m, 1y, 3y, 5y, or all
   var PAL_L=["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4","#008300","#4a3aa7","#e34948"];
   var PAL_D=["#3987e5","#d95926","#199e70","#c98500","#d55181","#008300","#9085e9","#e66767"];
+  // Eight is not an arbitrary cap: it is how many categorical hues stay tellable apart,
+  // including under the red/green colour-blindness simulations these two palettes were
+  // validated against. A ninth hue would be a colour somebody cannot distinguish from one
+  // already on the chart. So the ninth line reuses the first hue and adds a second channel
+  // instead — it is drawn dashed. Eight hues x two dash styles = sixteen lines, every one
+  // of them a unique pair. Add a third dash style here if the cap ever needs to go higher.
+  var DASH=["","7 4"];
+  var CAP=PAL_L.length*DASH.length;
   function byKey(k){ for(var i=0;i<ALL.length;i++) if(ALL[i].key===k) return ALL[i]; }
   function isDark(){
     var t=document.documentElement.getAttribute("data-theme");
@@ -412,7 +420,40 @@
     return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
   }
   function palette(){ return isDark()?PAL_D:PAL_L; }
-  function colorOf(k){ var i=selected.indexOf(k); return i<0?"var(--faint)":palette()[i%CAP]; }
+  /* A colour belongs to a series, not to its position in `selected`. Colouring by that
+     position meant removing one line repainted every line after it, so the same stock
+     changed colour because a *different* one was dropped — and a colour read off the
+     chart a moment ago no longer meant the same holding.
+     Each shown series now holds a slot of its own until it is itself removed. A series
+     prefers the slot it held last time, falling back to one derived from its fixed place
+     in ALL, so a holding keeps its colour across a remove-and-re-add and across reloads
+     too; the preference is only ever given up when another series already holds it. */
+  var slotOf={}, lastSlot={};
+  function defaultSlot(k){ for(var i=0;i<ALL.length;i++) if(ALL[i].key===k) return i%CAP; return 0; }
+  function syncSlots(){
+    if(!ALL) return;
+    var taken={}, k;
+    for(k in slotOf){
+      if(selected.indexOf(k)<0){ lastSlot[k]=slotOf[k]; delete slotOf[k]; }
+      else taken[slotOf[k]]=1;
+    }
+    selected.forEach(function(k){
+      if(slotOf[k]!=null) return;
+      var want=lastSlot[k]!=null?lastSlot[k]:defaultSlot(k);
+      // toggle() caps the selection at CAP, so a free slot always exists
+      if(taken[want]){ want=0; while(taken[want]&&want<CAP-1) want++; }
+      slotOf[k]=want; taken[want]=1;
+    });
+  }
+  function slotFor(k){ return slotOf[k]!=null?slotOf[k]:0; }
+  function colorOf(k){ return selected.indexOf(k)<0?"var(--faint)":palette()[slotFor(k)%palette().length]; }
+  function dashOf(k){ return selected.indexOf(k)<0?"":DASH[Math.floor(slotFor(k)/palette().length)%DASH.length]; }
+  // the legend, picker and tooltip show a sample of the line itself, so a dashed
+  // series is identifiable there and not only out on the chart
+  function swatchCSS(k){
+    var c=colorOf(k), d=dashOf(k);
+    return d?"background:repeating-linear-gradient(90deg,"+c+" 0 5px,transparent 5px 8px)":"background:"+c;
+  }
   function firstNN(a){ for(var i=0;i<n;i++) if(a[i]!=null) return i; return 0; }
   function sval(o,i){ if(o.arr[i]==null) return null; return mode==="eur"?o.arr[i]:o.arr[i]*CURRENT_EUR_TO_USD; }
   function X(i){ return D.l+(T[i]-chartT0)/((chartT1-chartT0)||1)*pW; }
@@ -458,6 +499,7 @@
   }
   var chartT0=T0, chartT1=T1; // Chart display time range
   function renderMain(){
+    syncSlots();
     // ALL is only populated by rebuild(), which needs loaded data. The default
     // time-period button is clicked at script load and the OS theme listener can
     // fire at any time, so both can reach here before (or without) a signed-in
@@ -508,11 +550,22 @@
     var ends=[];
     selected.forEach(function(k){
       var s=byKey(k); if(!s) return;
-      var col=colorOf(k), dstr="", started=false;
+      var col=colorOf(k), dsh=dashOf(k), dstr="", started=false;
       for(var i=0;i<n;i++){ if(!isInChartRange(i)) continue; var v=sval(s,i); if(v==null) continue;
         dstr+=(started?" L ":"M ")+X(i).toFixed(1)+" "+Y(v).toFixed(1); started=true; }
-      if(dstr) svg.appendChild(el("path",{class:"serieline",d:dstr,stroke:col}));
+      if(dstr){ var pa={class:"serieline",d:dstr,stroke:col}; if(dsh) pa["stroke-dasharray"]=dsh;
+        svg.appendChild(el("path",pa)); }
+      /* A dashed line only reads as dashed if the dots stop filling in its gaps. At a
+         couple of hundred closes the markers sit closer together than the dash itself and
+         merge into a solid ribbon, hiding the one channel that tells slot 9 from slot 1.
+         So a dashed series thins its markers to roughly one every 9px; the first eight,
+         which carry a hue of their own, are untouched and still mark every point. */
+      var every=1;
+      if(dsh){ var vis=0; for(var c=0;c<n;c++) if(isInChartRange(c)&&sval(s,c)!=null) vis++;
+               every=Math.max(1,Math.ceil(vis/Math.max(1,pW/9))); }
+      var seen=0;
       for(var j=0;j<n;j++){ if(!isInChartRange(j)) continue; var vv=sval(s,j); if(vv==null) continue;
+        if(seen++%every) continue;
         svg.appendChild(el("circle",{class:"dot",cx:X(j),cy:Y(vv),r:2.4,fill:col})); }
       if(s.qty) for(var b=0;b<n;b++) if(isBuyIdx(s.qty,b) && s.arr[b]!=null && isInChartRange(b))
         svg.appendChild(el("circle",{class:"buyring",cx:X(b),cy:Y(sval(s,b)),r:3.6,stroke:col}));
@@ -521,6 +574,14 @@
     });
     ends.sort(function(a,b){return a.y-b.y;});
     for(var e=1;e<ends.length;e++) if(ends[e].y-ends[e-1].y<12) ends[e].y=ends[e-1].y+12;
+    // Nudging each label down to clear the one above it runs the tail of a long stack off
+    // the bottom of the chart — with sixteen series the last values were simply cut off.
+    // Pin the lowest one to the axis and walk back up, which moves only the labels that
+    // are actually in each other's way and leaves the rest beside their own line.
+    if(ends.length && ends[ends.length-1].y>D.t+pH){
+      ends[ends.length-1].y=D.t+pH;
+      for(var u=ends.length-2;u>=0;u--) if(ends[u+1].y-ends[u].y<12) ends[u].y=ends[u+1].y-12;
+    }
     ends.forEach(function(en){ var lb=el("text",{class:"endlbl",x:D.w-D.r+10,y:en.y+3.5,fill:en.col}); lb.textContent=en.txt; svg.appendChild(lb); });
     svg.appendChild(el("line",{class:"crosshair",id:"cross",x1:0,x2:0,y1:D.t,y2:D.t+pH,opacity:0}));
     svg.appendChild(el("g",{id:"fdots",opacity:0}));
@@ -534,7 +595,7 @@
     selected.forEach(function(k){
       var s=byKey(k); if(!s) return;
       var b=document.createElement("button");
-      b.innerHTML='<i style="background:'+colorOf(k)+'"></i>'+esc(s.name)+' \u00d7';
+      b.innerHTML='<i style="'+swatchCSS(k)+'"></i>'+esc(s.name)+' \u00d7';
       b.addEventListener("click",function(){ toggle(k); });
       lg.appendChild(b);
     });
@@ -556,6 +617,7 @@
   }
   function renderPicker(){
     if(!ALL) return;
+    syncSlots();
     var p=document.getElementById("picker"); p.innerHTML="";
     var acts=document.querySelector(".picker-actions");
     if(acts) acts.hidden=!n;
@@ -565,7 +627,7 @@
       var b=document.createElement("button");
       b.className="chip"+(s.agg?" agg":"");
       b.setAttribute("aria-pressed",on?"true":"false");
-      b.innerHTML='<i class="sw" style="background:'+(on?colorOf(s.key):"transparent")+'"></i>'+esc(s.name);
+      b.innerHTML='<i class="sw" style="'+(on?swatchCSS(s.key):"background:transparent")+'"></i>'+esc(s.name);
       b.addEventListener("click",function(){ toggle(s.key); });
       p.appendChild(b);
     });
@@ -604,7 +666,7 @@
       if(v!=null){ g.appendChild(el("circle",{class:"focus-dot",r:4,fill:colorOf(k),cx:x,cy:Y(v)})); if(yref==null) yref=Y(v); }
       var disp=v==null?"\u2014":(mode==="eur"?eur(s.arr[i]):usd(v));
       var qsh=(s.qty&&s.qty[i]!=null)?' <span class="qsh">'+s.qty[i]+' sh</span>':'';
-      rows+='<div class="row"><span class="lab"><i style="background:'+colorOf(k)+'"></i>'+s.name+qsh+'</span><span class="v">'+disp+'</span></div>';
+      rows+='<div class="row"><span class="lab"><i style="'+swatchCSS(k)+'"></i>'+s.name+qsh+'</span><span class="v">'+disp+'</span></div>';
     });
     tip.innerHTML='<div class="th">'+SNAP[i].label+(SNAP[i].src&&SNAP[i].src!=="base"?' &middot; added':'')+'</div>'+rows;
     tip.classList.add("on");

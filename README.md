@@ -969,6 +969,39 @@ it. Three things about it are worth knowing, all of them mistakes that were live
 `refreshPortfolio()` re-fetches and redraws after any transaction is added or deleted, and
 after a backfill lands new history.
 
+**Series colours belong to the series — 2026-09-15.** The chart used to colour a line by its
+position in the selection array: `palette()[selected.indexOf(key)]`. Removing one line then
+shifted every line after it up a slot, so a stock changed colour because a *different* stock
+was removed, and a colour read off the chart a moment earlier no longer meant the same
+holding. Each shown series now holds a slot of its own until it is itself removed. A series
+prefers the slot it held last time, falling back to one derived from its fixed position in
+`ALL`, so a holding keeps its colour across a remove-and-re-add and across reloads; the
+preference is given up only when another shown series already holds that slot, which with
+fewer than 17 series never happens.
+
+**Sixteen lines at once, not eight.** The old cap was the palette length, and the palette is
+eight because that is how many categorical hues stay tellable apart — both palettes here pass
+a lightness/chroma/contrast check and a colour-blindness separation check (protanopia and
+deuteranopia, Machado-Oliveira-Fernandes at full severity) that a ninth hue would not. So the
+ninth line does not invent a colour: it reuses the first hue and adds a second channel, a
+dashed stroke. Eight hues × two dash styles = sixteen unique pairs, which covers ten holdings
+plus the three aggregates with room to spare. A third dash style in `DASH` raises it again.
+
+Two details make the dash actually visible, and both are load-bearing:
+
+- **A dashed series thins its point markers** to roughly one every 9px. At a couple of hundred
+  closes the 2.4px dots sit closer together than the dash and merge into a solid ribbon,
+  hiding the one channel that separates slot 9 from slot 1. The first eight series are
+  untouched and still mark every point.
+- **The legend, picker and tooltip show a sample of the line**, not a square of colour, so a
+  dashed series is identifiable there too. Only `#tip` gets this; the drawdown, alert-map and
+  transaction tooltips keep their square keys.
+
+The end-value labels also needed a fix: each one is nudged down to clear the label above it,
+and with sixteen of them the tail ran off the bottom of the plot. The lowest is now pinned to
+the axis and the stack walks back up from there, which moves only the labels that are in each
+other's way.
+
 ### 🎯 Architecture
 
 **Single Source of Truth:** `/var/www/portfoliotracker/`
