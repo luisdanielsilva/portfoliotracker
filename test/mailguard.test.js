@@ -13,7 +13,25 @@ const assert = require('node:assert');
 const Database = require('better-sqlite3');
 const g = require('../mailguard.js');
 
-const freshLedger = () => { const db = new Database(':memory:'); g.ensureEmailLog(db); return db; };
+/** An identity database holding nothing but a count — which is all mailguard reads. */
+function withUsers(n) {
+  const id = new Database(':memory:');
+  id.exec('CREATE TABLE users (id INTEGER PRIMARY KEY)');
+  const ins = id.prepare('INSERT INTO users (id) VALUES (?)');
+  for (let i = 1; i <= n; i++) ins.run(i);
+  return id;
+}
+
+/* The ledger carries its identity database the way the app's does, so no test ever
+   reaches for the real one — and so the global ceiling in these tests is a number
+   the test itself chose. Twenty accounts is a 200-message ceiling: high enough that
+   the per-recipient tests below are testing what they say they are. */
+const freshLedger = (users = 20) => {
+  const db = new Database(':memory:');
+  g.ensureEmailLog(db);
+  db.identity = withUsers(users);
+  return db;
+};
 
 /** A mailer that records instead of sending. */
 function fakeMailer() {
@@ -76,14 +94,42 @@ test('the address is matched case- and whitespace-insensitively', async () => {
 });
 
 test('a global ceiling catches what per-recipient budgets cannot', async () => {
-  const db = freshLedger();
+  const db = freshLedger(4);
   const mailer = fakeMailer();
   // A loop that invents a new recipient every time defeats any per-recipient
   // limit. This is the backstop for the failure nobody has thought of yet.
-  for (let i = 0; i < g.GLOBAL_DAILY_LIMIT + 60; i++) {
+  for (let i = 0; i < 200; i++) {
     await g.sendGuarded(db, mailer, 'login', { to: `user${i}@example.com`, subject: 'x' });
   }
-  assert.strictEqual(mailer.sent.length, g.GLOBAL_DAILY_LIMIT);
+  assert.strictEqual(mailer.sent.length, 4 * g.GLOBAL_PER_USER,
+    'four registered accounts buy forty messages a day, however many recipients the loop invents');
+});
+
+test('the ceiling is ten per registered user, and moves with the user base', () => {
+  assert.strictEqual(g.globalCeiling(null, withUsers(1)).limit, 10);
+  assert.strictEqual(g.globalCeiling(null, withUsers(6)).limit, 60);
+  assert.strictEqual(g.globalCeiling(null, withUsers(200)).limit, 2000);
+  // and it reports the count it used, so the refusal can say why
+  assert.strictEqual(g.globalCeiling(null, withUsers(6)).users, 6);
+});
+
+test('an install with no accounts yet still gets one user\'s worth', async () => {
+  // Zero registered users would otherwise compute a ceiling of zero and silence the
+  // backup and health mail that says a fresh install is working.
+  const db = freshLedger(0);
+  const mailer = fakeMailer();
+  for (let i = 0; i < 40; i++) await g.sendGuarded(db, mailer, 'login', { to: `u${i}@example.com`, subject: 'x' });
+  assert.strictEqual(mailer.sent.length, g.GLOBAL_FLOOR);
+});
+
+test('an identity database that cannot be read does not silence the mail', async () => {
+  // Same principle as the broken ledger below: if the count is unavailable the global
+  // check is skipped, not guessed at. The per-recipient budgets are still in force.
+  const db = freshLedger();
+  db.identity = new Database(':memory:');        // no users table at all
+  const mailer = fakeMailer();
+  for (let i = 0; i < 100; i++) await g.sendGuarded(db, mailer, 'login', { to: `u${i}@example.com`, subject: 'x' });
+  assert.strictEqual(mailer.sent.length, 100, 'an unreadable count must not become a ceiling of zero');
 });
 
 test('yesterday does not count against today', async () => {

@@ -15,6 +15,7 @@ const YahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
 const { evaluateAlgorithmSignals, standingsFor, isStandingsDay } = require('./algo-alerts');
 const mailguard = require('./mailguard');
+const { identityFor } = require('./identity-db');
 const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
         ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureDataVersion,
         recentHigh } = require('./db-migrations');
@@ -557,22 +558,12 @@ function areMarketsClosedForFetch(when) {
  *
  * The financial database holds an opaque key where a person used to be. Anything
  * that has to *tell* somebody something — an alert email, a digest — needs the
- * address, and the address is deliberately somewhere else. These two functions
- * are the only places that cross, and they cross in one direction: key to email,
- * never the reverse.
+ * address, and the address is deliberately somewhere else. This is the only place
+ * that crosses, and it crosses in one direction: key to email, never the reverse.
+ *
+ * Finding the identity database is no longer done here — `identity-db.js` does it,
+ * because mailguard needs the same file to count how many people are registered.
  */
-function identityFor(db) {
-  if (db && db.identity) return db.identity;          // tests hand theirs over directly
-  const file = process.env.IDENTITY_DB_PATH
-    || path.join(path.dirname(process.env.DB_PATH || path.join(__dirname, 'portfolio.db')), 'identity.db');
-  try {
-    const handle = new Database(file, { readonly: true });
-    handle.pragma('busy_timeout = 5000');
-    return handle;
-  } catch {
-    return null;   // no identities available: nothing can be emailed, and the caller says so
-  }
-}
 
 /** key -> email, as a plain lookup. Returns a function so callers cannot hold the table. */
 function emailsByKey(identityDb) {

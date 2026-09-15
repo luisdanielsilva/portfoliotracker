@@ -377,9 +377,28 @@ asks, however often.
 | `backup` | 3 | weekly |
 | anything new | 5 | a kind nobody listed gets a budget rather than a free pass |
 
-Plus a **global ceiling of 200 a day** across all recipients and kinds. The per-recipient
-budgets would have stopped the incident at six; the global one is for the failure nobody has
-thought of yet — a loop that invents new recipients, which no per-recipient budget can see.
+Plus a **global ceiling of ten messages a day per registered user**, across all recipients and
+kinds — 60 a day at the six accounts registered on 2026-09-15, and it moves with the user base.
+The per-recipient budgets would have stopped the incident at six; the global one is for the
+failure nobody has thought of yet — a loop that invents new recipients, which no per-recipient
+budget can see.
+
+It is expressed per user rather than as a flat number (it was a flat 200 until 2026-09-15) so
+that it stays tight as the app grows: 200 is very loose for six accounts and very tight for two
+hundred. Two consequences to know about:
+
+- **The ceiling can be lower than one person's own budgets allow** — `contact` alone is 30. That
+  is deliberate, but it does mean an unusually chatty account can crowd out another account's
+  alerts. Raise `GLOBAL_PER_USER` before loosening any per-recipient budget.
+- **A floor of one user's worth** (`GLOBAL_FLOOR`, ten) keeps a fresh install with an empty
+  `users` table from computing a ceiling of zero and silencing the backup and health mail that
+  says the install is working.
+
+The count comes from the identity database, which mailguard reads for exactly one number and
+never an address; resolving *where* that database is now lives in `identity-db.js`, shared with
+`price-fetch.js` so the two cannot disagree. If the count cannot be read the global check is
+skipped rather than guessed at — the per-recipient budgets still apply, on the same principle
+as the broken-ledger rule below.
 
 **A normal user receives one email a day**: the digest. Everything the app knows how to tell
 them arrives inside it.
@@ -394,7 +413,8 @@ them arrives inside it.
 - **A broken ledger lets mail through.** Backwards, that would mean a bookkeeping bug silences
   the alerts, which is worse than the problem the bookkeeping prevents.
 
-Nine tests, verified by removing the cap and watching four of them fail.
+Twelve tests, verified by removing the cap and watching four of them fail, and by moving the
+per-user number from ten to eleven and watching the ceiling test catch it.
 
 ### ⏳ Open Items / Backlog
 
