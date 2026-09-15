@@ -372,6 +372,14 @@
   .lp-navlink{font-size:13px;font-weight:500;color:var(--muted);text-decoration:none;padding:7px 14px;border:1px solid var(--hair);border-radius:8px;background:var(--surface)}
   .lp-navlink:hover{color:var(--ink);background:var(--surface-2)}
 
+
+  /* Support block on the logged-out landing page. */
+  #lp-donate{margin:44px auto 0;max-width:460px;text-align:center}
+  #lp-donate h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:24px;letter-spacing:-.01em;margin:0 0 10px}
+  #lp-donate p{font-size:13px;line-height:1.6;color:var(--muted);margin:0 auto 16px;max-width:52ch}
+  #lp-donate .donate-widget{margin:0 auto;max-width:420px}
+  #lp-donate .lp-donate-note{margin-top:14px;font-size:11.5px;color:var(--faint)}
+  #lp-donate .lp-donate-fallback{font-size:12px;color:var(--faint)}
   .lp-hero{padding:40px 0 0}
   /* headline runs the full container width; the body below it is split into two
      columns so the width is used without stretching prose to an unreadable measure */
@@ -1077,6 +1085,18 @@
   <div class="lp-cta" style="justify-content:center;margin-top:40px">
     <a class="lp-btn" href="#" data-contact-open>Contact / Feature Request</a>
   </div>
+
+  <!-- The same widget as the one inside the app. A logged-out visitor never sees
+       that one: this landing page is a fixed overlay at z-index 2000, so the app
+       content behind it is unreachable, not merely scrolled past. -->
+  <section id="lp-donate">
+    <h2>Support &mdash; entirely optional</h2>
+    <p><b>This buys you nothing.</b> The app is free, for everyone, with no ads and nothing sold about you &mdash; and that does not change whether you give or not. It is only a way to help cover the server and the data.</p>
+    <div class="donate-widget" data-label="Portfolio Tracker" data-accent="#2a78d6">
+      <p class="lp-donate-fallback">Donations are unavailable at the moment. Everything else works as normal.</p>
+    </div>
+    <p class="lp-donate-note">Handled by Stripe. No account needed, and this site never sees or stores your card details &mdash; or your email, since a donation has nothing to deliver.</p>
+  </section>
 
   <footer style="margin-top:32px;text-align:center">
     Portfolio Tracker &mdash; a personal project by <strong>Luís Silva</strong> &middot;
