@@ -78,7 +78,6 @@
 
   var BASE_RAW = []; // Will be populated from API
   var LATEST_PRICES = {}; // ticker -> {priceEUR, priceUSD, priceNative, currency, date, updatedAt}
-  var LATEST_PRICE_CURRENCY = {}; // ticker -> the currency its market quotes in
   var CURRENT_MARKET_VALUE = null; // calculated from latest holdings + prices
   var CURRENT_COST_BASIS = null; // cost basis of current portfolio
   var STOCK_SPLITS = []; // {ticker, date, ratio, description}
@@ -98,7 +97,6 @@
     var s=CURRENCY_SYMBOL[cur];
     return s?s+" "+nfEur2.format(v):nfEur2.format(v)+" "+(cur||"");
   }
-  function idx1(v){ return (Math.round(v*10)/10).toFixed(1); }
   function comma(x){ return String(x).replace(".",","); }
   function d0(v){ return (v>=0?"+":"\u2212")+"\u20ac"+nfEur0.format(Math.abs(Math.round(v))); }
   function dp(v){ return (v>=0?"+":"\u2212")+comma(Math.abs(v*100).toFixed(1))+"%"; }
@@ -323,7 +321,6 @@
     var fr=document.getElementById("firstrun"); if(fr) fr.hidden=!!n;
     renderHeadline();
     renderPicker(); renderMain(); renderEventsTimeline();
-    buildGrid();
     renderPortfolioDetail();
     renderTable();
   }
@@ -710,111 +707,12 @@
     if(mq.addEventListener) mq.addEventListener("change",onTheme); else if(mq.addListener) mq.addListener(onTheme);
   }
 
-  /* ================= VIEW 2 : small multiples ================= */
-  var grid=document.getElementById("grid"), scrubDate=document.getElementById("scrub-date");
-  var PdW=240,PdH=120,PiL=4,PiR=4,PiT=8,PiB=12, PpW=PdW-PiL-PiR, PpH=PdH-PiT-PiB;
-  var smMode="abs", smOrder="size", panels=[];
-  function firstIdx(s){ for(var i=0;i<n;i++) if(s.vals[i]!=null) return i; return 0; }
-  function series(s){
-    var f=firstIdx(s), b=s.vals[f], out=[];
-    for(var i=f;i<n;i++){ if(s.vals[i]==null) continue; out.push({i:i,v:smMode==="abs"?s.vals[i]:s.vals[i]/b*100}); }
-    return out;
-  }
-  function domainOf(pts){
-    var mn=Infinity,mx=-Infinity;
-    pts.forEach(function(p){ if(p.v<mn)mn=p.v; if(p.v>mx)mx=p.v; });
-    if(mn===mx) return [mn*0.96,mx*1.04];
-    var pad=(mx-mn)*0.14; return [mn-pad,mx+pad];
-  }
-  function xP(t){ return PiL+(t-T0)/((T1-T0)||1)*PpW; }
-  function yP(v,dom){ return PiT+(1-(v-dom[0])/((dom[1]-dom[0])||1))*PpH; }
-  function orderedStocks(){
-    var a=UNI.slice();
-    if(smOrder==="perf") a.sort(function(x,y){ var fx=firstIdx(x),fy=firstIdx(y); return (y.vals[n-1]/y.vals[fy]-1)-(x.vals[n-1]/x.vals[fx]-1); });
-    else a.sort(function(x,y){ return (y.vals[n-1]||0)-(x.vals[n-1]||0); });
-    return a;
-  }
-  function buildGrid(){
-    grid.innerHTML=""; panels=[];
-    if(!n){
-      grid.innerHTML='<p class="hint" style="grid-column:1/-1;margin:0">Each holding gets its own small chart here once you have registered a transaction.</p>';
-      return;
-    }
-    orderedStocks().forEach(function(s){
-      if(s.vals[n-1]==null && s.vals.every(function(v){return v==null;})) return;
-      var f=firstIdx(s);
-      var stockT0=T[f], stockT1=T[n-1];
-      var stockMultiYear=new Date(stockT1).getFullYear()!==new Date(stockT0).getFullYear();
-      var rngFmt=function(ts){ var d=new Date(ts); return d.toLocaleDateString("en-GB",stockMultiYear?{month:"short",year:"2-digit"}:{day:"numeric",month:"short"}); };
-      var xPStock=function(t){ return PiL+(t-stockT0)/((stockT1-stockT0)||1)*PpW; };
-      var filteredPts=series(s).filter(function(p){ return T[p.i]>=stockT0 && T[p.i]<=stockT1; });
-      if(filteredPts.length===0) return;
-      var dom=domainOf(filteredPts);
-      var chg=s.vals[n-1]!=null?s.vals[n-1]/s.vals[f]-1:0;
-      var hasBuy=s.qty.some(function(q,i){ return isBuyIdx(s.qty,i); });
-      var dLine="", dArea="";
-      filteredPts.forEach(function(p,k){ var X1=xPStock(T[p.i]).toFixed(1), Y1=yP(p.v,dom).toFixed(1); dLine+=(k?" L ":"M ")+X1+" "+Y1; dArea+=(k?" L ":"M ")+X1+" "+Y1; });
-      var x0=xPStock(T[filteredPts[0].i]).toFixed(1), xLast=xPStock(T[filteredPts[filteredPts.length-1].i]).toFixed(1);
-      dArea="M "+x0+" "+(PiT+PpH)+" L "+dArea.slice(2)+" L "+xLast+" "+(PiT+PpH)+" Z";
-      var mg="";
-      for(var mi=0;mi<n;mi++){ if(T[mi]>=stockT0 && T[mi]<=stockT1){ var m=T[mi], x=xPStock(m).toFixed(1); mg+='<line class="sm-grid" x1="'+x+'" y1="'+PiT+'" x2="'+x+'" y2="'+(PiT+PpH)+'" stroke-dasharray="2 3"/>'; } }
-      var bm=""; s.qty.forEach(function(q,i){ if(isBuyIdx(s.qty,i)&&s.vals[i]!=null&&T[i]>=stockT0 && T[i]<=stockT1){ var vv=smMode==="abs"?s.vals[i]:s.vals[i]/s.vals[f]*100; bm+='<circle class="sm-buy" cx="'+xPStock(T[i]).toFixed(1)+'" cy="'+yP(vv,dom).toFixed(1)+'" r="3"/>'; } });
-      var lastPt=filteredPts[filteredPts.length-1];
-      var cell=document.createElement("div"); cell.className="cell";
-      var displayVal=s.vals[n-1]!=null?(smMode==="abs"?showCurrencyValue(s.key.toUpperCase(),s.vals[n-1]):idx1(s.vals[n-1]/s.vals[f]*100)):"\u2014";
-      cell.innerHTML=
-        '<div class="top"><span class="nm">'+s.name+'</span><span class="val" data-role="val">'+displayVal+'</span></div>'+
-        '<div class="qy"><span data-role="qy">'+(s.qty[n-1]!=null?s.qty[n-1]+" shares":"")+'</span>'+(hasBuy?" &middot; position changed":"")+'</div>'+
-        '<svg viewBox="0 0 '+PdW+' '+PdH+'" role="img" aria-label="'+esc(s.name)+' value over time">'+mg+
-          '<path class="sm-area" d="'+dArea+'"/><path class="sm-line" d="'+dLine+'"/>'+bm+
-          '<circle class="sm-end" cx="'+xLast+'" cy="'+yP(lastPt.v,dom).toFixed(1)+'" r="3"/>'+
-          '<line class="sm-scrub" data-role="scrub" x1="0" y1="'+PiT+'" x2="0" y2="'+(PiT+PpH)+'"/>'+
-          '<circle class="sm-scrub-dot" data-role="scrubdot" r="3.2" cx="0" cy="0"/></svg>'+
-        '<div class="foot"><span class="chg '+(chg>=0?"pos":"neg")+'">'+dp(chg)+(hasBuy?" *":"")+'</span>'+
-        '<span class="rng">'+rngFmt(stockT0)+' &ndash; '+rngFmt(stockT1)+'</span></div>';
-      grid.appendChild(cell);
-      panels.push({s:s,dom:dom,f:f,stockT0:stockT0,stockT1:stockT1,xPStock:xPStock,valEl:cell.querySelector('[data-role=val]'),qyEl:cell.querySelector('[data-role=qy]'),scrub:cell.querySelector('[data-role=scrub]'),scrubDot:cell.querySelector('[data-role=scrubdot]')});
-    });
-    scrubClear();
-  }
-  function scrubTo(i){
-    scrubDate.textContent=(i===n-1?"Latest \u2014 ":"")+fmtDayY.format(new Date(T[i]));
-    panels.forEach(function(p){
-      var s=p.s, held=s.vals[i]!=null&&T[i]>=p.stockT0 && T[i]<=p.stockT1;
-      p.valEl.textContent=held?(smMode==="abs"?showCurrencyValue(s.key.toUpperCase(),s.vals[i]):idx1(s.vals[i]/s.vals[p.f]*100)):"\u2014";
-      if(p.qyEl){ var qq=s.qty[i]; p.qyEl.textContent=qq!=null?qq+" shares":""; }
-      if(held){ var v=smMode==="abs"?s.vals[i]:s.vals[i]/s.vals[p.f]*100; var x=p.xPStock(T[i]).toFixed(1), y=yP(v,p.dom).toFixed(1);
-        p.scrub.setAttribute("x1",x); p.scrub.setAttribute("x2",x); p.scrub.setAttribute("opacity",1);
-        p.scrubDot.setAttribute("cx",x); p.scrubDot.setAttribute("cy",y); p.scrubDot.setAttribute("opacity",1);
-      } else { p.scrub.setAttribute("opacity",0); p.scrubDot.setAttribute("opacity",0); }
-    });
-  }
-  function scrubClear(){
-    scrubDate.textContent="Latest \u2014 "+fmtDayY.format(new Date(T1));
-    panels.forEach(function(p){
-      var s=p.s;
-      p.valEl.textContent=s.vals[n-1]!=null?(smMode==="abs"?showCurrencyValue(s.key.toUpperCase(),s.vals[n-1]):idx1(s.vals[n-1]/s.vals[p.f]*100)):"\u2014";
-      if(p.qyEl){ var qn=s.qty[n-1]; p.qyEl.textContent=qn!=null?qn+" shares":""; }
-      p.scrub.setAttribute("opacity",0); p.scrubDot.setAttribute("opacity",0);
-    });
-  }
-  grid.addEventListener("pointermove",function(e){
-    var sv=e.target.closest?e.target.closest("svg"):null; if(!sv) return;
-    var cell=sv.closest(".cell");
-    var panel=panels.find(function(p){ return p.scrub.closest(".cell")===cell; });
-    if(!panel) return;
-    var r=sv.getBoundingClientRect(), t=panel.stockT0+(e.clientX-r.left)/r.width*(panel.stockT1-panel.stockT0), best=0, bd=1e18;
-    for(var i=0;i<n;i++){ if(T[i]>=panel.stockT0 && T[i]<=panel.stockT1){ var dd=Math.abs(T[i]-t); if(dd<bd){bd=dd;best=i;} } }
-    scrubTo(best);
-  });
-  grid.addEventListener("pointerleave",scrubClear);
-  document.getElementById("s-abs").addEventListener("click",function(){ smMode="abs"; segp("s-abs","s-idx"); buildGrid(); });
-  document.getElementById("s-idx").addEventListener("click",function(){ smMode="idx"; segp("s-idx","s-abs"); buildGrid(); });
-  document.getElementById("o-size").addEventListener("click",function(){ smOrder="size"; segp("o-size","o-perf"); buildGrid(); });
-  document.getElementById("o-perf").addEventListener("click",function(){ smOrder="perf"; segp("o-perf","o-size"); buildGrid(); });
-  function segp(on,off){ document.getElementById(on).setAttribute("aria-pressed","true"); document.getElementById(off).setAttribute("aria-pressed","false"); }
-
   /* ================= VIEW 3 : indicators ================= */
+  /* The first snapshot in which a holding was actually held: every per-stock
+     figure below measures from there, not from the start of the portfolio, or a
+     stock bought last month would show the whole period's move as its own. */
+  function firstIdx(s){ for(var i=0;i<n;i++) if(s.vals[i]!=null) return i; return 0; }
+
   function renderPortfolioDetail(){
     if(!n){
       emptyKpiStrip();
@@ -1181,7 +1079,7 @@
   }
 
   function loadAndRenderAlgo(){
-    var ready=Object.keys(AVG_COST).length?Promise.resolve():loadAvgCostAndDipForm();
+    var ready=Object.keys(AVG_COST).length?Promise.resolve():loadAvgCostAndRuleForm();
     loadAlgoSettings();
     return ready.then(renderAlgoTickers);
   }
@@ -1550,7 +1448,7 @@
   })();
 
   /* ================= tabs ================= */
-  var TABS=[["tab-total","view-total"],["tab-detail","view-detail"],["tab-stocks","view-stocks"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-add","view-add"],["tab-alerts","view-alerts"]];
+  var TABS=[["tab-total","view-total"],["tab-detail","view-detail"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-add","view-add"],["tab-alerts","view-alerts"]];
   TABS.forEach(function(pair){
     document.getElementById(pair[0]).addEventListener("click",function(){
       TABS.forEach(function(p){
@@ -1725,9 +1623,72 @@
   /* ================= alerts ================= */
   var alerts=[];
   var AVG_COST={}; // ticker -> {quantity, avgCostEUR, currentPriceEUR, currentPriceUSD, dipPct}
-  var dipPreset="5";
 
-  function loadAvgCostAndDipForm(){
+  /* ---- one form, three rules ----
+   *
+   * Dip, target and trailing were three cards of the same shape: pick a holding,
+   * pick a percentage, read back the price it would fire at. Everything that
+   * differed between them was a value — which presets, what the percentage is
+   * measured against, what the preview says — so those values live here and one
+   * form reads from the table. A fourth percentage rule is an entry here, not a
+   * fourth card.
+   *
+   * Each type keeps its own preset and its own custom box, so flipping between
+   * them to compare does not silently rewrite the one you had set up.
+   */
+  var RULE_TYPES={
+    dip:{
+      ruleType:"dip_from_avg_cost", noun:"Dip alert", title:"Dip", valueMode:"pct",
+      hint:"Get an email when a stock drops a set % below your own average purchase price for it \u2014 a signal to consider reinforcing the position.",
+      pctLabel:"Alert when down",
+      presets:["5","7","10","12.5","15"], preset:"5", custom:"",
+      customAttrs:{placeholder:"e.g. 20", step:"0.5", min:"0.5"},
+      customLabel:"Custom dip percentage",
+      valid:function(v){ return v>0; },
+      spark:function(info,pct){ return {costBased:true, trigger:info.avgCostEUR*(1-pct/100), avgCost:info.avgCostEUR}; },
+      pickNote:"Pick a dip % (or enter a valid custom value).",
+      fired:function(t,p){ return "Dip alert created for "+t+" at \u2212"+p+"%."; }
+    },
+    gain:{
+      ruleType:"gain_from_avg_cost", noun:"Target alert", title:"Target", valueMode:"pct",
+      hint:"The other half of the plan: get an email when a stock is a set % <b>above</b> your own average purchase price \u2014 a signal to consider taking some profit. The target follows your cost basis, so it stays meaningful as you keep buying.",
+      pctLabel:"Alert when up",
+      presets:["25","50","75","100","150"], preset:"25", custom:"",
+      customAttrs:{placeholder:"e.g. 200", step:"5", min:"1"},
+      customLabel:"Custom target percentage",
+      valid:function(v){ return v>0; },
+      spark:function(info,pct){ return {costBased:true, trigger:info.avgCostEUR*(1+pct/100), avgCost:info.avgCostEUR}; },
+      pickNote:"Pick or enter a target %.",
+      fired:function(t,p){ return "Target alert created for "+t+" at +"+p+"%."; }
+    },
+    high:{
+      ruleType:"drop_from_high", noun:"Trailing alert", title:"Trailing", valueMode:"pct",
+      hint:"Get an email when a stock has fallen a set % below its own <b>highest price of the past year</b>. Unlike dip and target it is measured against the market, not your cost \u2014 so it still says something once a holding has run up well past what you paid, and it does not go stale as the stock moves.",
+      pctLabel:"Alert when off its high by",
+      presets:["10","15","20","25","30"], preset:"20", custom:"",
+      customAttrs:{placeholder:"e.g. 35", step:"0.5", min:"0.5"},
+      customLabel:"Custom percentage off the high",
+      // a stock cannot fall 100% below its own high and still have a price
+      valid:function(v){ return v>0 && v<100; },
+      spark:function(info,pct){ return info.recentHigh==null?null:{costBased:false, trigger:info.recentHigh*(1-pct/100), avgCost:null}; },
+      pickNote:"Pick or enter a % between 0.5 and 100.",
+      fired:function(t,p){ return "Trailing alert created for "+t+" at \u2212"+p+"% off its high."; }
+    },
+    price:{
+      // the rule type depends on the direction, so it is decided at submit
+      ruleType:null, noun:"Price alert", title:"Price level", valueMode:"price",
+      hint:"Get an email when a stock reaches a price you name. The one rule that ignores both what you paid and where the stock has been \u2014 it just watches the number, in the currency its own market quotes.",
+      direction:"above", price:"",
+      valid:function(v){ return v>0; },
+      spark:function(info,price){ return {costBased:false, trigger:price, avgCost:null}; },
+      pickNote:"Enter a price above 0.",
+      fired:function(t,p,cur){ return "Price alert created for "+t+" \u2014 "+(RULE_TYPES.price.direction==="above"?"above ":"below ")+fmtNative(p,cur)+"."; }
+    }
+  };
+  var ruleKind="dip";
+  function ruleSpec(){ return RULE_TYPES[ruleKind]; }
+
+  function loadAvgCostAndRuleForm(){
     return apiFetch('./api/avg-cost')
       .then(function(r){ return r.json(); })
       .then(function(data){
@@ -1740,34 +1701,33 @@
               return '<option value="'+t+'">'+esc(nm)+' ('+t+')</option>';
             }).join("")
           : '<option value="">No holdings yet</option>';
-        // both cost-based forms offer the same holdings
-        ["dip-ticker","gain-ticker","high-ticker"].forEach(function(id){
-          var sel=document.getElementById(id);
-          if(sel) sel.innerHTML=opts;
-        });
-        renderDipPreview();
-        renderGainPreview();
-        renderHighPreview();
+        var sel=document.getElementById("rule-ticker");
+        if(sel) sel.innerHTML=opts;
+        renderRulePreview();
         renderAlertTickerPicker();
         if(AM_TICKER) amLoadSeries(AM_TICKER).then(renderAlertMap);
       })
       .catch(function(err){ console.error('Failed to load avg cost:',err); });
   }
 
-  function currentDipThreshold(){
-    if(dipPreset==="custom"){
-      var v=parseFloat(document.getElementById("dip-custom").value);
-      return (v>0)?v:null;
+  function currentRuleThreshold(){
+    var spec=ruleSpec();
+    if(spec.valueMode==="price"){
+      var pv=parseFloat(spec.price);
+      return spec.valid(pv)?pv:null;
     }
-    return parseFloat(dipPreset);
+    if(spec.preset==="custom"){
+      var v=parseFloat(spec.custom);
+      return spec.valid(v)?v:null;
+    }
+    return parseFloat(spec.preset);
   }
 
-  function renderDipPreview(){
-    var box=document.getElementById("dip-preview");
-    var ticker=document.getElementById("dip-ticker").value;
-    var pct=currentDipThreshold();
-    var info=AVG_COST[ticker];
-    if(!info){ box.textContent="Add a transaction for this stock first — an alert needs a purchase to compare against."; return; }
+  /* The three previews quote different things — two measure against your cost and
+     talk in your currency, the trailing one measures against the market's own high
+     and stays in the market's currency throughout, because mixing the two would
+     invite comparing a euro trigger against a dollar high. */
+  function previewDip(box, ticker, pct, info){
     if(!pct){ box.textContent="Pick a dip % (or enter a custom one) to see the trigger price."; return; }
     var isUSD=TICKER_CURRENCY[ticker]==="USD";
     var rate=TICKER_EXCHANGE_RATE[ticker]||CURRENT_EUR_TO_USD||1.087;
@@ -1776,8 +1736,174 @@
     var current=isUSD?info.currentPriceUSD:info.currentPriceEUR;
     var fmt=isUSD?usd:eur;
     var already=current!=null && current<=triggerPrice;
-    box.innerHTML="Your average cost: <b>"+fmt(avgCost)+"</b> · Triggers at "+dp(-pct/100).replace("−","-")+" → <b>"+fmt(triggerPrice)+"</b>"+
-      (current!=null?"<br>Current price: "+fmt(current)+" ("+dp(current/avgCost-1)+" vs. your cost)"+(already?" — <span class='pos'>would trigger right away</span>":""):"");
+    // "\u22125%" to match the other two types, which sit one button away now — the dip
+    // preview used to render this as "-5,0%" and the inconsistency was invisible while
+    // the three were separate cards
+    box.innerHTML="Your average cost: <b>"+fmt(avgCost)+"</b> \u00b7 Triggers at \u2212"+pct+"% \u2192 <b>"+fmt(triggerPrice)+"</b>"+
+      (current!=null?"<br>Current price: "+fmt(current)+" ("+dp(current/avgCost-1)+" vs. your cost)"+(already?" \u2014 <span class='pos'>would trigger right away</span>":""):"");
+  }
+
+  function previewGain(box, ticker, pct, info){
+    if(!pct){ box.textContent="Pick a target % (or enter a custom one) to see the price it fires at."; return; }
+    var isUSD=TICKER_CURRENCY[ticker]==="USD";
+    var rate=TICKER_EXCHANGE_RATE[ticker]||CURRENT_EUR_TO_USD||1.087;
+    var avgCost=isUSD?info.avgCostEUR*rate:info.avgCostEUR;
+    var triggerPrice=avgCost*(1+pct/100);
+    var current=isUSD?info.currentPriceUSD:info.currentPriceEUR;
+    var fmt=isUSD?usd:eur;
+    var already=current!=null && current>=triggerPrice;
+    box.innerHTML="Your average cost: <b>"+fmt(avgCost)+"</b> \u00b7 Triggers at +"+pct+"% \u2192 <b>"+fmt(triggerPrice)+"</b>"+
+      (current!=null?"<br>Current price: "+fmt(current)+" ("+dp(current/avgCost-1)+" vs. your cost)"+(already?" \u2014 <span class='pos'>would trigger right away</span>":""):"");
+  }
+
+  function previewHigh(box, ticker, pct, info){
+    if(info.recentHigh==null){
+      box.textContent="No price history stored for "+ticker+" yet, so there is no high to measure against. Register a transaction with a history depth, or wait for the daily fetch to build one up.";
+      return;
+    }
+    if(!pct){ box.textContent="Pick a % (or enter a custom one) to see the price it fires at."; return; }
+    var cur=info.currency||"USD";
+    var high=info.recentHigh, trigger=high*(1-pct/100);
+    var current=info.currentPriceNative;
+    var when=info.recentHighDate?new Date(info.recentHighDate).toLocaleDateString(undefined,{month:"short",year:"numeric"}):null;
+    var already=current!=null && current<=trigger;
+    box.innerHTML="High of the past year: <b>"+fmtNative(high,cur)+"</b>"+(when?" ("+when+")":"")
+      +" \u00b7 Triggers at &minus;"+pct+"% \u2192 <b>"+fmtNative(trigger,cur)+"</b>"
+      +(current!=null?"<br>Current price: "+fmtNative(current,cur)+" ("+dp(current/high-1)+" off that high)"
+        +(already?" \u2014 <span class='neg'>would trigger right away</span>":""):"");
+  }
+  function previewPrice(box, ticker, price, info){
+    var cur=info.currency||"USD";
+    var current=info.currentPriceNative;
+    if(!price){
+      box.textContent="Enter a price to see how far "+ticker+" is from it.";
+      return;
+    }
+    var above=RULE_TYPES.price.direction==="above";
+    var already=current!=null && (above?current>=price:current<=price);
+    // "+64%" beside a "below" rule that is already firing reads as a contradiction; say
+    // which side of today's price the level sits on instead of signing the number
+    var away=current!=null?comma(Math.abs(price/current-1)*100<0.05?"0.0":(Math.abs(price/current-1)*100).toFixed(1)):null;
+    box.innerHTML="Fires when "+esc(ticker)+" trades <b>"+(above?"above ":"below ")+fmtNative(price,cur)+"</b>"
+      +(current!=null?"<br>Current price: "+fmtNative(current,cur)+" \u2014 the level sits "+away+"% "
+        +(price>=current?"above":"below")+" it"
+        +(already?" \u2014 <span class='"+(above?"pos":"neg")+"'>would trigger right away</span>":""):"");
+  }
+  var RULE_PREVIEWS={dip:previewDip, gain:previewGain, high:previewHigh, price:previewPrice};
+
+  function renderRulePreview(){
+    var box=document.getElementById("rule-preview");
+    if(!box) return;
+    var ticker=document.getElementById("rule-ticker").value;
+    var info=AVG_COST[ticker];
+    if(!info){ box.textContent="Add a transaction for this stock first \u2014 an alert needs a holding to measure against."; return; }
+    RULE_PREVIEWS[ruleKind](box, ticker, currentRuleThreshold(), info);
+    renderRuleSpark(ticker, info);
+  }
+
+  /* The same picture the alert list draws, before the alert exists: a level the stock
+     reaches four times a year and one it has never come near read identically as two
+     numbers and not at all alike as a chart. */
+  var SPARK_ASKED={};
+  function renderRuleSpark(ticker, info){
+    var slot=document.getElementById("rule-spark");
+    if(!slot) return;
+    var spec=ruleSpec(), pct=currentRuleThreshold();
+    var s=(pct&&spec.spark)?spec.spark(info,pct):null;
+    if(!s||s.trigger==null){ slot.innerHTML=""; return; }
+    if(!ALERT_HISTORY[ticker]){
+      slot.innerHTML="";
+      // asked once per ticker: a holding with no stored history would otherwise send a
+      // request on every keystroke in the custom box and never get an answer
+      if(!SPARK_ASKED[ticker]){
+        SPARK_ASKED[ticker]=1;
+        loadAlertHistory([ticker]).then(function(){
+          // the stock may have been changed again while that was in flight
+          if(document.getElementById("rule-ticker").value===ticker) renderRulePreview();
+        });
+      }
+      return;
+    }
+    var svg=alertSpark(ticker, s.costBased, s.trigger, s.avgCost);
+    slot.innerHTML=svg
+      ? svg+'<span class="cap">Six months of price \u00b7 <span style="color:var(--neg)">\u2014</span> the level that fires'
+            +(s.avgCost!=null?' \u00b7 <span style="color:var(--faint)">- -</span> your average cost':'')+'</span>'
+      : "";
+  }
+
+  /* Everything on the form that the type decides: the explanation, what the
+     percentage is called, which presets are offered, and how the custom box is
+     labelled and stepped. Called on load and on every type change. */
+  function renderRuleForm(){
+    var spec=ruleSpec(), presets=document.getElementById("rule-presets");
+    if(!presets) return;
+    document.getElementById("rule-title").textContent=spec.title;
+    document.getElementById("rule-hint").innerHTML=spec.hint;
+    // three of the four types are a percentage off a reference; the fourth is a price
+    // with a direction, so the two control blocks swap rather than sharing a shape
+    document.getElementById("rule-pct-wrap").hidden=(spec.valueMode!=="pct");
+    document.getElementById("rule-price-wrap").hidden=(spec.valueMode!=="price");
+    if(spec.valueMode==="price"){ renderRulePriceField(); renderRulePreview(); return; }
+    document.getElementById("rule-value-label").textContent=spec.pctLabel;
+    presets.innerHTML=spec.presets.map(function(p){
+      return '<button type="button" data-pct="'+p+'" aria-pressed="'+(spec.preset===p?"true":"false")+'">'+p+'%</button>';
+    }).join("")+'<button type="button" data-pct="custom" aria-pressed="'+(spec.preset==="custom"?"true":"false")+'">Custom</button>';
+    Array.prototype.forEach.call(presets.querySelectorAll("button"),function(b){
+      b.addEventListener("click",function(){
+        spec.preset=b.dataset.pct;
+        Array.prototype.forEach.call(presets.querySelectorAll("button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
+        syncRuleCustom();
+        if(spec.preset==="custom") document.getElementById("rule-custom").focus();
+        renderRulePreview();
+      });
+    });
+    syncRuleCustom();
+    renderRulePreview();
+  }
+
+  /* The price is entered in the currency the holding's own market quotes, which is
+     knowable now that the stock comes from a list rather than a free-text box — the
+     old form could only label this "Threshold" and hope. */
+  function renderRulePriceField(){
+    var spec=RULE_TYPES.price, box=document.getElementById("rule-price");
+    var info=AVG_COST[document.getElementById("rule-ticker").value];
+    var cur=info&&info.currency;
+    document.getElementById("rule-price-label").textContent=cur?("Price ("+cur+")"):"Price";
+    box.value=spec.price;
+    Array.prototype.forEach.call(document.querySelectorAll("#rule-dirs button"),function(b){
+      b.setAttribute("aria-pressed", b.dataset.dir===spec.direction?"true":"false");
+    });
+  }
+
+  function syncRuleCustom(){
+    var spec=ruleSpec(), box=document.getElementById("rule-custom");
+    box.hidden=(spec.preset!=="custom");
+    box.value=spec.custom;
+    box.placeholder=spec.customAttrs.placeholder;
+    box.step=spec.customAttrs.step;
+    box.min=spec.customAttrs.min;
+    box.setAttribute("aria-label",spec.customLabel);
+  }
+
+  function createRuleAlert(){
+    var spec=ruleSpec(), nt=document.getElementById("rule-note");
+    nt.className="frm-note"; nt.textContent="";
+    var ticker=document.getElementById("rule-ticker").value;
+    var pct=currentRuleThreshold();
+    if(!ticker){ nt.className="frm-note err"; nt.textContent="No stock to alert on \u2014 add a transaction first."; return; }
+    if(!pct){ nt.className="frm-note err"; nt.textContent=spec.pickNote; return; }
+    var info=AVG_COST[ticker]||{};
+    var ruleType=spec.ruleType||("price_"+spec.direction);
+    apiFetch('./api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ticker:ticker,ruleType:ruleType,threshold:pct})})
+      .then(r=>r.json().then(d=>({ok:r.ok,d:d})))
+      .then(({ok,d})=>{
+        if(!ok||d.error){ nt.className="frm-note err"; nt.textContent=(d&&d.error)||"Could not create the alert."; return; }
+        nt.className="frm-note ok"; nt.textContent=spec.fired(ticker,pct,info.currency||"USD");
+        toast(spec.noun+" created for "+ticker);
+        loadAlerts();
+      })
+      .catch(e=>{ nt.className="frm-note err"; nt.textContent="Server error: "+e.message; });
   }
 
   /* Alert sparkline: what the rule is watching for, drawn.
@@ -1829,109 +1955,6 @@
       +'<path d="'+d+'" fill="none" stroke="var(--s-total)" stroke-width="1.6" stroke-linejoin="round"></path>'
       +'<circle cx="'+(W-1)+'" cy="'+yNow.toFixed(1)+'" r="2.6" fill="var(--s-total)"></circle>'
       +'</svg>';
-  }
-
-  // Target alerts are the sell-side mirror of dip alerts: same shape, same preview,
-  // measured against the same cost basis — only the direction differs.
-  var gainPreset="25";
-
-  function currentGainThreshold(){
-    if(gainPreset==="custom"){
-      var v=parseFloat(document.getElementById("gain-custom").value);
-      return (v>0)?v:null;
-    }
-    return parseFloat(gainPreset);
-  }
-
-  function renderGainPreview(){
-    var box=document.getElementById("gain-preview");
-    if(!box) return;
-    var ticker=document.getElementById("gain-ticker").value;
-    var pct=currentGainThreshold();
-    var info=AVG_COST[ticker];
-    if(!info){ box.textContent="Add a transaction for this stock first — a target needs a purchase to measure against."; return; }
-    if(!pct){ box.textContent="Pick a target % (or enter a custom one) to see the price it fires at."; return; }
-    var isUSD=TICKER_CURRENCY[ticker]==="USD";
-    var rate=TICKER_EXCHANGE_RATE[ticker]||CURRENT_EUR_TO_USD||1.087;
-    var avgCost=isUSD?info.avgCostEUR*rate:info.avgCostEUR;
-    var triggerPrice=avgCost*(1+pct/100);
-    var current=isUSD?info.currentPriceUSD:info.currentPriceEUR;
-    var fmt=isUSD?usd:eur;
-    var already=current!=null && current>=triggerPrice;
-    box.innerHTML="Your average cost: <b>"+fmt(avgCost)+"</b> · Triggers at +"+pct+"% → <b>"+fmt(triggerPrice)+"</b>"+
-      (current!=null?"<br>Current price: "+fmt(current)+" ("+dp(current/avgCost-1)+" vs. your cost)"+(already?" — <span class='pos'>would trigger right away</span>":""):"");
-  }
-
-  function createGainAlert(){
-    var nt=document.getElementById("gain-note"); nt.className="frm-note"; nt.textContent="";
-    var ticker=document.getElementById("gain-ticker").value;
-    var pct=currentGainThreshold();
-    if(!ticker){ nt.className="frm-note err"; nt.textContent="Pick a stock."; return; }
-    if(!pct){ nt.className="frm-note err"; nt.textContent="Pick or enter a target %."; return; }
-    apiFetch('./api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ticker:ticker,ruleType:'gain_from_avg_cost',threshold:pct})})
-      .then(r=>r.json().then(d=>({ok:r.ok,d:d})))
-      .then(({ok,d})=>{
-        if(!ok){ nt.className="frm-note err"; nt.textContent=d.error||"Could not create the alert."; return; }
-        nt.className="frm-note ok"; nt.textContent="Target alert created for "+ticker+" at +"+pct+"%.";
-        toast("Target alert created for "+ticker);
-        loadAlerts();
-      })
-      .catch(e=>{ nt.className="frm-note err"; nt.textContent="Server error: "+e.message; });
-  }
-
-  // A trailing alert is measured against the market's own high rather than your cost,
-  // so its preview quotes the market's currency throughout — mixing in euros here
-  // would invite comparing a euro trigger against a dollar high.
-  var highPreset="20";
-
-  function currentHighThreshold(){
-    if(highPreset==="custom"){
-      var v=parseFloat(document.getElementById("high-custom").value);
-      return (v>0&&v<100)?v:null;
-    }
-    return parseFloat(highPreset);
-  }
-
-  function renderHighPreview(){
-    var box=document.getElementById("high-preview");
-    if(!box) return;
-    var ticker=document.getElementById("high-ticker").value;
-    var pct=currentHighThreshold();
-    var info=AVG_COST[ticker];
-    if(!info){ box.textContent="Add a transaction for this stock first."; return; }
-    if(info.recentHigh==null){
-      box.textContent="No price history stored for "+ticker+" yet, so there is no high to measure against. Register a transaction with a history depth, or wait for the daily fetch to build one up.";
-      return;
-    }
-    if(!pct){ box.textContent="Pick a % (or enter a custom one) to see the price it fires at."; return; }
-    var cur=info.currency||"USD";
-    var high=info.recentHigh, trigger=high*(1-pct/100);
-    var current=info.currentPriceNative;
-    var when=info.recentHighDate?new Date(info.recentHighDate).toLocaleDateString(undefined,{month:"short",year:"numeric"}):null;
-    var already=current!=null && current<=trigger;
-    box.innerHTML="High of the past year: <b>"+fmtNative(high,cur)+"</b>"+(when?" ("+when+")":"")
-      +" · Triggers at &minus;"+pct+"% → <b>"+fmtNative(trigger,cur)+"</b>"
-      +(current!=null?"<br>Current price: "+fmtNative(current,cur)+" ("+dp(current/high-1)+" off that high)"
-        +(already?" — <span class='neg'>would trigger right away</span>":""):"");
-  }
-
-  function createHighAlert(){
-    var nt=document.getElementById("high-note"); nt.className="frm-note"; nt.textContent="";
-    var ticker=document.getElementById("high-ticker").value;
-    var pct=currentHighThreshold();
-    if(!ticker){ nt.className="frm-note err"; nt.textContent="Pick a stock."; return; }
-    if(!pct){ nt.className="frm-note err"; nt.textContent="Pick or enter a % between 0.5 and 100."; return; }
-    apiFetch('./api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ticker:ticker,ruleType:'drop_from_high',threshold:pct})})
-      .then(r=>r.json().then(d=>({ok:r.ok,d:d})))
-      .then(({ok,d})=>{
-        if(!ok){ nt.className="frm-note err"; nt.textContent=d.error||"Could not create the alert."; return; }
-        nt.className="frm-note ok"; nt.textContent="Trailing alert created for "+ticker+" at \u2212"+pct+"% off its high.";
-        toast("Trailing alert created for "+ticker);
-        loadAlerts();
-      })
-      .catch(e=>{ nt.className="frm-note err"; nt.textContent="Server error: "+e.message; });
   }
 
   function loadAlerts(){
@@ -2393,34 +2416,6 @@
     });
   }
 
-  function createAlert(){
-    var nt=document.getElementById("al-note"); nt.className="frm-note";
-    var ticker=(document.getElementById("al-ticker").value||"").toUpperCase().trim();
-    var rule=document.getElementById("al-rule").value;
-    var threshold=parseFloat(document.getElementById("al-threshold").value);
-
-    if(!ticker){ nt.textContent="Enter a ticker."; return; }
-    if(!(threshold>0)){ nt.textContent="Threshold must be > 0."; return; }
-
-    apiFetch('./api/alerts',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ticker,ruleType:rule,threshold})
-    }).then(r=>r.json()).then(data=>{
-      if(data.error){ nt.textContent=data.error; return; }
-      alerts.push(data.alert);
-      renderAlerts();
-      document.getElementById("al-ticker").value="";
-      document.getElementById("al-threshold").value="";
-      nt.className="frm-note success";
-      nt.textContent="Alert created!";
-      setTimeout(()=>{nt.textContent=""},3000);
-    }).catch(err=>{
-      nt.textContent="Failed to create alert";
-      console.error(err);
-    });
-  }
-
   function updateAlert(id,enabled,threshold){
     var body={};
     if(enabled!==null) body.enabled=enabled;
@@ -2448,45 +2443,6 @@
     }).catch(err=>console.error('Failed to delete alert:',err));
   }
 
-  function createDipAlert(){
-    var nt=document.getElementById("dip-note"); nt.className="frm-note";
-    var ticker=document.getElementById("dip-ticker").value;
-    var pct=currentDipThreshold();
-    if(!ticker){ nt.textContent="No stock to alert on — add a transaction first."; return; }
-    if(!pct){ nt.textContent="Pick a dip % (or enter a valid custom value)."; return; }
-
-    apiFetch('./api/alerts',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ticker,ruleType:'dip_from_avg_cost',threshold:pct})
-    }).then(function(r){ return r.json(); }).then(function(data){
-      if(data.error){ nt.textContent=data.error; return; }
-      alerts.unshift(data.alert);
-      loadAlerts();
-      nt.className="frm-note success";
-      nt.textContent="Dip alert created!";
-      setTimeout(function(){ nt.textContent=""; },3000);
-    }).catch(function(err){
-      nt.textContent="Failed to create alert";
-      console.error(err);
-    });
-  }
-
-  if(document.getElementById("dip-create")){
-    document.getElementById("dip-create").addEventListener("click",createDipAlert);
-    document.getElementById("dip-ticker").addEventListener("change",renderDipPreview);
-    document.getElementById("dip-custom").addEventListener("input",renderDipPreview);
-    Array.prototype.forEach.call(document.querySelectorAll("#dip-presets button"),function(b){
-      b.addEventListener("click",function(){
-        dipPreset=b.dataset.pct;
-        Array.prototype.forEach.call(document.querySelectorAll("#dip-presets button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
-        document.getElementById("dip-custom").hidden=(dipPreset!=="custom");
-        if(dipPreset==="custom") document.getElementById("dip-custom").focus();
-        renderDipPreview();
-      });
-    });
-  }
-
   if(document.getElementById("tx-hist-presets")){
     document.getElementById("tx-ticker").addEventListener("input",refreshHistPrompt);
     Array.prototype.forEach.call(document.querySelectorAll("#tx-hist-presets button"),function(b){
@@ -2494,21 +2450,6 @@
         histYears=parseFloat(b.dataset.years);
         Array.prototype.forEach.call(document.querySelectorAll("#tx-hist-presets button"),function(x){
           x.setAttribute("aria-pressed", x===b?"true":"false"); });
-      });
-    });
-  }
-
-  if(document.getElementById("gain-create")){
-    document.getElementById("gain-create").addEventListener("click",createGainAlert);
-    document.getElementById("gain-ticker").addEventListener("change",renderGainPreview);
-    document.getElementById("gain-custom").addEventListener("input",renderGainPreview);
-    Array.prototype.forEach.call(document.querySelectorAll("#gain-presets button"),function(b){
-      b.addEventListener("click",function(){
-        gainPreset=b.dataset.pct;
-        Array.prototype.forEach.call(document.querySelectorAll("#gain-presets button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
-        document.getElementById("gain-custom").hidden=(gainPreset!=="custom");
-        if(gainPreset==="custom") document.getElementById("gain-custom").focus();
-        renderGainPreview();
       });
     });
   }
@@ -2524,41 +2465,41 @@
     });
   }
 
-  if(document.getElementById("high-create")){
-    document.getElementById("high-create").addEventListener("click",createHighAlert);
-    document.getElementById("high-ticker").addEventListener("change",renderHighPreview);
-    document.getElementById("high-custom").addEventListener("input",renderHighPreview);
-    Array.prototype.forEach.call(document.querySelectorAll("#high-presets button"),function(b){
+  if(document.getElementById("rule-create")){
+    document.getElementById("rule-create").addEventListener("click",createRuleAlert);
+    document.getElementById("rule-ticker").addEventListener("change",function(){
+      if(ruleSpec().valueMode==="price") renderRulePriceField();
+      renderRulePreview();
+    });
+    document.getElementById("rule-price").addEventListener("input",function(){
+      RULE_TYPES.price.price=this.value;
+      renderRulePreview();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("#rule-dirs button"),function(b){
       b.addEventListener("click",function(){
-        highPreset=b.dataset.pct;
-        Array.prototype.forEach.call(document.querySelectorAll("#high-presets button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
-        document.getElementById("high-custom").hidden=(highPreset!=="custom");
-        if(highPreset==="custom") document.getElementById("high-custom").focus();
-        renderHighPreview();
+        RULE_TYPES.price.direction=b.dataset.dir;
+        Array.prototype.forEach.call(document.querySelectorAll("#rule-dirs button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
+        renderRulePreview();
       });
     });
-  }
-
-  // The threshold is entered in the currency the ticker's market quotes, so say
-  // which one rather than leaving the user to guess — it used to always claim €.
-  function updateThresholdLabel(){
-    var lbl=document.getElementById("al-threshold-label");
-    if(!lbl) return;
-    var rule=document.getElementById("al-rule").value;
-    var ticker=(document.getElementById("al-ticker").value||"").toUpperCase().trim();
-    var cur=LATEST_PRICE_CURRENCY[ticker];
-    lbl.textContent=cur?("Threshold ("+cur+")"):"Threshold";
-  }
-
-  if(document.getElementById("al-create")){
-    document.getElementById("al-create").addEventListener("click",createAlert);
-    document.getElementById("al-ticker").addEventListener("input",updateThresholdLabel);
-    document.getElementById("al-rule").addEventListener("change",updateThresholdLabel);
-    document.getElementById("tab-alerts").addEventListener("click",function(){
-      loadAlerts();
-      loadAvgCostAndDipForm();
+    document.getElementById("rule-custom").addEventListener("input",function(){
+      ruleSpec().custom=this.value;   // remembered per type, not shared
+      renderRulePreview();
     });
+    Array.prototype.forEach.call(document.querySelectorAll("#rule-types button"),function(b){
+      b.addEventListener("click",function(){
+        ruleKind=b.dataset.type;
+        Array.prototype.forEach.call(document.querySelectorAll("#rule-types button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
+        renderRuleForm();
+      });
+    });
+    renderRuleForm();
   }
+
+  document.getElementById("tab-alerts").addEventListener("click",function(){
+    loadAlerts();
+    loadAvgCostAndRuleForm();
+  });
 
   /* ================= fetch and display prices ================= */
   function loadAndRenderPrices(){
@@ -2574,7 +2515,6 @@
         }
 
         LATEST_PRICES={};
-        LATEST_PRICE_CURRENCY={};
         data.prices.forEach(p=>{
           var t=p.ticker.toUpperCase();
           LATEST_PRICES[t]={
@@ -2585,7 +2525,6 @@
             date:p.date,
             updatedAt:p.updatedAt
           };
-          if(p.currency) LATEST_PRICE_CURRENCY[t]=p.currency;
         });
 
         // Calculate current exchange rate from latest prices
@@ -2664,7 +2603,7 @@
     // slot, so its real symbol never reached that list: two held stocks asked for price
     // history under a symbol that has none and were quietly dropped from the selector.
     // /api/avg-cost is keyed by the real symbol and is, by definition, what you hold.
-    var ready=Object.keys(AVG_COST).length?Promise.resolve():loadAvgCostAndDipForm();
+    var ready=Object.keys(AVG_COST).length?Promise.resolve():loadAvgCostAndRuleForm();
     return ready.then(function(){ return renderDCATickers(); });
   }
 

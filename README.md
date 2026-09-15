@@ -37,13 +37,15 @@ a holding has moved far enough from its own normal to be worth a look.
    amount that left your account. Each new ticker offers to load its price history.
 3. **Wait a day.** Prices are fetched once every weekday morning. History appears immediately
    for a backfilled ticker; today's value updates each morning after that.
-4. **Set the alerts you want** on the *Alerts* tab: a dip below your average cost, a profit
-   target, a fall from a 12-month high, or a plain price level.
+4. **Set the alerts you want** on the *Alerts* tab: pick a type — a dip below your average
+   cost, a profit target, a fall from a 12-month high, or a plain price level — then a holding
+   and a value. The panel beside the form shows what that rule would do, including a chart of
+   where the level sits against the last six months.
 5. **Read the *Algorithm* tab** when deciding where to add next. It ranks each holding's price
    against its own 6-month, 1-year and 2-year history, and explains every number it shows.
 
-The other tabs — *Portfolio over time*, *Portfolio in detail*, *All stocks at a glance*, *DCA*
-— are ways of looking at the same data.
+The other tabs — *Portfolio over time*, *Portfolio in detail*, *DCA* — are ways of looking at
+the same data.
 
 ## What it is good at
 
@@ -99,8 +101,8 @@ suite. Everything below this line is the engineering record for the deployment a
   transaction list. Split out of the old combined "Add transactions and alerts" tab on
   2026-09-12 — registering a holding and deciding when to be told about it are different
   jobs, and one screen was doing both.
-- **Alerts tab:** the four alert forms (dip, target, trailing, price), the alert map and the
-  alert list. The Algorithm tab has its own alert, which is deliberately *not* here — see
+- **Alerts tab:** one form for all four rule types (dip, target, trailing, price level), the
+  alert map and the alert list. The Algorithm tab has its own alert, which is deliberately *not* here — see
   *Algorithm alerts* below.
 - **Algorithm tab:** the position-timing signal — every holding's close ranked against its own
   trailing 6M/1Y/2Y history, with two signal lanes (Early / Confirmed), notable runs, a full data
@@ -415,6 +417,55 @@ them arrives inside it.
 
 Twelve tests, verified by removing the cap and watching four of them fail, and by moving the
 per-user number from ten to eleven and watching the ceiling test catch it.
+
+### 🧹 Two things taken out — 2026-09-15
+
+**"All stocks at a glance" is gone.** The tab drew one small chart per holding — a grid of
+sparklines with a shared scrubber, absolute or indexed to 100, sorted by size or by % change.
+Removed at the user's request. What went with it: `buildGrid()` and the whole small-multiples
+block in `app.js` (~100 lines), the `view-stocks` section, and the CSS only it used
+(`.grid-sm`, `.cell`, `.sm-*`, `.scrubline`). Two helpers had to survive it — `firstIdx()` moved
+next to the detail view, which also uses it; `idx1()` went, having only ever formatted an
+indexed-to-100 label. Nothing else read any of it, and no data was touched: every number that
+tab showed is derived from `/api/snapshots` and still on the *Portfolio in detail* tab.
+
+**All four alert forms are one form.** They were four `addcard`s, three of them identical in
+shape — pick a holding, pick a percentage, read back the price it would fire at — differing only
+in which presets they offered, what the percentage was measured against, and what the preview
+said. Now one card with a **Type** segmented control, and those differences live in a
+`RULE_TYPES` table the form reads from. Another rule is an entry in that table, not another card.
+
+**The layout answers the other half of the complaint.** Every control used to stack down the
+left edge, leaving the right half of a wide panel empty. Type spans the top because it governs
+both columns; below it the controls sit left and *what the rule will actually do* sits right —
+the type's explanation, the numbers it would fire at, and the same six-month sparkline the alert
+list draws, so the panel carries something real rather than padding the card out. Single column
+under 720px.
+
+**Price level joined the merge, and lost its free-text ticker box.** It keeps its own shape
+inside the form — an above/below direction and a price rather than percentage presets — and the
+`ruleType` (`price_above` / `price_below`) is decided from the direction at submit. The ticker is
+now the same holdings list as the other three, which is a fix rather than a restriction: the
+daily job fetches **only tickers you currently hold** (`price-fetch.js` filters `everSeen` by
+`stillHeld`), so a price alert typed against anything else had no prices to evaluate and could
+never fire. The currency label follows the holding — it can say `Price (USD)` now, where the old
+free-text form could only say `Threshold` and hope.
+
+Four details worth keeping:
+
+- **Each type remembers its own preset and its own custom box.** Flipping between them to
+  compare does not rewrite the one you had set up.
+- **The trailing preview stays in the market's own currency** while the two cost-based ones
+  convert — the reason is unchanged: comparing a euro trigger against a dollar high is a trap.
+- **The dip preview used to render its threshold as `-5,0%`** while the other two said `+25%`
+  and `−20%`. Invisible while they were separate cards, obvious one button apart; it now
+  matches. The dip form's success message was also `frm-note success`, a class that does not
+  exist, so "Dip alert created!" came out in the error colour. Both fixed in passing.
+- **The sparkline is asked for once per ticker.** A holding with no stored history would
+  otherwise send a request on every keystroke in the custom box and never get an answer.
+
+`LATEST_PRICE_CURRENCY` went with the old price form: it existed only to label that free-text
+box, and `LATEST_PRICES` already carries each ticker's currency.
 
 ### ⏳ Open Items / Backlog
 

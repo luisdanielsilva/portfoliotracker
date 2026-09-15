@@ -251,29 +251,6 @@
   .tip .row .qsh{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--faint)}
   .tip .note{margin-top:6px;padding-top:6px;border-top:1px solid var(--hair);color:var(--s-tsla);font-size:11.5px}
 
-  .scrubline{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;min-height:22px;flex-wrap:wrap}
-  .scrubline b{font-family:"IBM Plex Mono",monospace;color:var(--ink);font-weight:500}
-  .scrubline span{font-size:12.5px;color:var(--faint)}
-
-  .grid-sm{display:grid;grid-template-columns:repeat(auto-fill,minmax(224px,1fr));gap:14px}
-  .cell{border:1px solid var(--hair);border-radius:11px;padding:12px 12px 8px;background:var(--surface)}
-  .cell .top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:2px}
-  .cell .nm{font-weight:600;font-size:13px}
-  .cell .qy{font-size:10.5px;color:var(--faint);font-weight:500}
-  .cell .val{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:13px;font-weight:500}
-  .cell svg{display:block;width:100%;height:auto;margin:4px 0 2px}
-  .cell .foot{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:11px}
-  .cell .chg{font-family:"IBM Plex Mono",monospace;font-weight:500}
-  .cell .chg.pos{color:var(--pos)} .cell .chg.neg{color:var(--neg)}
-  .cell .rng{color:var(--faint)}
-  .sm-line{fill:none;stroke:var(--accent);stroke-width:1.75;stroke-linejoin:round;stroke-linecap:round}
-  .sm-area{fill:var(--accent-soft);stroke:none}
-  .sm-grid{stroke:var(--grid);stroke-width:1}
-  .sm-end{fill:var(--accent);stroke:var(--surface);stroke-width:1.5}
-  .sm-buy{fill:var(--surface);stroke:var(--accent);stroke-width:1.5}
-  .sm-scrub{stroke:var(--faint);stroke-width:1;stroke-dasharray:2 2;opacity:0}
-  .sm-scrub-dot{fill:var(--ink);opacity:0}
-
   table{width:100%;border-collapse:collapse;margin-top:4px;font-size:12.5px}
   caption{text-align:left;color:var(--muted);font-size:13px;margin-bottom:12px}
   th,td{padding:7px 10px;border-bottom:1px solid var(--hair);text-align:right;white-space:nowrap}
@@ -306,6 +283,29 @@
   .hf.pos{background:var(--pos)} .hf.neg{background:var(--neg)}
 
   .addcard{border:1px solid var(--hair);border-radius:12px;padding:16px;margin-bottom:16px}
+  /* The create-alert card used to stack every control down the left edge and leave the
+     right half of a wide panel empty. Type spans the top because it governs both columns;
+     below it the controls sit on the left and what the rule will actually do on the right,
+     so the card is read across rather than down and the width is used. */
+  .rule-typerow{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-bottom:16px}
+  .rulegrid{display:grid;grid-template-columns:minmax(280px,1fr) minmax(280px,1fr);gap:24px;align-items:start}
+  .rule-controls{display:flex;flex-direction:column;gap:14px;align-items:flex-start}
+  .rule-field{display:flex;flex-direction:column;align-items:flex-start;gap:6px;width:100%}
+  .rule-lbl{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
+  .rule-field select{font-size:12px;padding:8px;max-width:280px;width:100%}
+  .rule-field input[type=number]{font-size:12px;max-width:160px}
+  .rule-actions{width:100%;margin-top:2px}
+  .rule-actions .btn{width:100%}
+  .rule-explain{background:var(--surface-2);border-radius:10px;padding:14px 16px;align-self:stretch}
+  .rule-explain h4{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:15px;margin:0 0 6px;color:var(--ink)}
+  .rule-explain p.hint{margin:0 0 12px;font-size:12px;color:var(--faint);max-width:52ch}
+  .rule-preview{font-size:12px;color:var(--muted);line-height:1.6;border-top:1px solid var(--hair);padding-top:12px}
+  /* the same picture the alert list draws, at the size the panel has room for: six months
+     of price, the level that fires, and the gap between them */
+  .rule-spark{margin-top:12px;line-height:0}
+  .rule-spark .al-spark{width:100%;height:76px}
+  .rule-spark .cap{display:block;line-height:1.5;margin-top:6px;font-size:11px;color:var(--faint)}
+  @media (max-width:720px){ .rulegrid{grid-template-columns:1fr} }
   .addcard h3{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:16px;margin:0 0 4px;color:var(--ink)}
   .addcard p.hint{margin:0 0 12px;font-size:12px;color:var(--faint);max-width:60ch}
   .filerow{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
@@ -1134,7 +1134,6 @@
   <div class="tabs" role="tablist">
     <button id="tab-total" role="tab" aria-selected="true">Portfolio over time</button>
     <button id="tab-detail" role="tab" aria-selected="false">Portfolio In Detail</button>
-    <button id="tab-stocks" role="tab" aria-selected="false">All stocks at a glance</button>
     <button id="tab-dca" role="tab" aria-selected="false">DCA</button>
     <button id="tab-algo" role="tab" aria-selected="false">Algorithm</button>
     <button id="tab-add" role="tab" aria-selected="false">Transactions</button>
@@ -1193,28 +1192,6 @@
   </section>
 
   <!-- ===== VIEW 2: SMALL MULTIPLES ===== -->
-  <section id="view-stocks" hidden>
-    <div class="panel">
-      <div class="ctlrow">
-        <span class="lbl">Scale</span>
-        <div class="segmented" role="group" aria-label="Panel scale">
-          <button id="s-abs" aria-pressed="true">Absolute</button>
-          <button id="s-idx" aria-pressed="false">Indexed to 100</button>
-        </div>
-        <span class="lbl">Order</span>
-        <div class="segmented" role="group" aria-label="Panel order">
-          <button id="o-size" aria-pressed="true">By size</button>
-          <button id="o-perf" aria-pressed="false">By % change</button>
-        </div>
-      </div>
-      <div class="scrubline">
-        <b id="scrub-date"></b>
-        <span>hover to scrub &mdash; value <em>and</em> share count follow the cursor &middot; <span class="mono">&#9711;</span> = shares added &middot; <b>*</b> % change includes purchases</span>
-      </div>
-      <div class="grid-sm" id="grid"></div>
-    </div>
-  </section>
-
   <!-- ===== VIEW 2b: GROWTH ===== -->
   <!-- ===== VIEW: PORTFOLIO IN DETAIL (merged Growth + Indicators) ===== -->
   <section id="view-detail" hidden>
@@ -1441,110 +1418,53 @@
     <div class="panel">
 
       <div class="addcard">
-        <h3>Create dip alert</h3>
-        <p class="hint">Get an email when a stock drops a set % below your own average purchase price for it &mdash; a signal to consider reinforcing the position.</p>
-        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;max-width:260px">
-          <label style="font-size:10px;color:var(--faint);text-transform:uppercase" for="dip-ticker">Stock</label>
-          <select id="dip-ticker" style="font-size:12px;padding:8px"></select>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
-          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Alert when down</label>
-          <div class="segmented" role="group" aria-label="Dip threshold" id="dip-presets">
-            <button type="button" data-pct="5" aria-pressed="true">5%</button>
-            <button type="button" data-pct="7">7%</button>
-            <button type="button" data-pct="10">10%</button>
-            <button type="button" data-pct="12.5">12.5%</button>
-            <button type="button" data-pct="15">15%</button>
-            <button type="button" data-pct="custom">Custom</button>
+        <h3>Create alert</h3>
+        <div class="rule-typerow">
+          <label class="rule-lbl">Type</label>
+          <div class="segmented" role="group" aria-label="Alert type" id="rule-types">
+            <button type="button" data-type="dip" aria-pressed="true">Dip</button>
+            <button type="button" data-type="gain" aria-pressed="false">Target</button>
+            <button type="button" data-type="high" aria-pressed="false">Trailing</button>
+            <button type="button" data-type="price" aria-pressed="false">Price level</button>
           </div>
-          <input type="number" id="dip-custom" aria-label="Custom dip percentage" placeholder="e.g. 20" step="0.5" min="0.5" style="font-size:12px;max-width:140px" hidden>
         </div>
-        <div class="frm-note" id="dip-preview" style="background:var(--surface-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--muted)"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn primary" id="dip-create" style="flex:1">Create dip alert</button>
-        </div>
-        <div class="frm-note" id="dip-note"></div>
-      </div>
 
-      <div class="addcard">
-        <h3>Create target alert</h3>
-        <p class="hint">The other half of the plan: get an email when a stock is a set % <b>above</b> your own average purchase price &mdash; a signal to consider taking some profit. The target follows your cost basis, so it stays meaningful as you keep buying.</p>
-        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;max-width:260px">
-          <label style="font-size:10px;color:var(--faint);text-transform:uppercase" for="gain-ticker">Stock</label>
-          <select id="gain-ticker" style="font-size:12px;padding:8px"></select>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
-          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Alert when up</label>
-          <div class="segmented" role="group" aria-label="Target threshold" id="gain-presets">
-            <button type="button" data-pct="25" aria-pressed="true">25%</button>
-            <button type="button" data-pct="50">50%</button>
-            <button type="button" data-pct="75">75%</button>
-            <button type="button" data-pct="100">100%</button>
-            <button type="button" data-pct="150">150%</button>
-            <button type="button" data-pct="custom">Custom</button>
-          </div>
-          <input type="number" id="gain-custom" aria-label="Custom target percentage" placeholder="e.g. 200" step="5" min="1" style="font-size:12px;max-width:140px" hidden>
-        </div>
-        <div class="frm-note" id="gain-preview" style="background:var(--surface-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--muted)"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn primary" id="gain-create" style="flex:1">Create target alert</button>
-        </div>
-        <div class="frm-note" id="gain-note"></div>
-      </div>
+        <div class="rulegrid">
+          <div class="rule-controls">
+            <div class="rule-field">
+              <label class="rule-lbl" for="rule-ticker">Stock</label>
+              <select id="rule-ticker"></select>
+            </div>
 
-      <div class="addcard">
-        <h3>Create trailing alert</h3>
-        <p class="hint">Get an email when a stock has fallen a set % below its own <b>highest price of the past year</b>. Unlike the two above it is measured against the market, not your cost &mdash; so it still says something once a holding has run up well past what you paid, and it does not go stale as the stock moves.</p>
-        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;max-width:260px">
-          <label style="font-size:10px;color:var(--faint);text-transform:uppercase" for="high-ticker">Stock</label>
-          <select id="high-ticker" style="font-size:12px;padding:8px"></select>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
-          <label style="font-size:10px;color:var(--faint);text-transform:uppercase">Alert when off its high by</label>
-          <div class="segmented" role="group" aria-label="Trailing threshold" id="high-presets">
-            <button type="button" data-pct="10">10%</button>
-            <button type="button" data-pct="15">15%</button>
-            <button type="button" data-pct="20" aria-pressed="true">20%</button>
-            <button type="button" data-pct="25">25%</button>
-            <button type="button" data-pct="30">30%</button>
-            <button type="button" data-pct="custom">Custom</button>
-          </div>
-          <input type="number" id="high-custom" aria-label="Custom percentage off the high" placeholder="e.g. 35" step="0.5" min="0.5" style="font-size:12px;max-width:140px" hidden>
-        </div>
-        <div class="frm-note" id="high-preview" style="background:var(--surface-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--muted)"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn primary" id="high-create" style="flex:1">Create trailing alert</button>
-        </div>
-        <div class="frm-note" id="high-note"></div>
-      </div>
+            <div class="rule-field" id="rule-pct-wrap">
+              <label class="rule-lbl" id="rule-value-label" for="rule-presets">Alert when down</label>
+              <div class="segmented" role="group" aria-label="Threshold" id="rule-presets"></div>
+              <input type="number" id="rule-custom" aria-label="Custom percentage" hidden>
+            </div>
 
-      <div class="addcard">
-        <h3>Create price alert</h3>
-        <p class="hint">Get notified when a stock reaches a specific price.</p>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px">
-          <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" for="al-ticker">Ticker</label>
-            <input type="text" id="al-ticker" placeholder="e.g. TSLA" style="font-size:12px;text-transform:uppercase">
+            <div class="rule-field" id="rule-price-wrap" hidden>
+              <label class="rule-lbl">Alert when the price goes</label>
+              <div class="segmented" role="group" aria-label="Direction" id="rule-dirs">
+                <button type="button" data-dir="above" aria-pressed="true">Above</button>
+                <button type="button" data-dir="below" aria-pressed="false">Below</button>
+              </div>
+              <label class="rule-lbl" id="rule-price-label" for="rule-price">Price</label>
+              <input type="number" id="rule-price" step="0.01" min="0" placeholder="e.g. 500">
+            </div>
+
+            <div class="rule-actions">
+              <button type="button" class="btn primary" id="rule-create">Create alert</button>
+              <div class="frm-note" id="rule-note"></div>
+            </div>
           </div>
-          <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" for="al-rule">Rule</label>
-            <!-- "% change" was offered here but evaluateAlerts never handled it, so a
-                 rule created that way sat in the database and never fired. Removed
-                 rather than left as a trap; re-add it only alongside an evaluator. -->
-            <select id="al-rule" style="font-size:12px">
-              <option value="price_above">Price above</option>
-              <option value="price_below">Price below</option>
-            </select>
-          </div>
-          <div style="display:flex;flex-direction:column">
-            <label style="font-size:10px;color:var(--faint);text-transform:uppercase;margin-bottom:4px" id="al-threshold-label" for="al-threshold">Threshold</label>
-            <input type="number" id="al-threshold" placeholder="500" step="0.01" style="font-size:12px">
-          </div>
+
+          <aside class="rule-explain">
+            <h4 id="rule-title">Dip</h4>
+            <p class="hint" id="rule-hint"></p>
+            <div class="rule-preview" id="rule-preview"></div>
+            <div class="rule-spark" id="rule-spark"></div>
+          </aside>
         </div>
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn primary" id="al-create" style="flex:1">Create Alert</button>
-        </div>
-        <div class="frm-note" id="al-note"></div>
       </div>
 
       <div class="addcard" id="am-card">
