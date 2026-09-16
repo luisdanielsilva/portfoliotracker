@@ -500,6 +500,32 @@ both behind `require.main === module` now. `check-job-health.js` and `send-backu
 same shape and send mail on load; they are invoked only by systemd today, but guard them
 before requiring them from anything.
 
+### 📭 The login email that never sent — 2026-09-16
+
+`mailguard.sendGuarded(...)` was added to `server.js` in two places when the ceiling landed on
+2026-09-15 — and the `require` was not. That is a `ReferenceError`, thrown inside the request
+handler and caught by the `try/catch` that exists so a broken mailer cannot swallow the only
+way in. So **magic-link login and the contact form sent nothing for a day**, with one line in
+the pm2 log — `Magic-link email to … failed: mailguard is not defined` — to show for it. The
+caller got the usual "a login link is on its way".
+
+Why nothing caught it:
+
+- **The failure is deliberately quiet.** Both call sites treat a mail failure as something to
+  log and continue from, which is right — a mailer that throws must not take out the login
+  endpoint — but it means the difference between "sent" and "not sent" is invisible from
+  outside.
+- **The test suite runs with SMTP unconfigured**, which takes the `if (!authMailer)` branch
+  above the call. No test has ever reached the line.
+- **`node --check` passes.** An undefined identifier is only an error when the line runs.
+
+`test/module-wiring.test.js` is the cheap check that would have caught it: for the project's
+own modules, a file that writes `mailguard.` must require `./mailguard`. It also asserts
+`server.js` never calls `authMailer.sendMail` directly, which would bypass every budget.
+Verified by removing the require and watching two tests fail. It is not a substitute for
+exercising the send path — `sendMagicLink` is not reachable from a test because `server.js`
+starts listening on require — but it costs nothing and it is exactly the shape of this bug.
+
 ### ⏳ Open Items / Backlog
 
 **~~The systemd unit still names the pre-split database~~ — fixed 2026-09-15.**

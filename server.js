@@ -7,6 +7,7 @@ const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
 const { OAuth2Client } = require('google-auth-library');
+const mailguard = require('./mailguard');
 require('dotenv').config();
 
 const app = express();
