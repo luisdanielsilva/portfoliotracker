@@ -467,6 +467,39 @@ Four details worth keeping:
 `LATEST_PRICE_CURRENCY` went with the old price form: it existed only to label that free-text
 box, and `LATEST_PRICES` already carries each ticker's currency.
 
+### 💱 "no such column: updated_at" — 2026-09-16
+
+The daily job died at 09:00 before storing a single price. `exchange_rates` has a
+`created_at` column and has never had `updated_at` — but the **pre-split `data.db` did**,
+and both copies of the rate upsert were written against that. The 2026-09-14 split rebuilt
+the table from `schema.sqlite.sql`, which says `created_at`, and the mismatch sat there until
+the first run that reached the statement.
+
+Three things made it worse than a typo deserves:
+
+- **SQLite resolves column names at `prepare()`, not at `run()`**, so this threw before any
+  rate was fetched. `fetchExchangeRates` has a per-currency `catch` that falls back to the
+  last known rate — designed exactly for "the rate is unavailable this morning" — but the
+  prepare is outside the loop, so a wrong column name is fatal where a network failure is not.
+- **The statement existed twice**, in `price-fetch.js` and `recompute-eur.js`, and both copies
+  carried the same wrong column. It is now `RATE_UPSERT_SQL`, exported from `price-fetch.js`
+  and required by the other; a test asserts `recompute-eur.js` contains no second copy.
+- **No test had ever prepared it against the shipped schema.** `test/exchange-rates.test.js`
+  now does, plus the conflict path (a second write on the same day updates rather than
+  duplicating). Verified by restoring the wrong column and watching three tests fail.
+
+The timestamp is gone rather than renamed: nothing reads it, and `created_at` on a row that
+was just rewritten would be a lie. The live database needed no migration — its schema already
+matched `schema.sqlite.sql` exactly, table for table and column for column; only the SQL was
+speaking the old database's language.
+
+**Maintenance scripts now refuse to run on `require`.** `recompute-eur.js` executed a
+top-level IIFE, so `require('./recompute-eur')` — checking the module still loads, say —
+restated every euro price in whatever `DB_PATH` pointed at. It and `split-databases.js` are
+both behind `require.main === module` now. `check-job-health.js` and `send-backup.js` have the
+same shape and send mail on load; they are invoked only by systemd today, but guard them
+before requiring them from anything.
+
 ### ⏳ Open Items / Backlog
 
 **~~The systemd unit still names the pre-split database~~ — fixed 2026-09-15.**

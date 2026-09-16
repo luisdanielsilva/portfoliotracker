@@ -329,4 +329,6 @@ function main() {
   console.log(`\n  ${SOURCE} is untouched — the rollback is to point DB_PATH back at it.`);
 }
 
-main();
+// Same guard as recompute-eur.js, and for a louder reason: requiring this file would
+// re-run a database split.
+if (require.main === module) main();

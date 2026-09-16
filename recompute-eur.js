@@ -32,6 +32,14 @@ const { ensurePriceCurrencyColumns } = require('./db-migrations');
 const dryRun = process.argv.includes('--dry-run');
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'portfolio.db');
 
+// Requiring this file must not run it. Without this guard a `require('./recompute-eur')`
+// — a check that the module still loads, say — restates every euro price in whatever
+// database DB_PATH points at, which is exactly what happened on 2026-09-16.
+if (require.main !== module) {
+  module.exports = { dbPath };
+  return;
+}
+
 (async () => {
   const db = new Database(dbPath);
   db.pragma('busy_timeout = 5000');
@@ -84,12 +92,8 @@ const dbPath = process.env.DB_PATH || path.join(__dirname, 'portfolio.db');
   ).all();
 
   const updatePrice = db.prepare('UPDATE prices SET price_eur = ? WHERE id = ?');
-  const upsertRate = db.prepare(`
-    INSERT INTO exchange_rates (from_currency, to_currency, rate, date)
-    VALUES (?, 'EUR', ?, ?)
-    ON CONFLICT(from_currency, to_currency, date)
-      DO UPDATE SET rate = excluded.rate, updated_at = CURRENT_TIMESTAMP
-  `);
+  // the daily job's statement, not a second copy of it — see RATE_UPSERT_SQL
+  const upsertRate = db.prepare(require('./price-fetch').RATE_UPSERT_SQL);
 
   let changed = 0, unchanged = 0, skipped = 0, biggest = null;
 

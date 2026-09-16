@@ -306,14 +306,30 @@ function renderAlertDigestText(items, standings = []) {
  */
 const FALLBACK_USD_TO_EUR = 0.92;
 
+/**
+ * One rate per currency per day, rewritten if the day's rate is fetched again.
+ *
+ * Exported and shared with recompute-eur.js because there used to be two copies of
+ * this statement and they drifted: both set `updated_at`, a column `exchange_rates`
+ * has never had — the pre-split database called it that, `schema.sqlite.sql` calls
+ * it `created_at`, and the 2026-09-14 split rebuilt the table from the schema.
+ * SQLite resolves column names at prepare() time, and this is prepared before the
+ * loop that would have fallen back to the last known rate, so the whole job died on
+ * 2026-09-16 rather than degrading. The timestamp is simply gone: nothing reads it,
+ * and `created_at` on a row that was just rewritten would be a lie.
+ */
+const RATE_UPSERT_SQL = `
+  INSERT INTO exchange_rates (from_currency, to_currency, rate, date)
+  VALUES (?, 'EUR', ?, ?)
+  ON CONFLICT(from_currency, to_currency, date)
+    DO UPDATE SET rate = excluded.rate
+`;
+
 async function fetchExchangeRates(yahooFinance, db, currencies) {
   const rates = { EUR: 1 };
-  const upsert = db.prepare(`
-    INSERT INTO exchange_rates (from_currency, to_currency, rate, date)
-    VALUES (?, 'EUR', ?, DATE('now'))
-    ON CONFLICT(from_currency, to_currency, date)
-      DO UPDATE SET rate = excluded.rate, updated_at = CURRENT_TIMESTAMP
-  `);
+  const upsert = db.prepare(RATE_UPSERT_SQL);
+  // the same day SQLite itself would have stamped, asked for once rather than per row
+  const today = db.prepare("SELECT DATE('now') AS d").get().d;
   // Falling back to the most recent stored rate beats a constant from months ago.
   const lastKnown = db.prepare(`
     SELECT rate FROM exchange_rates
@@ -330,7 +346,7 @@ async function fetchExchangeRates(yahooFinance, db, currencies) {
 
       const toEur = parseFloat((1 / eurPerUnit).toFixed(6));
       rates[currency] = toEur;
-      upsert.run(currency, toEur);
+      upsert.run(currency, toEur, today);
       log(`  💱 1 ${currency} = €${toEur.toFixed(4)}`);
     } catch (err) {
       const prev = lastKnown.get(currency);
@@ -1076,6 +1092,7 @@ if (require.main === module) {
 }
 
 module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts, ordinal,
+  RATE_UPSERT_SQL, fetchExchangeRates,
   identityFor, emailsByKey, resolveDbPath, failureRecentlyReported,
   tickerTier, priceGapDays, HOT_SEEN_DAYS, COLD_INTERVAL_DAYS,
                    areMarketsClosedForFetch };
