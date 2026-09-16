@@ -7,7 +7,8 @@ const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
 const { OAuth2Client } = require('google-auth-library');
-const mailguard = require('./mailguard');
+const authMail = require('./auth-mail');
+const escapeHtml = authMail.escapeHtml;
 require('dotenv').config();
 
 const app = express();
@@ -327,25 +328,22 @@ function logMagicLink(email, link, reason) {
   console.log(`\n=== MAGIC LINK for ${email} (${reason}) ===\n${link}\n=== expires in 15 min ===\n`);
 }
 
+function mailFrom() {
+  return process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'login@portfoliotracker.local';
+}
+
+// The body of this lives in auth-mail.js, where a test can call it with a mailer that
+// records instead of sending. Never let a broken mailer swallow the only way in: the
+// link goes to the log instead, which is where the account owner can still reach it.
 async function sendMagicLink(email, link) {
-  if (!authMailer) {
-    logMagicLink(email, link, 'SMTP not configured');
-    return;
-  }
-  try {
-    await mailguard.sendGuarded(db, authMailer, 'login', {
-      from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'login@portfoliotracker.local',
-      to: email,
-      subject: 'Your Portfolio Tracker login link',
-      html: `<p>Click below to sign in. This link works once and expires in 15 minutes.</p>
-             <p><a href="${link}">Sign in to Portfolio Tracker</a></p>
-             <p style="color:#666;font-size:12px">If you didn't request this, you can ignore this email.</p>`
-    }, msg => console.log(msg));
-  } catch (err) {
-    // Never let a broken mailer swallow the only way in — log it instead.
-    console.error(`Magic-link email to ${email} failed: ${err.message}`);
-    logMagicLink(email, link, 'email send failed');
-  }
+  return authMail.sendMagicLink({
+    db, mailer: authMailer, from: mailFrom(), email, link,
+    onUnsent: reason => {
+      console.error(`Magic-link email to ${email} not sent: ${reason}`);
+      logMagicLink(email, link, reason);
+    },
+    log: msg => console.log(msg)
+  });
 }
 
 // Rate limiters for the link-request endpoint (per the plan's security section)
@@ -1695,12 +1693,6 @@ app.delete('/api/alerts/:id', (req, res) => {
   }
 });
 
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
-}
-
 // POST /api/contact - handle contact form submissions
 // Public and unauthenticated, so it is the one endpoint a stranger can use to make the
 // server send mail. Five an hour per address, and every field capped — an uncapped
@@ -1733,16 +1725,11 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
     }
 
     try {
-      await mailguard.sendGuarded(db, authMailer, 'contact', {
+      await authMail.sendContact({
+        db, mailer: authMailer, log: msg => console.log(msg),
         from: process.env.AUTH_EMAIL_FROM || process.env.ALERT_EMAIL_FROM || 'contact@portfoliotracker.local',
-        to: recipient,
-        replyTo: email,
-        subject: `[Portfolio Tracker] ${type}: ${title}`.replace(/[\r\n]+/g, ' ').slice(0, 200),
-        html: `<p><strong>From:</strong> ${escapeHtml(name)} (${escapeHtml(email)})</p>
-               <p><strong>Type:</strong> ${escapeHtml(type)}</p>
-               <p><strong>Message:</strong></p>
-               <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`
-      }, msg => console.log(msg));
+        to: recipient, replyTo: email, type, title, name, email, message
+      });
     } catch (err) {
       // This used to be swallowed and answered with success, on the reasoning that the
       // submission was "still logged". A line in a log nobody reads is not delivery: the

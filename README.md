@@ -526,6 +526,39 @@ Verified by removing the require and watching two tests fail. It is not a substi
 exercising the send path — `sendMagicLink` is not reachable from a test because `server.js`
 starts listening on require — but it costs nothing and it is exactly the shape of this bug.
 
+### ✉️ The mail path is testable now — 2026-09-16
+
+Twice in two days a mail failure was invisible, and both times the reason was the same:
+nothing could call the send path. `server.js` starts listening the moment it is required, so
+the magic-link and contact-form senders inside it were unreachable from a test — and both are
+wrapped in a `catch` that deliberately swallows, because a broken mailer must not take out the
+login endpoint. Green suite, quiet log, no email.
+
+`auth-mail.js` now holds both. Everything they need is passed in — the database, the mailer,
+the addresses — so a test hands them a mailer that records instead of sending and asks the
+question nobody was asking: **did a message with the link in it actually reach the mailer?**
+`test/auth-mail.test.js` covers that, plus the login budget (the eleventh link in a day is
+refused), a mailer that throws (reported, never propagated — signing in must not break), no
+mailer at all, HTML escaping of what a stranger typed into the contact form, and header
+injection through the subject line.
+
+Reintroducing the exact 2026-09-15 bug — the missing `require` — now fails **nine** tests
+instead of none.
+
+Two behaviour changes came with it, both small:
+
+- **A contact message stopped by the daily budget now throws**, like a failed send, so the
+  endpoint answers "could not be delivered" instead of thanking the sender for a message that
+  did not go. The budget refusing is not different from the provider refusing, from the only
+  perspective that matters.
+- **The magic link is HTML-escaped** in the email body. Today's link has a single query
+  parameter so nothing changes; if a second is ever added, `&amp;` is the correct encoding
+  inside an `href` and the raw `&` was not.
+
+`escapeHtml` moved with them and is re-exported to `server.js`, which still needs it for the
+confirm form. `server.js` no longer requires `mailguard` at all — it does not send anything
+itself any more.
+
 ### ⏳ Open Items / Backlog
 
 **~~The systemd unit still names the pre-split database~~ — fixed 2026-09-15.**

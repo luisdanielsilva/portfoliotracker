@@ -21,6 +21,7 @@ const ROOT = path.join(__dirname, '..');
 /** The project's own modules, by the identifier each is conventionally bound to. */
 const LOCAL = {
   mailguard: './mailguard',
+  authMail: './auth-mail',
   algorithm: './algorithm',
 };
 
@@ -41,9 +42,12 @@ test('a file that uses a local module requires it', () => {
   assert.deepStrictEqual(missing, [], missing.join('\n'));
 });
 
-test('server.js in particular reaches mail through mailguard, and has it', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf-8');
-  assert.match(src, /require\('\.\/mailguard'\)/, 'the ceiling is not optional for the server');
-  assert.match(src, /mailguard\.sendGuarded/, 'and nothing calls sendMail directly');
-  assert.doesNotMatch(src, /\bauthMailer\.sendMail\(/, 'a direct send would bypass every budget');
+test('the web app sends only through the guarded helpers', () => {
+  const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf-8');
+  assert.doesNotMatch(server, /\bauthMailer\.sendMail\(/, 'a direct send would bypass every budget');
+  assert.match(server, /require\('\.\/auth-mail'\)/, 'the login link and the contact form go through it');
+
+  const authMail = fs.readFileSync(path.join(ROOT, 'auth-mail.js'), 'utf-8');
+  assert.match(authMail, /require\('\.\/mailguard'\)/, 'and that is where the ceiling is applied');
+  assert.doesNotMatch(authMail, /mailer\.sendMail\(/, 'even here, sendGuarded does the sending');
 });
