@@ -306,6 +306,11 @@
   .rule-explain h4{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:15px;margin:0 0 6px;color:var(--ink)}
   .rule-explain p.hint{margin:0 0 12px;font-size:12px;color:var(--faint);max-width:52ch}
   .rule-preview{font-size:12px;color:var(--muted);line-height:1.6;border-top:1px solid var(--hair);padding-top:12px}
+  /* Registering is a narrow form; what you have registered is a list that wants room.
+     Stacked, the list started below the fold on the tab whose whole job is showing it. */
+  .txgrid{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;align-items:start}
+  .txgrid .addcard{margin-bottom:0}
+  @media (max-width:860px){ .txgrid{grid-template-columns:1fr} }
   /* the same picture the alert list draws, at the size the panel has room for: six months
      of price, the level that fires, and the gap between them */
   .rule-spark{margin-top:12px;line-height:0}
@@ -572,8 +577,17 @@
 
   /* alert list: a table that uses the width, so the numbers that matter are
      readable at a glance instead of packed into small grey prose */
-  .al-row{display:grid;grid-template-columns:minmax(80px,.7fr) minmax(165px,1.35fr) minmax(85px,.7fr) minmax(85px,.7fr) minmax(128px,.95fr) 170px auto;
-          gap:14px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--hair)}
+  /* Two things were wrong here until 2026-09-16, and both came from the last column.
+     It was `auto`, so it was 0 wide in the header and ~100 in a row — and since every row
+     is its own grid, that leftover went to the fr columns and the headings sat right of
+     the numbers they label. It also pushed the row's minimum past the card: the columns
+     were all at their minmax floors, the total overflowed by ~34px, and the Delete button
+     landed on the card's own border. A fixed last column fixes the alignment; floors low
+     enough to fit, and min-width:0 on the cells, keep the row inside the card. */
+  .al-row{display:grid;
+          grid-template-columns:minmax(64px,.7fr) minmax(150px,1.35fr) minmax(70px,.7fr) minmax(70px,.7fr) minmax(96px,.95fr) 170px 104px;
+          gap:12px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--hair)}
+  .al-row > *{min-width:0}
   .al-row:last-child{border-bottom:0}
   .al-row.off{opacity:.5}
   .al-head{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
@@ -1141,12 +1155,11 @@
 
 <div class="tabs-sticky">
   <div class="tabs" role="tablist">
-    <button id="tab-total" role="tab" aria-selected="true">Portfolio over time</button>
-    <button id="tab-detail" role="tab" aria-selected="false">Portfolio In Detail</button>
+    <button id="tab-total" role="tab" aria-selected="true">Portfolio</button>
     <button id="tab-dca" role="tab" aria-selected="false">DCA</button>
     <button id="tab-algo" role="tab" aria-selected="false">Algorithm</button>
-    <button id="tab-add" role="tab" aria-selected="false">Transactions</button>
     <button id="tab-alerts" role="tab" aria-selected="false">Alerts</button>
+    <button id="tab-add" role="tab" aria-selected="false">Transactions</button>
   </div>
 </div>
 
@@ -1198,13 +1211,13 @@
       </div>
       <div id="events-timeline" style="margin:16px 0;font-size:12px;color:var(--muted)"></div>
     </div>
-  </section>
 
-  <!-- ===== VIEW 2: SMALL MULTIPLES ===== -->
-  <!-- ===== VIEW 2b: GROWTH ===== -->
-  <!-- ===== VIEW: PORTFOLIO IN DETAIL (merged Growth + Indicators) ===== -->
-  <section id="view-detail" hidden>
+    <!-- What was the "Portfolio In Detail" tab: the same data, read downwards instead of
+         behind a second click. The chart answers "what is it worth"; everything from here
+         answers "why", and none of it means much before you have seen the line. -->
     <div class="panel">
+      <h3 class="ind-h" style="margin-top:0">In detail</h3>
+      <p class="microcopy" style="margin:0 0 14px">The same holdings as the chart above, taken apart: what went in against what it is worth, how far below its own peak the portfolio has been, and which holdings carried it.</p>
       <div class="kpi-grid" id="detail-kpi"></div>
 
       <h3 class="ind-h">Money in vs. what it&rsquo;s worth</h3>
@@ -1354,6 +1367,7 @@
   <!-- ===== VIEW 6: TRANSACTIONS ===== -->
   <section id="view-add" hidden>
     <div class="panel">
+      <div class="txgrid">
       <div class="addcard">
         <h3>Register transaction</h3>
         <p class="hint">Buy or sell a holding. Currency conversion to EUR is applied at transaction time. A snapshot is automatically created from your last recorded state + this transaction.</p>
@@ -1419,12 +1433,37 @@
         <p class="hint">Automatically synced to server. Each transaction creates a derived snapshot.</p>
         <div class="uslist" id="tx-list"></div>
       </div>
+      </div>
     </div>
   </section>
 
   <!-- ===== VIEW 7: ALERTS ===== -->
   <section id="view-alerts" hidden>
     <div class="panel">
+
+      <div class="addcard" id="am-card">
+        <h3>Alert map <span id="am-sub" style="color:var(--faint);font-weight:400;font-size:13px"></span></h3>
+        <p class="hint">One holding at a time: its price history, what you paid, and every rule you have on it drawn as its own line. The markers show where each rule <b>would have fired</b> over the period &mdash; a level the stock reaches four times a year and one it has never come near look nothing alike on a chart, and identical in a list.</p>
+        <div class="picker-wrap" style="margin-bottom:12px">
+          <div class="picker" id="am-tickers" role="group" aria-label="Choose a holding"></div>
+        </div>
+        <div class="toolbar" style="margin-bottom:10px">
+          <div class="legend" id="am-legend"></div>
+          <div class="segmented" role="group" aria-label="Period" id="am-periods">
+            <button type="button" data-p="3m">3M</button>
+            <button type="button" data-p="6m">6M</button>
+            <button type="button" data-p="1y" aria-pressed="true">1Y</button>
+            <button type="button" data-p="2y">2Y</button>
+            <button type="button" data-p="all">All</button>
+          </div>
+        </div>
+        <div class="chartbox">
+          <svg class="chart" id="am-chart" viewBox="0 0 960 430" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Price history with your alert levels drawn on it"></svg>
+          <div class="tip" id="am-tip"></div>
+        </div>
+        <div id="am-rows"></div>
+        <p class="microcopy" id="am-note"></p>
+      </div>
 
       <div class="addcard">
         <h3>Create alert</h3>
@@ -1471,30 +1510,6 @@
             <div class="rule-spark" id="rule-spark"></div>
           </aside>
         </div>
-      </div>
-
-      <div class="addcard" id="am-card">
-        <h3>Alert map <span id="am-sub" style="color:var(--faint);font-weight:400;font-size:13px"></span></h3>
-        <p class="hint">One holding at a time: its price history, what you paid, and every rule you have on it drawn as its own line. The markers show where each rule <b>would have fired</b> over the period &mdash; a level the stock reaches four times a year and one it has never come near look nothing alike on a chart, and identical in a list.</p>
-        <div class="picker-wrap" style="margin-bottom:12px">
-          <div class="picker" id="am-tickers" role="group" aria-label="Choose a holding"></div>
-        </div>
-        <div class="toolbar" style="margin-bottom:10px">
-          <div class="legend" id="am-legend"></div>
-          <div class="segmented" role="group" aria-label="Period" id="am-periods">
-            <button type="button" data-p="3m">3M</button>
-            <button type="button" data-p="6m">6M</button>
-            <button type="button" data-p="1y" aria-pressed="true">1Y</button>
-            <button type="button" data-p="2y">2Y</button>
-            <button type="button" data-p="all">All</button>
-          </div>
-        </div>
-        <div class="chartbox">
-          <svg class="chart" id="am-chart" viewBox="0 0 960 430" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Price history with your alert levels drawn on it"></svg>
-          <div class="tip" id="am-tip"></div>
-        </div>
-        <div id="am-rows"></div>
-        <p class="microcopy" id="am-note"></p>
       </div>
 
       <div class="addcard">

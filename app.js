@@ -1448,7 +1448,9 @@
   })();
 
   /* ================= tabs ================= */
-  var TABS=[["tab-total","view-total"],["tab-detail","view-detail"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-add","view-add"],["tab-alerts","view-alerts"]];
+  // Portfolio-over-time and Portfolio-in-detail were one subject behind two clicks; they are
+  // one view now, chart first. Transactions sits last because it is the tab you visit least.
+  var TABS=[["tab-total","view-total"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-alerts","view-alerts"],["tab-add","view-add"]];
   TABS.forEach(function(pair){
     document.getElementById(pair[0]).addEventListener("click",function(){
       TABS.forEach(function(p){

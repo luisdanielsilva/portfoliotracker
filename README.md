@@ -44,8 +44,7 @@ a holding has moved far enough from its own normal to be worth a look.
 5. **Read the *Algorithm* tab** when deciding where to add next. It ranks each holding's price
    against its own 6-month, 1-year and 2-year history, and explains every number it shows.
 
-The other tabs — *Portfolio over time*, *Portfolio in detail*, *DCA* — are ways of looking at
-the same data.
+The other tabs — *Portfolio*, *DCA* — are ways of looking at the same data.
 
 ## What it is good at
 
@@ -559,6 +558,39 @@ Two behaviour changes came with it, both small:
 confirm form. `server.js` no longer requires `mailguard` at all — it does not send anything
 itself any more.
 
+### 🧭 Website simplification — 2026-09-16
+
+The suggestions paused for on 2026-09-12 arrived, and this is them.
+
+**Portfolio over time and Portfolio in detail are one tab.** They were one subject behind two
+clicks: the chart answers *what is it worth*, everything in the second tab answers *why*, and
+none of the "why" means much before you have seen the line. One view now, chart first, detail
+under it behind an *In detail* heading. `view-detail` is gone; nothing else changed, because
+both halves were already rendered by the same `rebuild()`.
+
+**Transactions moved to the rightmost tab** — the one you visit least sits furthest from where
+the eye starts. Tab order is now Portfolio · DCA · Algorithm · Alerts · Transactions.
+
+**The Transactions page is two columns:** the register form on the left, at a fixed 380px
+because a form does not benefit from being wider, and the list of what you have registered
+taking the rest. Stacked, the list began below the fold on the tab whose whole job is showing
+it. One column under 860px.
+
+**The Alerts page reads map → form → list.** The map is the picture the other two sections are
+about; creating a rule adds a line to it, and the list is what is already on it.
+
+**Two bugs in the alert list, both from the same cause.** The last column was `auto`, so it was
+0 wide in the header row and ~100px in a data row — and since every row is its own grid, that
+leftover went to the `fr` columns and the headings sat right of the numbers they labelled
+("Fires at" and "Now" most visibly, measured 41px out). The same `auto` pushed the row's minimum
+past the card: every column was already at its `minmax` floor, the total overflowed by 34px, and
+the Delete button landed on the card's own border. Fixed by a fixed-width last column, floors
+low enough to fit, and `min-width:0` on the cells. Measured after: header and row column edges
+identical to the pixel, and the buttons 31px inside the card.
+
+**The AI upload was part of these suggestions and is not built** — see *Not planned for now*.
+The shape is agreed; it needs an API key the server does not have.
+
 ### ⏳ Open Items / Backlog
 
 **~~The systemd unit still names the pre-split database~~ — fixed 2026-09-15.**
@@ -941,7 +973,11 @@ Exchange Rates below. No longer an open item.)*
 
 **Not planned for now:**
 - AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built then
-  removed. Explicitly parked (2026-09-09); do not pick it up without asking.
+  removed. Parked again on 2026-09-16, this time with the shape agreed: an upload box under the
+  register form, the file read by a model, the extracted rows shown for confirmation, registered
+  on approval and **the file deleted from the server**, editable afterwards like any other
+  transaction. It needs `ANTHROPIC_API_KEY` in `.env` (there is none) and the SDK (not
+  installed), and each upload costs real money. Do not build it without asking.
 
 **`data.db` removed from the git history — 2026-09-12.** `git filter-repo --invert-paths
 --path data.db` stripped it from all 14 commits that carried it, and the result was
