@@ -96,7 +96,8 @@ test('the same holding is not emailed twice inside the quiet period', () => {
 
   const first = A.evaluateAlgorithmSignals(db, asOf);
   assert.strictEqual(first.get('owner@example.com').length, 1, 'fires the first time');
-  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM algo_alert_log').get().c, 1, 'and is written down');
+  assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM alert_events WHERE source = 'algo'").get().c, 1,
+    'and is written down');
 
   const sameDay = A.evaluateAlgorithmSignals(db, asOf);
   assert.strictEqual(sameDay.size, 0, 'silent immediately afterwards');
@@ -228,8 +229,11 @@ test('evaluateAlerts merges the algorithm item with the hand-built rules', async
   buildCheap(db, 'DIP', 800, Date.now());
 
   await evaluateAlerts(db, null);          // null mailer: nothing leaves the process
-  const logged = db.prepare('SELECT ticker, direction, tier FROM algo_alert_log').all();
+  const logged = db.prepare(
+    "SELECT ticker, direction, delivery, json_extract(detail,'$.tier') tier FROM alert_events WHERE source = 'algo'"
+  ).all();
   assert.strictEqual(logged.length, 1, 'the firing was recorded');
-  assert.strictEqual(logged[0].direction, 'Buy');
+  assert.strictEqual(logged[0].direction, 'buy');
   assert.strictEqual(logged[0].tier, 'VeryStrong');
+  assert.strictEqual(logged[0].delivery, 'not_sent', 'and nothing claims an email that never left');
 });

@@ -79,6 +79,7 @@ function migratedDb() {
   m.ensureGainRuleType(db);
   m.ensureDropFromHighRuleType(db);
   m.ensureAlgorithmAlertSettings(db);
+  m.ensureAlertEventLog(db);
   return db;
 }
 

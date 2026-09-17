@@ -105,7 +105,8 @@ test('a fresh deployment gets every table, on the correct side of the split', ()
   const financial = tablesIn(pdb), identity = tablesIn(idb);
 
   for (const t of ['transactions', 'prices', 'alerts', 'exchange_rates', 'stock_splits',
-                   'job_runs', 'algo_alert_log', 'algo_settings_log', 'user_settings', 'data_version']) {
+                   'job_runs', 'alert_events', 'algo_alert_log', 'algo_settings_log',
+                   'user_settings', 'data_version']) {
     assert.ok(financial.includes(t), `${t} missing from the financial database`);
   }
   for (const t of ['users', 'sessions', 'login_tokens']) {

@@ -1293,7 +1293,10 @@
     } else {
       evIdx.forEach(function(k){
         var i=parseInt(k,10), list=evByIndex[i], x=X(i);
-        var hasEmail=list.some(function(e){ return e.type==="email"; });
+        // Only an email that actually left gets the loud treatment. One the mailer
+        // refused is still a moment worth marking — it explains a gap — but it must
+        // not look like something that arrived.
+        var hasEmail=list.some(function(e){ return e.type==="email" && e.sent!==false; });
         var col=hasEmail?"var(--pos)":"var(--muted)";
         s+='<line x1="'+x.toFixed(1)+'" y1="'+(EVY-7)+'" x2="'+x.toFixed(1)+'" y2="'+(EVY+7)+'" stroke="'+col+'" stroke-width="1.5" opacity="0.85"/>';
         if(hasEmail){
@@ -1366,7 +1369,8 @@
         }).join("<br>")+'</div>'+
         (evHere.length?'<div style="margin-top:6px;border-top:1px solid var(--hair);padding-top:5px">'+
           evHere.map(function(ev){
-            return '<span style="color:'+(ev.type==="email"?"var(--pos)":"var(--muted)")+'">&#9679;</span> '+esc(ev.label)+': '+esc(ev.detail);
+            var arrived=ev.type==="email"&&ev.sent!==false;
+            return '<span style="color:'+(arrived?"var(--pos)":"var(--muted)")+'">&#9679;</span> '+esc(ev.label)+': '+esc(ev.detail);
           }).join("<br>")+'</div>':'')+'</div>';
       var left=px/960*v.rect.width;
       tip.style.left=Math.max(90,Math.min(v.rect.width-90,left))+"px";

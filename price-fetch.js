@@ -17,8 +17,9 @@ const { evaluateAlgorithmSignals, standingsFor, isStandingsDay } = require('./al
 const mailguard = require('./mailguard');
 const { identityFor } = require('./identity-db');
 const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
-        ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureDataVersion,
-        recentHigh } = require('./db-migrations');
+        ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureAlertEventLog,
+        ensureDataVersion, recentHigh } = require('./db-migrations');
+const { recordAlertEvent, markDelivery } = require('./alert-log');
 require('dotenv').config();
 
 // Hardcoded until the database split, which is exactly the kind of thing that
@@ -738,6 +739,23 @@ async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
                  currency: alert.currency || marketCurrency };
       }
 
+      // Written before the digest is built, and before the throttle is stamped,
+      // so the log holds an alert even if this process dies mid-run. The detail
+      // is whatever the reader is about to be shown that the columns do not
+      // already hold — a row should be readable years later without re-deriving
+      // it from prices that may since have been restated.
+      item.eventId = recordAlertEvent(db, {
+        userId: alert.user_id, ticker: alert.ticker, source: 'rule',
+        alertType: rule, alertId: alert.id,
+        priceNative: nativePrice, priceEur: currentPrice,
+        currency: alert.currency || marketCurrency,
+        threshold, avgCostEur: avgCostEUR,
+        detail: rule === 'dip_from_avg_cost' ? { dropPct: item.dropPct }
+          : rule === 'gain_from_avg_cost' ? { gainPct: item.gainPct }
+          : rule === 'drop_from_high' ? { peak: highPeak, dropPct: item.dropPct }
+          : null
+      });
+
       if (!byRecipient.has(recipient)) byRecipient.set(recipient, []);
       byRecipient.get(recipient).push(item);
 
@@ -753,20 +771,31 @@ async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
     const standings = standingsByRecipient.get(recipient) || [];
     if (!items.length && !standings.length) continue;
     const subject = alertSubject(items);
+    // Every alert in this digest, so the log can record what became of the email
+    // rather than assuming a row that was written means a reader who was told.
+    const eventIds = items.map(i => i.eventId).filter(id => id != null);
     if (!mailer || !recipient) {
       log(`  📌 Would email ${recipient || 'unknown recipient'}: ${subject}`);
+      markDelivery(db, eventIds, 'not_sent');
       continue;
     }
     try {
-      await mailguard.sendGuarded(db, mailer, 'alert', {
+      const verdict = await mailguard.sendGuarded(db, mailer, 'alert', {
         from: process.env.ALERT_EMAIL_FROM || 'alerts@portfoliotracker.local',
         to: recipient,
         subject,
         text: renderAlertDigestText(items, standings),
         html: renderAlertDigest(items, standings)
       }, log);
-      log(`  ✉ Digest sent to ${recipient} (${items.length} alert${items.length > 1 ? 's' : ''})`);
+      // A refusal from the guard — the daily ceiling, or no mailer — is not a
+      // failure and is not the reader ignoring anything. It is simply an alert
+      // they were never shown, and the evaluation has to be able to tell.
+      markDelivery(db, eventIds, verdict && verdict.sent ? 'sent' : 'not_sent');
+      if (verdict && verdict.sent) {
+        log(`  ✉ Digest sent to ${recipient} (${items.length} alert${items.length > 1 ? 's' : ''})`);
+      }
     } catch (emailErr) {
+      markDelivery(db, eventIds, 'failed');
       log(`  ❌ Failed to send digest to ${recipient}: ${emailErr.message}`);
     }
   }
@@ -937,6 +966,7 @@ async function fetchPrices() {
     ensureGainRuleType(db);
     ensureDropFromHighRuleType(db);
     ensureAlgorithmAlertSettings(db);
+    ensureAlertEventLog(db);
     ensureDataVersion(db);
 
     const upsertStmt = db.prepare(`

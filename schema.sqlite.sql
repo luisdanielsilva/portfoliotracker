@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS user_settings (
   algo_cooldown_days INTEGER NOT NULL DEFAULT 60
 );
 
+-- SUPERSEDED by alert_events, which records the algorithm's emails alongside
+-- everybody else's. Kept, unwritten, so a database restored from a backup taken
+-- before the change still opens and still has its history to copy forward.
 CREATE TABLE IF NOT EXISTS algo_alert_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT NOT NULL,
@@ -50,6 +53,33 @@ CREATE TABLE IF NOT EXISTS algo_alert_log (
   confidence REAL
 );
 CREATE INDEX IF NOT EXISTS idx_algo_log_user_ticker ON algo_alert_log(user_id, ticker, fired_at DESC);
+
+-- Every alert the app has actually told somebody about, hand-built rule and
+-- algorithm alike. One row per email item, never per day the condition held --
+-- see alert-log.js for why that distinction is the whole point. The price is
+-- copied onto the row because `prices` can be restated underneath it.
+CREATE TABLE IF NOT EXISTS alert_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('rule','algo')),
+  alert_type TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK(direction IN ('buy','sell','watch')),
+  alert_id INTEGER,
+  fired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  signal_date DATE,
+  price_native REAL,
+  price_eur REAL,
+  currency TEXT,
+  threshold REAL,
+  avg_cost_eur REAL,
+  detail TEXT,
+  delivery TEXT NOT NULL DEFAULT 'pending' CHECK(delivery IN ('pending','sent','not_sent','failed')),
+  delivered_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_alert_events_user ON alert_events(user_id, fired_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_events_user_ticker ON alert_events(user_id, ticker, fired_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_events_source ON alert_events(source, fired_at DESC);
 
 CREATE TABLE IF NOT EXISTS algo_settings_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

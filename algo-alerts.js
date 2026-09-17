@@ -22,6 +22,7 @@
  */
 
 const signals = require('./algorithm');
+const { recordAlertEvent } = require('./alert-log');
 
 /** Only the top tier is worth an email. Everything else is the tab's job. */
 const ALERT_TIER = 'VeryStrong';
@@ -62,7 +63,7 @@ function sustainedSignal(scored, holdDays) {
  */
 function daysSinceLastAlert(db, userId, ticker, now) {
   const row = db.prepare(
-    'SELECT fired_at FROM algo_alert_log WHERE user_id = ? AND ticker = ? ORDER BY fired_at DESC LIMIT 1'
+    "SELECT fired_at FROM alert_events WHERE user_id = ? AND ticker = ? AND source = 'algo' ORDER BY fired_at DESC LIMIT 1"
   ).get(userId, ticker);
   if (!row) return null;
   // Rows written here are ISO; anything SQLite wrote with CURRENT_TIMESTAMP is
@@ -109,10 +110,11 @@ function standingsFor(db, userId, now = new Date()) {
  * Evaluate every user's holdings and return the items to email, keyed by
  * recipient, in the same shape the alert digest already renders.
  *
- * Writing to `algo_alert_log` happens here rather than after a successful send,
+ * Writing to `alert_events` happens here rather than after a successful send,
  * for the same reason `alerts.last_triggered_at` does: a mail failure that left
  * the cooldown unset would retry the same alert every day until it succeeded,
- * which is the one failure mode worse than not sending it.
+ * which is the one failure mode worse than not sending it. What became of the
+ * email is recorded afterwards, on the same row, by the digest loop.
  */
 function evaluateAlgorithmSignals(db, now = new Date(), log = () => {}, identityDb = null) {
   const byRecipient = new Map();
@@ -130,9 +132,6 @@ function evaluateAlgorithmSignals(db, now = new Date(), log = () => {}, identity
     'SELECT user_id AS id, algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays FROM user_settings WHERE algo_alerts_enabled = 1'
   ).all().map(u => ({ ...u, email: emailOf.get(u.id) || null }));
 
-  const record = db.prepare(
-    'INSERT INTO algo_alert_log (user_id, ticker, fired_at, signal_date, tier, direction, confidence) VALUES (?,?,?,?,?,?,?)'
-  );
   const firedAt = now.toISOString();
 
   for (const user of users) {
@@ -172,9 +171,25 @@ function evaluateAlgorithmSignals(db, now = new Date(), log = () => {}, identity
           gainPct: cost && newest.closeEur ? (newest.closeEur / cost.avgCostEUR - 1) * 100 : null
         };
 
+        // The row goes in before the item joins the digest, so `item.eventId` is
+        // always the alert the reader is about to be shown — that pairing is what
+        // makes "was it delivered, and did they act" answerable later.
+        item.eventId = recordAlertEvent(db, {
+          userId: user.id, ticker, source: 'algo', alertType: 'algo', direction: 'buy',
+          firedAt, signalDate: hit.date,
+          priceNative: newest.close, priceEur: newest.closeEur, currency: newest.currency || 'USD',
+          avgCostEur: cost ? cost.avgCostEUR : null,
+          detail: {
+            tier: hit.early.tier,
+            confidence: hit.early.confidencePct,
+            holdDays: user.holdDays,
+            percentiles: hit.percentiles,
+            gainPct: item.gainPct
+          }
+        });
+
         if (!byRecipient.has(user.email)) byRecipient.set(user.email, []);
         byRecipient.get(user.email).push(item);
-        record.run(user.id, ticker, firedAt, hit.date, hit.early.tier, hit.early.direction, hit.early.confidencePct);
         log(`  🟢 ${ticker}: very strong buy held ${user.holdDays} day(s) → ${user.email}`);
       } catch (err) {
         log(`  ❌ ${ticker}: ${err.message}`);

@@ -128,6 +128,7 @@ require('./db-migrations').ensureAlertCurrency(db);
 require('./db-migrations').ensureGainRuleType(db);
 require('./db-migrations').ensureDropFromHighRuleType(db);
 require('./db-migrations').ensureAlgorithmAlertSettings(db);
+require('./db-migrations').ensureAlertEventLog(db);
 require('./db-migrations').ensureDataVersion(db);
 
 // Migration: stop the same rule being saved twice. Nothing prevented it, and one
@@ -1392,15 +1393,25 @@ app.get('/api/algorithm', heavyLimiter, (req, res) => {
     const events = [];
 
     for (const row of db.prepare(
-      `SELECT fired_at, signal_date, tier, direction, confidence FROM algo_alert_log
-       WHERE user_id = ? AND ticker = ? AND date(fired_at) >= ? ORDER BY fired_at ASC`
+      `SELECT fired_at, signal_date, delivery,
+              json_extract(detail, '$.tier') AS tier,
+              json_extract(detail, '$.confidence') AS confidence,
+              direction
+       FROM alert_events
+       WHERE user_id = ? AND ticker = ? AND source = 'algo' AND date(fired_at) >= ?
+       ORDER BY fired_at ASC`
     ).all(req.userId, ticker, from)) {
+      // The timeline says what the reader was actually told. An alert the mailer
+      // refused is still worth a mark — it explains a gap in the emails without
+      // claiming one arrived.
+      const arrived = row.delivery !== 'not_sent' && row.delivery !== 'failed';
       events.push({
         date: String(row.fired_at).slice(0, 10),
         type: 'email',
         scope: 'ticker',
-        label: 'Email sent',
-        detail: `${ticker} read ${row.tier === 'VeryStrong' ? 'very strong' : String(row.tier).toLowerCase()} `
+        sent: arrived,
+        label: arrived ? 'Email sent' : 'Alert raised, email not sent',
+        detail: `${ticker} read ${row.tier === 'VeryStrong' ? 'very strong' : String(row.tier || '').toLowerCase()} `
           + `${String(row.direction).toLowerCase()} at ${Math.round(row.confidence)}% — signal dated ${row.signal_date}`
       });
     }

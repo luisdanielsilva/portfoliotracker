@@ -591,6 +591,73 @@ identical to the pixel, and the buttons 31px inside the card.
 **The AI upload was part of these suggestions and is not built** — see *Not planned for now*.
 The shape is agreed; it needs an API key the server does not have.
 
+### 📒 A log of every alert given — 2026-09-17
+
+Until today an alert left almost no trace. A hand-built rule updated one column,
+`alerts.last_triggered_at`, which the next firing overwrote — so the third dip erased the first
+two. The algorithm wrote a row in `algo_alert_log` with a tier and a confidence but no price.
+Neither could answer the question the log now exists for: **was this alert actually given to
+somebody, and did they then act on it?**
+
+**One table for both kinds — `alert_events`.** The hand-built rules and the algorithm are
+deliberately different features, but from the reader's side they are the same event: something
+arrived in the inbox about a holding on a day. Two logs would have meant every evaluation query
+is a UNION of two shapes, one of which lacks the price the evaluation needs. `source` says
+which produced the row (`rule` / `algo`), `alert_type` carries the rule type or `algo`, and
+`alert_id` points back at the rule for the ones that have one.
+
+**A row is an email item, never a day the condition held.** A dip rule whose condition is true
+for nine days running is throttled to one email and is therefore *one* event; a very strong buy
+inside its 60-day cooldown is not an event at all. This is the distinction that decides whether
+the eventual follow-through rate means anything — counting nine throttled days as nine alerts
+would divide by the wrong number and flatter the result.
+
+**Delivery is recorded, never assumed.** The row is written *before* the digest goes out, for
+the same reason the throttle is stamped early: a mail failure that left the log empty would
+re-fire the same alert every morning until it succeeded. What became of the email is then
+written back onto the same row — `sent`, `not_sent` (no SMTP configured, or mailguard's daily
+ceiling refused it), `failed` (the mailer threw), or `pending`, which means the process died
+in between and should be read as *unknown*. An alert that never left is not one the reader
+ignored, and `followThrough()` scores only delivered ones unless told otherwise.
+
+**The price is copied onto the row** rather than looked up from `prices` later, because a
+backfill, a split adjustment or a restated FX rate can all change what that day's price row says
+afterwards — and the question is what the reader was told at the time.
+
+**Direction is recorded where the app knows it, and not invented where it does not.**
+`dip_from_avg_cost` and the algorithm's alert argue for buying; `gain_from_avg_cost` and
+`drop_from_high` argue for selling. The three level rules are `watch`: "TSLA above 350" is a buy
+signal for one person and a sell target for the next, the app was never told which, and a log
+whose whole value is that it does not invent anything should not start there. A `watch` event
+counts a trade in either direction as having acted.
+
+**`algo_alert_log` is superseded and carried forward, not abandoned.** The migration copies any
+rows it holds into `alert_events` on every boot, matched on (user, ticker, fired_at) so it is
+safe to repeat. Without that carry-forward the algorithm's cooldown would have read an empty
+table on the first boot after this change and could have emailed a holding meant to stay quiet
+for another two months. Carried rows arrive as `pending`: the old table recorded that an alert
+was raised and never what became of the email. The table itself is kept, unwritten, so a
+database restored from an older backup still opens.
+
+**Reading it back.** `alert-log.js` has `followThrough()` — did a trade in the same holding, in
+the direction the alert argued for, land inside the window — and `summariseFollowThrough()` for
+the rate by alert type. The matching is done in JavaScript rather than SQL on purpose: the rule
+is a judgment and it should be readable by whoever wants to argue with it.
+`node alert-followthrough.js [--days 60] [--all] [--list]` prints it; the script is read-only
+and guarded with `require.main === module`.
+
+**Three caveats that belong wherever a number from this is quoted.** A purchase after a buy
+alert is correlation, never cause — the reader may have been buying that week regardless. A
+transaction's `ts` is the trade date the user typed, so it can predate the alert it appears to
+answer. And `watch` rules count a trade in either direction, so their rate is not comparable
+with a dip's. With a handful of events per type this is a description of what happened, not a
+measurement of whether alerts work. The log starts empty on 2026-09-17; there is no history to
+backfill, because none was ever kept.
+
+Covered by `test/alert-log.test.js` (13 tests), and the Algorithm tab's timeline now reads
+`alert_events` — an alert the mailer refused shows there as *Alert raised, email not sent*
+rather than silently looking like an email that arrived.
+
 ### ⏳ Open Items / Backlog
 
 **~~The systemd unit still names the pre-split database~~ — fixed 2026-09-15.**
@@ -1430,6 +1497,13 @@ node check-job-health.js            # check, email if stale, exit 1 if unhealthy
   possible, and one ticker ended up with three identical rules
 - `prices` — Historical daily closing prices (populated by price-fetch)
 - `stock_splits` — Known stock splits, applied when computing historical snapshots
+- `alert_events` — Every alert actually given, hand-built rule and algorithm alike: who, which
+  ticker, which type, what it argued for (`buy`/`sell`/`watch`), the price and threshold at the
+  time, and what became of the email (`delivery`). One row per email item, never per day the
+  condition held. This is what makes "was it given, and did they follow it" answerable — see
+  *A log of every alert given*
+- `algo_alert_log` — **superseded by `alert_events`**, kept unwritten so an older backup still
+  opens; its rows are carried forward on boot
 - `job_runs` — One row per price-fetch run: `success` / `skipped` / `failed` plus a summary. This
   is what makes "ran and skipped" distinguishable from "never ran"; before it existed, both
   outages looked identical in the logs

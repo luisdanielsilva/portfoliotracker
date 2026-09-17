@@ -259,6 +259,75 @@ function ensureAlgorithmAlertSettings(db) {
 
 
 /**
+ * The log of alerts actually given — see alert-log.js for what counts as one.
+ *
+ * Created here as well as in schema.sqlite.sql because a database that already
+ * exists never re-runs the schema file, and both the server and the price job
+ * may be the process that opens it first.
+ *
+ * `algo_alert_log` is the same record for the algorithm alone, and it is folded
+ * in rather than left behind: without the carry-forward the algorithm's cooldown
+ * would read an empty table on the first boot after this change and could email
+ * a holding that was meant to stay quiet for another two months. Matching on
+ * (user, ticker, fired_at) makes the copy safe to run on every boot.
+ */
+function ensureAlertEventLog(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS alert_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      source TEXT NOT NULL CHECK(source IN ('rule','algo')),
+      alert_type TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK(direction IN ('buy','sell','watch')),
+      alert_id INTEGER,
+      fired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      signal_date DATE,
+      price_native REAL,
+      price_eur REAL,
+      currency TEXT,
+      threshold REAL,
+      avg_cost_eur REAL,
+      detail TEXT,
+      delivery TEXT NOT NULL DEFAULT 'pending' CHECK(delivery IN ('pending','sent','not_sent','failed')),
+      delivered_at DATETIME
+    );
+    CREATE INDEX IF NOT EXISTS idx_alert_events_user ON alert_events(user_id, fired_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_alert_events_user_ticker ON alert_events(user_id, ticker, fired_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_alert_events_source ON alert_events(source, fired_at DESC);
+  `);
+
+  const legacy = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'algo_alert_log'"
+  ).get();
+  if (!legacy) return;
+
+  // Older rows carry no price — they were written before the log had one — so
+  // those columns stay null rather than being filled in from today's prices.
+  // They arrive as 'pending' for the same reason: the old table recorded that an
+  // alert was raised and never what became of the email, and 'pending' is what
+  // this column means by "unknown". Marking them 'sent' would be inventing a
+  // delivery that nothing here witnessed.
+  const copied = db.prepare(`
+    INSERT INTO alert_events
+      (user_id, ticker, source, alert_type, direction, fired_at, signal_date, detail, delivery)
+    SELECT CAST(l.user_id AS TEXT), l.ticker, 'algo', 'algo',
+           CASE lower(l.direction) WHEN 'sell' THEN 'sell' ELSE 'buy' END,
+           l.fired_at, l.signal_date,
+           json_object('tier', l.tier, 'confidence', l.confidence, 'carriedFrom', 'algo_alert_log'),
+           'pending'
+    FROM algo_alert_log l
+    WHERE NOT EXISTS (
+      SELECT 1 FROM alert_events e
+       WHERE e.source = 'algo' AND e.user_id = CAST(l.user_id AS TEXT)
+         AND e.ticker = l.ticker AND e.fired_at = l.fired_at
+    )
+  `).run().changes;
+  if (copied) console.log(`alert_events: carried ${copied} row(s) forward from algo_alert_log`);
+}
+
+
+/**
  * A single counter bumped whenever anything the computed views depend on
  * changes. It is what makes caching those views safe across processes: a cache
  * entry is keyed by this number, so a write in one process retires every other
@@ -280,6 +349,6 @@ function ensureDataVersion(db) {
 
 module.exports = {
   ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
-  ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureDataVersion,
+  ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureAlertEventLog, ensureDataVersion,
   recentHigh, HIGH_WINDOW_DAYS, columnNames
 };
