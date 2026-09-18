@@ -1454,7 +1454,7 @@
   /* ================= tabs ================= */
   // Portfolio-over-time and Portfolio-in-detail were one subject behind two clicks; they are
   // one view now, chart first. Transactions sits last because it is the tab you visit least.
-  var TABS=[["tab-total","view-total"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-alerts","view-alerts"],["tab-add","view-add"]];
+  var TABS=[["tab-total","view-total"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-alerts","view-alerts"],["tab-watch","view-watch"],["tab-add","view-add"]];
   TABS.forEach(function(pair){
     document.getElementById(pair[0]).addEventListener("click",function(){
       TABS.forEach(function(p){
@@ -1468,6 +1468,7 @@
       if(btn.scrollIntoView) btn.scrollIntoView({block:"nearest",inline:"nearest",behavior:"smooth"});
       if(pair[0]==="tab-dca") loadAndRenderDCA();
       if(pair[0]==="tab-algo") loadAndRenderAlgo();
+      if(pair[0]==="tab-watch") loadWatchlist();
     });
   });
 
@@ -1593,6 +1594,26 @@
       document.getElementById("tx-amount").value="";
       document.getElementById("tx-rate").value="";
       toast(txType.charAt(0).toUpperCase()+txType.slice(1)+" "+qty+" "+ticker);
+
+      /* Just sold the last share? Offer to keep watching it.
+       *
+       * This is where a ticker used to quietly leave the app: the daily job
+       * stops fetching it the next morning and any alert on it becomes
+       * unfirable without saying so. The server decides whether the offer
+       * applies and recomputes the cost itself — nothing here is trusted.
+       */
+      if(d.closedPosition){
+        var cp=d.closedPosition;
+        var keep=confirm("You have sold all your "+cp.ticker+".\n\n"
+          +"Keep watching it? It carries on getting prices and can still alert you, "
+          +"measured against the €"+nfEur2.format(cp.avgCostEur)+" a share you paid.");
+        if(keep){
+          addToWatchlist({ticker:cp.ticker, carry:true}).then(function(ok){
+            if(ok) refreshPortfolio();
+          });
+        }
+      }
+
       // A ticker priced for the first time has no past until it is fetched.
       if(!LATEST_PRICES[ticker]){
         toast("Loading "+histYears+"y of history for "+ticker+"\u2026");
@@ -1624,6 +1645,221 @@
     var known=!!LATEST_PRICES[t];
     row.hidden=!(t.length>=1 && !known);
     if(!row.hidden) document.getElementById("tx-hist-ticker").textContent=t;
+  }
+
+  /* ================= watchlist ================= */
+  /*
+   * Stocks followed without being owned. The only concept here that is not on
+   * the Portfolio tab is the reference price: a dip has to be measured from
+   * something, and for a stock nobody bought there is no cost to measure from.
+   * Where it came from is shown next to it, because "€174" means a different
+   * thing depending on whether it was paid, typed or merely observed.
+   */
+  var WATCHLIST=[];
+
+  var WL_SOURCE_LABEL={spotted:"when added",typed:"you set it",carried:"what you paid"};
+
+  function loadWatchlist(){
+    return apiFetch("./api/watchlist")
+      .then(function(r){ return r.json(); })
+      .then(function(d){ WATCHLIST=(d&&d.watchlist)||[]; renderWatchlist(); return WATCHLIST; })
+      .catch(function(e){ showError("Could not load the watchlist: "+e.message); });
+  }
+
+  function renderWatchlist(){
+    var list=document.getElementById("wl-list");
+    var count=document.getElementById("wl-count");
+    if(!list) return;
+    if(count) count.textContent="("+WATCHLIST.length+")";
+
+    if(!WATCHLIST.length){
+      list.innerHTML='<p style="color:var(--faint);font-size:13px">Nothing on the watchlist yet. '
+        +'Add a ticker above and it starts getting prices tomorrow morning.</p>';
+      return;
+    }
+
+    var head='<div class="wl-row wl-head" style="font-size:10.5px;font-weight:600;letter-spacing:.08em;'
+      +'text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:8px">'
+      +'<div>Ticker</div><div class="wl-num">Reference</div><div class="wl-num">Now</div>'
+      +'<div class="wl-num">Change</div><div>Note</div><div></div></div>';
+
+    list.innerHTML=head+WATCHLIST.map(function(w){
+      /* Every number in a row is in one currency, and the change is computed
+       * from the two that are on screen.
+       *
+       * A carried reference is a cost basis, which is euros by definition —
+       * euros are what left the account. Everything else is the market's own
+       * currency, so it reads like the price on the exchange. Mixing them put a
+       * €760 reference next to a $933 price with a percentage that matched
+       * neither pair, which is worse than either choice made consistently.
+       */
+      var inEur=w.referenceSource==="carried"||w.referenceNative==null;
+      var cur=inEur?"EUR":(w.currency||"USD");
+      var refVal=inEur?w.referenceEur:w.referenceNative;
+      var nowVal=w.price?(inEur?w.price.eur:w.price.native):null;
+
+      var priceTxt=nowVal!=null
+        ? fmtMoney(nowVal,cur)
+        : '<span style="color:var(--faint)">no price yet</span>';
+      var refTxt=refVal==null
+        ? '<span style="color:var(--faint)">none</span>'
+        : fmtMoney(refVal,cur);
+
+      // Recomputed from the displayed pair rather than reusing the server's
+      // EUR-based dropPct, which would disagree by the FX drift between the two.
+      var movePct=(refVal!=null&&nowVal!=null&&refVal>0)
+        ? ((refVal-nowVal)/refVal)*100 : null;
+
+      var change="";
+      // A stock added today sits exactly on its own reference, so an arrow and a
+      // colour would both be claiming a direction that has not happened yet.
+      if(movePct!=null&&Math.abs(movePct)<0.05){
+        change='<span style="color:var(--faint)">—</span>';
+      } else if(movePct!=null){
+        /* dropPct is positive when the price is below the reference, which is
+         * the direction a dip rule cares about — and on a stock you are thinking
+         * of buying, down is arguably the good news.
+         *
+         * The colours still follow the rest of the app: up is --pos, down is
+         * --neg. Flipping them on this one tab would mean green meant "gained"
+         * everywhere else and "fell" here, and a reader would have to remember
+         * which tab they were on to read a colour. The arrow carries the
+         * direction; the colour stays honest about which way the price moved.
+         */
+        var down=movePct>0;
+        change='<span style="color:'+(down?"var(--neg)":"var(--pos)")+'">'+(down?"↓":"↑")+" "
+          +Math.abs(movePct).toFixed(1)+"%</span>";
+      } else {
+        change='<span style="color:var(--faint)">—</span>';
+      }
+
+      var alertTxt=w.alertCount
+        ? w.alertCount+(w.alertCount===1?" alert":" alerts")
+        : '<span style="color:var(--faint)">no alerts</span>';
+
+      return '<div class="wl-row" data-ticker="'+esc(w.ticker)+'">'
+        +'<div><span class="al-tk">'+esc(w.ticker)+'</span>'
+          +'<span class="wl-sub">'+alertTxt+'</span></div>'
+        +'<div class="wl-num">'+refTxt
+          +'<span class="wl-sub">'+esc(WL_SOURCE_LABEL[w.referenceSource]||w.referenceSource)+'</span></div>'
+        // The "now" label is carried on the cell for narrow screens, where the
+        // column headers are hidden and the price would otherwise be a bare
+        // number sitting under the reference.
+        +'<div class="wl-num">'+priceTxt+'<span class="wl-sub wl-narrow-only">now</span></div>'
+        +'<div class="wl-num">'+change+'</div>'
+        +'<div class="wl-note" title="'+esc(w.note||"")+'">'+esc(w.note||"")+'</div>'
+        +'<div class="wl-act">'
+          +'<button type="button" class="btn wl-edit" data-ticker="'+esc(w.ticker)+'">Edit</button> '
+          +'<button type="button" class="btn wl-del" data-ticker="'+esc(w.ticker)+'">Remove</button>'
+        +'</div>'
+      +'</div>';
+    }).join("");
+  }
+
+  /** A price in its own currency, so it reads like the number on the exchange. */
+  function fmtMoney(v,cur){
+    if(v==null) return "—";
+    var sym=cur==="EUR"?"€":(cur==="USD"?"$":(cur==="GBP"?"£":""));
+    return sym+nfEur2.format(v)+(sym?"":" "+esc(cur));
+  }
+
+  function addToWatchlist(payload){
+    var note=document.getElementById("wl-note-msg");
+    if(note){ note.className="frm-note"; note.textContent="Checking the ticker and loading history…"; }
+    return apiFetch("./api/watchlist",{method:"POST",headers:{"Content-Type":"application/json"},
+                                       body:JSON.stringify(payload)})
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+      .then(function(res){
+        if(!res.ok){
+          if(note){ note.className="frm-note err"; note.textContent=res.d.error||"Could not add that stock."; }
+          return null;
+        }
+        if(note){
+          note.className="frm-note ok";
+          note.textContent=res.d.ticker+" added"
+            +(res.d.history&&res.d.history.added?" with "+res.d.history.added+" days of history":"");
+        }
+        toast(res.d.ticker+" added to the watchlist");
+        return loadWatchlist().then(function(){
+          // The alert form's list of stocks just changed.
+          loadAvgCostAndRuleForm();
+          return res.d;
+        });
+      })
+      .catch(function(e){
+        if(note){ note.className="frm-note err"; note.textContent="Server error: "+e.message; }
+        return null;
+      });
+  }
+
+  function wireWatchlist(){
+    var addBtn=document.getElementById("wl-add");
+    if(!addBtn) return;
+
+    addBtn.addEventListener("click",function(){
+      var t=(document.getElementById("wl-ticker").value||"").toUpperCase().trim();
+      var ref=document.getElementById("wl-ref").value;
+      var n=document.getElementById("wl-note").value;
+      var note=document.getElementById("wl-note-msg");
+      if(!t){ if(note){ note.className="frm-note err"; note.textContent="Enter a ticker."; } return; }
+      var payload={ticker:t};
+      if(ref!=="") payload.referencePrice=parseFloat(ref);
+      if(n) payload.note=n;
+      addBtn.disabled=true;
+      addToWatchlist(payload).then(function(ok){
+        addBtn.disabled=false;
+        if(ok){
+          document.getElementById("wl-ticker").value="";
+          document.getElementById("wl-ref").value="";
+          document.getElementById("wl-note").value="";
+        }
+      });
+    });
+
+    document.getElementById("wl-ticker").addEventListener("keydown",function(e){
+      if(e.key==="Enter") addBtn.click();
+    });
+
+    // Delegated, because the rows are rewritten on every render.
+    document.getElementById("wl-list").addEventListener("click",function(e){
+      var del=e.target.closest(".wl-del"), edit=e.target.closest(".wl-edit");
+      if(del){
+        var t=del.getAttribute("data-ticker");
+        var w=WATCHLIST.filter(function(x){ return x.ticker===t; })[0];
+        var warn=(w&&w.alertCount)
+          ? "\n\nIts "+w.alertCount+(w.alertCount===1?" alert":" alerts")+" will be removed too — "
+            +"they would have nothing left to measure against."
+          : "";
+        if(!confirm("Stop watching "+t+"?"+warn)) return;
+        apiFetch("./api/watchlist/"+encodeURIComponent(t),{method:"DELETE"})
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if(d&&d.success){
+              toast(t+" removed"+(d.removedAlerts?" with "+d.removedAlerts+" alert(s)":""));
+              loadWatchlist();
+              if(typeof loadAlerts==="function") loadAlerts();
+              loadAvgCostAndRuleForm();
+            } else { showError((d&&d.error)||"Could not remove "+t); }
+          })
+          .catch(function(e2){ showError("Remove failed: "+e2.message); });
+      }
+      if(edit){
+        var tk=edit.getAttribute("data-ticker");
+        var cur=WATCHLIST.filter(function(x){ return x.ticker===tk; })[0]||{};
+        var val=prompt("Reference price for "+tk+" — what a dip is measured from:",
+                       cur.referenceNative!=null?cur.referenceNative:(cur.referenceEur||""));
+        if(val===null||val==="") return;
+        apiFetch("./api/watchlist/"+encodeURIComponent(tk),
+          {method:"PATCH",headers:{"Content-Type":"application/json"},
+           body:JSON.stringify({referencePrice:parseFloat(val)})})
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if(d&&d.success){ toast(tk+" reference updated"); loadWatchlist(); }
+            else { showError((d&&d.error)||"Could not update "+tk); }
+          })
+          .catch(function(e2){ showError("Update failed: "+e2.message); });
+      }
+    });
   }
 
   /* ================= alerts ================= */
@@ -1701,12 +1937,34 @@
         AVG_COST={};
         (data.tickers||[]).forEach(function(t){ AVG_COST[t.ticker]=t; });
         var tickers=Object.keys(AVG_COST);
-        var opts=tickers.length
-          ? tickers.map(function(t){
-              var nm=tickerLabel(t);
-              return '<option value="'+t+'">'+esc(nm)+' ('+t+')</option>';
-            }).join("")
-          : '<option value="">No holdings yet</option>';
+
+        /* Holdings and watched stocks are both selectable, and kept apart.
+         *
+         * The server now refuses an alert on a ticker that is neither, so this
+         * list is the same set the API will accept — which it was not before:
+         * the dropdown was the only thing enforcing "holdings only", and an
+         * alert created any other way was stored and could never fire. Grouping
+         * them also answers the question the form raises on its own, which is
+         * why a Dip is offered on something you never bought.
+         */
+        var held=tickers.map(function(t){
+          return '<option value="'+t+'">'+esc(tickerLabel(t))+' ('+t+')</option>';
+        }).join("");
+        var watched=WATCHLIST.map(function(w){
+          return '<option value="'+esc(w.ticker)+'">'+esc(tickerLabel(w.ticker))+' ('+esc(w.ticker)+')</option>';
+        }).join("");
+
+        var opts="";
+        if(held && watched){
+          opts='<optgroup label="Holdings">'+held+'</optgroup>'
+              +'<optgroup label="Watchlist">'+watched+'</optgroup>';
+        } else if(held){
+          opts=held;
+        } else if(watched){
+          opts='<optgroup label="Watchlist">'+watched+'</optgroup>';
+        } else {
+          opts='<option value="">Nothing to alert on yet</option>';
+        }
         var sel=document.getElementById("rule-ticker");
         if(sel) sel.innerHTML=opts;
         renderRulePreview();
@@ -2365,10 +2623,20 @@
     list.innerHTML=head+rows.map(r=>{
       var a=r.a;
       var last=a.lastTriggeredAt?new Date(a.lastTriggeredAt).toLocaleDateString():"never";
+      /* "avg cost" is only true when the rule is measuring one.
+       *
+       * On a watched stock the same rule measures from the reference price, and
+       * calling that an average cost would tell the reader they had bought
+       * something they never bought. referenceBasis comes from the server, which
+       * resolves it the same way the alert job does.
+       */
+      var basisTxt=a.referenceBasis==="avg_cost"||!a.referenceBasis
+        ? "avg cost"
+        : (a.referenceBasis==="carried" ? "what you paid" : "your reference");
       var rule=r.isDip
-        ? '<span class="al-tag dip">Dip</span>'+a.threshold+'% below avg cost'
+        ? '<span class="al-tag dip">Dip</span>'+a.threshold+'% below '+basisTxt
         : r.isGain
-        ? '<span class="al-tag gain">Target</span>'+a.threshold+'% above avg cost'
+        ? '<span class="al-tag gain">Target</span>'+a.threshold+'% above '+basisTxt
         : r.isHigh
         ? '<span class="al-tag high">Trailing</span>'+a.threshold+'% off 52w high'
         : '<span class="al-tag lvl">Level</span>Price '+(a.ruleType==="price_above"?"above":"below");
@@ -3050,7 +3318,11 @@
   }
 
   function startApp(){
-    return Promise.all([loadSnapshotsFromAPI(), loadStockSplits()]).then(() => {
+    wireWatchlist();
+    // Loaded up front rather than when the tab is first opened, because the
+    // alert form's stock list is built from holdings *and* the watchlist — open
+    // Alerts before Watchlist and the watched stocks would be missing from it.
+    return Promise.all([loadSnapshotsFromAPI(), loadStockSplits(), loadWatchlist()]).then(() => {
       rebuild();
       document.getElementById("tx-date").value=todayISO();
       loadTransactions();

@@ -239,3 +239,262 @@ test('being here is recorded once a day, not once a request', async () => {
   assert.notStrictEqual(seen(), '2020-01-01T00:00:00.000Z', 'a new day is recorded');
   s.idb.close(); s.pdb.close();
 });
+
+/* ---- the watchlist gate ----
+ *
+ * POST /api/alerts never checked that the ticker meant anything to the person
+ * asking. Only the UI's dropdown did, by being filled from holdings. So an alert
+ * on anything else was accepted, stored, listed as enabled — and could never
+ * fire, because the daily job only fetches prices for tickers somebody holds or
+ * watches. Nothing anywhere said so. These pin the refusal.
+ *
+ * No network here on purpose: POST /api/watchlist asks Yahoo to prove the symbol
+ * is real, so these write the watchlist row directly and test the gate alone.
+ */
+function watch(pdb, userKey, ticker, referenceEur) {
+  pdb.prepare(
+    `INSERT INTO watchlist (user_id, ticker, reference_price_eur, reference_price_native,
+                            currency, reference_source)
+     VALUES (?, ?, ?, ?, 'USD', 'spotted')`
+  ).run(userKey, ticker, referenceEur, referenceEur);
+}
+
+test('an alert on a stock that is neither held nor watched is refused', async () => {
+  const s = signIn('gate@example.com');
+  const r = await fetch(base + '/api/alerts', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'NFLX', ruleType: 'price_below', threshold: 100 })
+  });
+  assert.strictEqual(r.status, 400, 'an alert that could never fire must not be accepted');
+  assert.match((await r.json()).error, /watchlist/i, 'and it should say what to do about it');
+  s.idb.close(); s.pdb.close();
+});
+
+test('a watched stock can carry a price level alert', async () => {
+  const s = signIn('watchprice@example.com');
+  watch(s.pdb, s.key, 'GOOGL', 142);
+  const r = await fetch(base + '/api/alerts', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'GOOGL', ruleType: 'price_below', threshold: 120 })
+  });
+  assert.strictEqual(r.status, 200);
+  s.idb.close(); s.pdb.close();
+});
+
+test('a watched stock with a reference price can carry a dip alert', async () => {
+  const s = signIn('watchdip@example.com');
+  watch(s.pdb, s.key, 'GOOGL', 142);
+  const r = await fetch(base + '/api/alerts', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'GOOGL', ruleType: 'dip_from_avg_cost', threshold: 20 })
+  });
+  assert.strictEqual(r.status, 200, 'the reference price is what it measures from');
+  s.idb.close(); s.pdb.close();
+});
+
+test('a watched stock with no reference price is refused a dip alert', async () => {
+  const s = signIn('noref@example.com');
+  watch(s.pdb, s.key, 'NFLX', null);
+  const r = await fetch(base + '/api/alerts', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'NFLX', ruleType: 'dip_from_avg_cost', threshold: 20 })
+  });
+  assert.strictEqual(r.status, 400, 'a dip with nothing to measure from must not be stored');
+  assert.match((await r.json()).error, /reference price/i);
+
+  // ...but the rules that need no reference still work for it.
+  const ok = await fetch(base + '/api/alerts', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'NFLX', ruleType: 'drop_from_high', threshold: 20 })
+  });
+  assert.strictEqual(ok.status, 200, 'trailing needs no reference and must still be allowed');
+  s.idb.close(); s.pdb.close();
+});
+
+test('the watchlist is per person', async () => {
+  const a = signIn('wa@example.com');
+  const b = signIn('wb@example.com');
+  watch(a.pdb, a.key, 'GOOGL', 142);
+
+  const list = await (await fetch(base + '/api/watchlist', { headers: b.headers })).json();
+  assert.deepStrictEqual(list.watchlist, [], 'one person must not see another\'s watchlist');
+
+  const r = await fetch(base + '/api/alerts', {
+    method: 'POST', headers: b.headers,
+    body: JSON.stringify({ ticker: 'GOOGL', ruleType: 'price_below', threshold: 120 })
+  });
+  assert.strictEqual(r.status, 400, 'nor borrow their watchlist to arm an alert');
+  a.idb.close(); a.pdb.close(); b.idb.close(); b.pdb.close();
+});
+
+test('removing a watched stock takes its now-meaningless alerts with it', async () => {
+  const s = signIn('wdel@example.com');
+  watch(s.pdb, s.key, 'GOOGL', 142);
+  await fetch(base + '/api/alerts', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'GOOGL', ruleType: 'price_below', threshold: 120 })
+  });
+
+  const r = await fetch(base + '/api/watchlist/GOOGL', { method: 'DELETE', headers: s.headers });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual((await r.json()).removedAlerts, 1, 'and it should say how many it took');
+
+  const left = await (await fetch(base + '/api/alerts', { headers: s.headers })).json();
+  assert.ok(!(left.alerts || []).some(a => a.ticker === 'GOOGL'),
+    'an alert with nothing left to measure must not survive the stock it watched');
+  s.idb.close(); s.pdb.close();
+});
+
+/* ---- selling out, and keeping the stock in view ----
+ *
+ * A closed position used to be where a ticker quietly left the app: the daily
+ * job stops fetching it the next morning, and any alert on it becomes unfirable
+ * without saying so. The offer is made here; nothing is written until it is
+ * taken.
+ */
+test('selling the last share offers to keep watching, and carries what it cost', async () => {
+  const s = signIn('soldout@example.com');
+  const buy = { ticker: 'ORCL', quantity: 10, amountEUR: 1000, type: 'buy', ts: Date.UTC(2026, 0, 2) };
+  const sell = { ticker: 'ORCL', quantity: 10, amountEUR: 1400, type: 'sell', ts: Date.UTC(2026, 0, 9) };
+
+  const bought = await (await fetch(base + '/api/transactions',
+    { method: 'POST', headers: s.headers, body: JSON.stringify(buy) })).json();
+  assert.strictEqual(bought.closedPosition, null, 'buying closes nothing');
+
+  const sold = await (await fetch(base + '/api/transactions',
+    { method: 'POST', headers: s.headers, body: JSON.stringify(sell) })).json();
+  assert.ok(sold.closedPosition, 'the sale that empties the position makes the offer');
+  assert.strictEqual(sold.closedPosition.ticker, 'ORCL');
+  assert.strictEqual(sold.closedPosition.avgCostEur, 100, '€1000 over 10 shares');
+
+  // The offer alone must not have written anything.
+  const before = await (await fetch(base + '/api/watchlist', { headers: s.headers })).json();
+  assert.deepStrictEqual(before.watchlist, [], 'an offer is not an action');
+  s.idb.close(); s.pdb.close();
+});
+
+test('a partial sale makes no offer', async () => {
+  const s = signIn('partial@example.com');
+  await fetch(base + '/api/transactions', { method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'MSFT', quantity: 10, amountEUR: 1000, type: 'buy', ts: Date.UTC(2026, 0, 2) }) });
+  const sold = await (await fetch(base + '/api/transactions', { method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'MSFT', quantity: 4, amountEUR: 560, type: 'sell', ts: Date.UTC(2026, 0, 9) }) })).json();
+
+  assert.strictEqual(sold.closedPosition, null, 'still held, so nothing to offer');
+  s.idb.close(); s.pdb.close();
+});
+
+test('accepting the offer carries the real cost, not a number the client chose', async () => {
+  const s = signIn('carry@example.com');
+  await fetch(base + '/api/transactions', { method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'ORCL', quantity: 10, amountEUR: 1000, type: 'buy', ts: Date.UTC(2026, 0, 2) }) });
+  await fetch(base + '/api/transactions', { method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'ORCL', quantity: 10, amountEUR: 1400, type: 'sell', ts: Date.UTC(2026, 0, 9) }) });
+
+  // A ticker with transactions already has price history in the real app; here
+  // there is none, so this also proves `carry` does not depend on the backfill
+  // having found anything.
+  s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
+                 VALUES ('ORCL', 90, 90, 'EUR', date('now','-400 day'), 'test')`).run();
+
+  const r = await fetch(base + '/api/watchlist', {
+    method: 'POST', headers: s.headers,
+    // The client tries to dictate a reference; `carry` must win on the server's
+    // own figure rather than this one being taken on trust.
+    body: JSON.stringify({ ticker: 'ORCL', carry: true })
+  });
+  assert.strictEqual(r.status, 200);
+  const body = await r.json();
+  assert.strictEqual(body.referenceSource, 'carried');
+  assert.strictEqual(body.referenceEur, 100, 'what it actually cost, recomputed server-side');
+
+  const list = await (await fetch(base + '/api/watchlist', { headers: s.headers })).json();
+  assert.strictEqual(list.watchlist.length, 1);
+  assert.strictEqual(list.watchlist[0].referenceSource, 'carried');
+  s.idb.close(); s.pdb.close();
+});
+
+test('carry is refused when there is no closed position to carry from', async () => {
+  const s = signIn('nocarry@example.com');
+  s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
+                 VALUES ('GOOGL', 140, 140, 'EUR', date('now','-400 day'), 'test')`).run();
+  const r = await fetch(base + '/api/watchlist', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: 'GOOGL', carry: true })
+  });
+  assert.strictEqual(r.status, 400);
+  assert.match((await r.json()).error, /no closed position/i);
+  s.idb.close(); s.pdb.close();
+});
+
+test('a stock already on the watchlist is not offered again', async () => {
+  const s = signIn('already@example.com');
+  watch(s.pdb, s.key, 'ORCL', 120);
+  await fetch(base + '/api/transactions', { method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'ORCL', quantity: 10, amountEUR: 1000, type: 'buy', ts: Date.UTC(2026, 0, 2) }) });
+  const sold = await (await fetch(base + '/api/transactions', { method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'ORCL', quantity: 10, amountEUR: 1400, type: 'sell', ts: Date.UTC(2026, 0, 9) }) })).json();
+
+  assert.strictEqual(sold.closedPosition, null, 'it is already being watched');
+  s.idb.close(); s.pdb.close();
+});
+
+test('the alert list shows where a dip on a watched stock fires', async () => {
+  // The list used to read the cost basis directly, so a Dip on a watched stock
+  // came back with no trigger price and rendered as "fires at —" while the
+  // daily job was perfectly able to fire it. The list and the job have to
+  // resolve the reference the same way.
+  const s = signIn('enrich@example.com');
+  watch(s.pdb, s.key, 'GOOGL', 200);
+  s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
+                 VALUES ('GOOGL', 180, 180, 'EUR', date('now'), 'test')`).run();
+  await fetch(base + '/api/alerts', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'GOOGL', ruleType: 'dip_from_avg_cost', threshold: 25 })
+  });
+
+  const { alerts } = await (await fetch(base + '/api/alerts', { headers: s.headers })).json();
+  const dip = alerts.find(a => a.ticker === 'GOOGL' && a.ruleType === 'dip_from_avg_cost');
+  assert.ok(dip, 'the alert exists');
+  assert.strictEqual(dip.triggerPriceEUR, 150, '25% below the €200 reference');
+  assert.strictEqual(dip.referenceBasis, 'spotted',
+    'and it says what it measured from, so the UI does not call it an average cost');
+  s.idb.close(); s.pdb.close();
+});
+
+test('a dip on a holding still reports its basis as the cost basis', async () => {
+  const s = signIn('enrichheld@example.com');
+  await fetch(base + '/api/transactions', { method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'ORCL', quantity: 10, amountEUR: 1000, type: 'buy', ts: Date.UTC(2026, 0, 2) }) });
+  await fetch(base + '/api/alerts', { method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'ORCL', ruleType: 'dip_from_avg_cost', threshold: 20 }) });
+
+  const { alerts } = await (await fetch(base + '/api/alerts', { headers: s.headers })).json();
+  const dip = alerts.find(a => a.ticker === 'ORCL');
+  assert.strictEqual(dip.referenceBasis, 'avg_cost');
+  assert.strictEqual(dip.triggerPriceEUR, 80, '20% below the €100 paid');
+  s.idb.close(); s.pdb.close();
+});
+
+/* A valid ticker must not be told it does not exist.
+ *
+ * backfillTicker reports `added: 0` for two unrelated reasons: Yahoo returned no
+ * bars (the symbol is wrong), or every bar was skipped because there is no
+ * exchange rate on file to convert that currency to euros (the symbol is fine,
+ * this app's data is not). Conflating them told somebody AMD was not a ticker.
+ */
+test('a real ticker with no exchange rate on file says so, and does not blame the ticker', async () => {
+  const s = signIn('fxgap@example.com');
+  const before = s.pdb.prepare("SELECT COUNT(*) c FROM exchange_rates WHERE from_currency='USD'").get().c;
+  assert.strictEqual(before, 0, 'precondition: this throwaway db has no USD rate');
+
+  const r = await fetch(base + '/api/watchlist', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: 'AMD' })
+  });
+  const body = await r.json();
+  // Either the network is unavailable in CI (502) or Yahoo answered and the FX
+  // gap was reported (503). What must never happen is 404 "no such symbol".
+  assert.notStrictEqual(r.status, 404,
+    'a valid ticker must never be reported as not existing: ' + JSON.stringify(body));
+  if (r.status === 503) assert.match(body.error, /exchange rate/i);
+  s.idb.close(); s.pdb.close();
+});

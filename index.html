@@ -592,6 +592,30 @@
   .al-row.off{opacity:.5}
   .al-head{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
            border-bottom:1px solid var(--hair);padding-bottom:8px}
+  /* The watchlist reuses the alert row's vocabulary deliberately — same type
+     sizes, same hairlines — because it is the same kind of list read the same
+     way. Fewer columns, so it gets its own track sizes rather than al-row's. */
+  .wl-row{display:grid;
+          grid-template-columns:minmax(64px,.8fr) minmax(96px,1fr) minmax(96px,1fr) minmax(90px,.9fr) minmax(110px,1.1fr) 158px;
+          gap:12px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--hair)}
+  .wl-act{text-align:right;white-space:nowrap}
+  .wl-act .btn{padding:5px 10px;font-size:12px}
+  .wl-row > *{min-width:0}
+  .wl-row:last-child{border-bottom:0}
+  .wl-num{text-align:right;font-variant-numeric:tabular-nums}
+  .wl-head .wl-num{text-align:right}
+  .wl-sub{display:block;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+  .wl-note{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .wl-add{display:grid;grid-template-columns:minmax(120px,.8fr) minmax(120px,.9fr) minmax(160px,1.6fr) auto;
+          gap:12px;align-items:end}
+  .wl-add input{width:100%}
+  .wl-narrow-only{display:none}
+  @media (max-width:760px){
+    .wl-add{grid-template-columns:1fr}
+    .wl-row{grid-template-columns:1fr 1fr;gap:6px 12px;padding:12px 10px}
+    .wl-row .wl-note,.wl-head{display:none}
+    .wl-narrow-only{display:block}
+  }
   .al-head .al-num{text-align:right}
   .al-tk{font-weight:600;font-size:15px;letter-spacing:-.01em}
   /* the ticker doubles as a link out to its Yahoo Finance quote page; underlined
@@ -1159,6 +1183,7 @@
     <button id="tab-dca" role="tab" aria-selected="false">DCA</button>
     <button id="tab-algo" role="tab" aria-selected="false">Algorithm</button>
     <button id="tab-alerts" role="tab" aria-selected="false">Alerts</button>
+    <button id="tab-watch" role="tab" aria-selected="false">Watchlist</button>
     <button id="tab-add" role="tab" aria-selected="false">Transactions</button>
   </div>
 </div>
@@ -1514,8 +1539,46 @@
 
       <div class="addcard">
         <h3>Your alerts <span id="al-count" style="color:var(--faint);font-weight:400"></span></h3>
-        <p class="hint">Active alerts are evaluated every time prices are fetched (daily at 09:00 UTC), and everything that fires in one run arrives as a single digest sent to your account’s email address. Each rule emails you at most once in 24 hours.</p>
+        <p class="hint">Active alerts are evaluated every time prices are fetched (daily at 09:00), and everything that fires in one run arrives as a single digest sent to your account’s email address. Each rule emails you at most once in 24 hours.</p>
         <div id="al-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== WATCHLIST ===== -->
+  <section id="view-watch" hidden>
+    <div class="panel">
+      <div class="addcard">
+        <h3>Watch a stock</h3>
+        <p class="hint">Follow something you do not own. It gets prices every day and the same
+          alerts a holding gets. The price it is at when you add it becomes what a dip is measured
+          from &mdash; or set your own.</p>
+        <div class="wl-add">
+          <div class="rule-field">
+            <label class="rule-lbl" for="wl-ticker">Ticker</label>
+            <input type="text" id="wl-ticker" placeholder="e.g. GOOGL" maxlength="12" autocapitalize="characters" spellcheck="false">
+          </div>
+          <div class="rule-field">
+            <label class="rule-lbl" for="wl-ref">Reference price <span style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></label>
+            <input type="number" id="wl-ref" step="0.01" min="0" placeholder="today’s price">
+          </div>
+          <div class="rule-field">
+            <label class="rule-lbl" for="wl-note">Note <span style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></label>
+            <input type="text" id="wl-note" maxlength="200" placeholder="why you are watching">
+          </div>
+          <div class="rule-actions">
+            <button type="button" class="btn primary" id="wl-add">Add</button>
+            <div class="frm-note" id="wl-note-msg"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="addcard">
+        <h3>Watching <span id="wl-count" style="color:var(--faint);font-weight:400"></span></h3>
+        <p class="hint">Non-US listings need the exchange suffix Yahoo uses &mdash; <code>ASML.AS</code>,
+          <code>VOW3.DE</code>. Removing a stock removes its alerts too, since they would have
+          nothing left to measure.</p>
+        <div id="wl-list"></div>
       </div>
     </div>
   </section>

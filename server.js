@@ -129,6 +129,7 @@ require('./db-migrations').ensureGainRuleType(db);
 require('./db-migrations').ensureDropFromHighRuleType(db);
 require('./db-migrations').ensureAlgorithmAlertSettings(db);
 require('./db-migrations').ensureAlertEventLog(db);
+require('./db-migrations').ensureWatchlist(db);
 require('./db-migrations').ensureDataVersion(db);
 
 // Migration: stop the same rule being saved twice. Nothing prevented it, and one
@@ -186,6 +187,11 @@ const algorithm = require('./algorithm');
 function getAvgCostPerShare(ticker, userId) {
   return avgCostFor(db, userId, ticker);
 }
+
+// What a Dip or Target rule measures from — cost basis for a holding, recorded
+// reference price for a watched stock. Holdings always win. See reference-price.js.
+const { referenceFor, watchedTickers } = require('./reference-price');
+const { lastHeldAvgCost } = require('./portfolio');
 
 // A crash in one request must not take the process down with it. Under Node 22 an
 // unhandled rejection is fatal by default; pm2 would restart, but that is a
@@ -810,7 +816,12 @@ app.post('/api/transactions', (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
+    // Asked either side of the insert, because "did this close the position" is
+    // a question about the change, not about the state. A sell that takes a
+    // holding to zero is the only transaction that can make it true.
+    const heldBefore = getAvgCostPerShare(ticker, req.userId);
     const result = insertStmt.run(req.userId, ticker, quantity, amountEUR, currency, rate, txType, ts);
+    const heldAfter = getAvgCostPerShare(ticker, req.userId);
 
     // Fetch the inserted transaction
     const selectStmt = db.prepare(
@@ -818,7 +829,27 @@ app.post('/api/transactions', (req, res) => {
     );
     const transaction = selectStmt.get(result.lastInsertRowid);
 
-    res.json({ success: true, transaction });
+    /* A position that has just been closed can keep being followed.
+     *
+     * Until now this was where a ticker quietly left the app: the daily job
+     * stops fetching it the next morning and its alerts, if any, become
+     * unfirable without saying so. Offering the watchlist here is what closes
+     * that — but it is only ever an offer, so this reports the opportunity and
+     * writes nothing. The client accepts by calling POST /api/watchlist with
+     * `carry: true`, which recomputes the figure rather than trusting this one.
+     */
+    let closedPosition = null;
+    if (heldBefore && !heldAfter) {
+      const carried = lastHeldAvgCost(db, req.userId, ticker);
+      const alreadyWatching = db.prepare(
+        'SELECT 1 FROM watchlist WHERE user_id = ? AND ticker = ?'
+      ).get(req.userId, ticker);
+      if (carried && !alreadyWatching) {
+        closedPosition = { ticker, avgCostEur: parseFloat(carried.avgCostEUR.toFixed(4)) };
+      }
+    }
+
+    res.json({ success: true, transaction, closedPosition });
   } catch (err) {
     console.error('POST /api/transactions error:', err.message);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
@@ -1305,15 +1336,22 @@ function enrichAlert(a, userId) {
   const costBased = a.ruleType === 'dip_from_avg_cost' || a.ruleType === 'gain_from_avg_cost';
   if (!costBased) return a;
 
-  // Both cost-based rules measure against the euro cost basis, so they need the
-  // holding too — a dip fires below it, a gain above it.
-  const cost = getAvgCostPerShare(a.ticker, userId);
-  if (!cost) return a;
-  a.avgCostEUR = cost.avgCostEUR;
+  /* Both cost-based rules measure against a reference — a dip fires below it, a
+   * gain above it. It must be resolved the same way the daily job resolves it,
+   * through referenceFor(), or the list and the job disagree about the same
+   * alert. They did: this read the cost basis directly, so a Dip on a watched
+   * stock showed "fires at —" in the list while price-fetch.js was perfectly
+   * capable of firing it. Two readers of one number is how this codebase has
+   * gone wrong before; see the note at the top of portfolio.js.
+   */
+  const ref = referenceFor(db, userId, a.ticker);
+  if (!ref) return a;
+  a.avgCostEUR = ref.eur;
+  a.referenceBasis = ref.basis;   // 'avg_cost' | 'spotted' | 'typed' | 'carried'
   a.triggerPriceEUR = a.ruleType === 'gain_from_avg_cost'
-    ? cost.avgCostEUR * (1 + a.threshold / 100)
-    : cost.avgCostEUR * (1 - a.threshold / 100);
-  if (priceRow) a.currentDipPct = (priceRow.price_eur / cost.avgCostEUR - 1) * 100;
+    ? ref.eur * (1 + a.threshold / 100)
+    : ref.eur * (1 - a.threshold / 100);
+  if (priceRow) a.currentDipPct = (priceRow.price_eur / ref.eur - 1) * 100;
   return a;
 }
 
@@ -1605,6 +1643,33 @@ app.post('/api/alerts', (req, res) => {
       });
     }
 
+    /* The rule has to have something to fire on.
+     *
+     * This endpoint never checked that the ticker meant anything to this user —
+     * only the UI's dropdown did, by being filled from holdings. An alert on
+     * anything else was accepted, stored, listed as enabled, and could never
+     * fire, because the daily job only fetches prices for tickers somebody holds
+     * or watches. Nothing said so. Refusing here is what closes that.
+     */
+    const upper = String(alert.ticker).toUpperCase().trim();
+    const isHeld = !!getAvgCostPerShare(upper, req.userId);
+    const isWatched = watchedTickers(db, req.userId).includes(upper);
+    if (!isHeld && !isWatched) {
+      return res.status(400).json({
+        error: `You do not hold ${upper} and are not watching it. Add it to your watchlist first, and the alert will have a price to work from.`
+      });
+    }
+
+    // Dip and Target measure against a number. A watched stock with no reference
+    // price recorded has none, and a rule that can never evaluate is the same
+    // silent failure in a smaller box.
+    const costBased = alert.ruleType === 'dip_from_avg_cost' || alert.ruleType === 'gain_from_avg_cost';
+    if (costBased && !referenceFor(db, req.userId, upper)) {
+      return res.status(400).json({
+        error: `${upper} has no reference price to measure from. Set one on your watchlist, or use a price level or trailing rule instead.`
+      });
+    }
+
     const insertStmt = db.prepare(`
       INSERT INTO alerts (user_id, ticker, rule_type, threshold, currency, enabled)
       VALUES (?, ?, ?, ?, ?, 1)
@@ -1700,6 +1765,240 @@ app.delete('/api/alerts/:id', (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /api/alerts error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+/* ---- watchlist: stocks followed without being owned ----
+ *
+ * A watched stock is a candidate to buy, or a position somebody has left and
+ * still wants to hear about. It gets the same four alert rules a holding gets;
+ * the only thing it lacks is a cost basis, so it carries a reference price for
+ * Dip and Target to measure from. See reference-price.js.
+ */
+
+// GET /api/watchlist — the list, with the latest price and where it sits
+// relative to the reference. `dropPct` is positive when the price is below the
+// reference, which is the direction the Dip rule cares about.
+app.get('/api/watchlist', (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT w.ticker, w.reference_price_eur AS referenceEur,
+             w.reference_price_native AS referenceNative, w.currency,
+             w.reference_source AS referenceSource, w.note, w.added_at AS addedAt,
+             (SELECT COUNT(*) FROM alerts a
+               WHERE a.user_id = w.user_id AND a.ticker = w.ticker AND a.enabled = 1) AS alertCount
+      FROM watchlist w WHERE w.user_id = ? ORDER BY w.ticker
+    `).all(req.userId);
+
+    const latest = db.prepare(
+      'SELECT price_eur AS eur, price_native AS native, currency, price_date AS date '
+      + 'FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1'
+    );
+    for (const r of rows) {
+      const p = latest.get(r.ticker);
+      r.price = p || null;
+      r.dropPct = (p && r.referenceEur)
+        ? ((r.referenceEur - p.eur) / r.referenceEur) * 100
+        : null;
+    }
+    res.json({ watchlist: rows });
+  } catch (err) {
+    console.error('GET /api/watchlist error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// POST /api/watchlist { ticker, referencePrice?, note? }
+//
+// The backfill is not an optimisation here, it is the validation. Every ticker
+// this app has ever seen arrived on a transaction somebody actually made, so a
+// typo corrected itself. A watchlist accepts whatever is typed, and TICKER_RE
+// only says "1-12 characters" — 'GOOG' for 'GOOGL' passes it happily. Asking
+// Yahoo for the history is what proves the symbol is real, and it is the same
+// call that stops the Trailing rule being silently dead for its first year.
+app.post('/api/watchlist', backfillLimiter, async (req, res) => {
+  try {
+    const ticker = String((req.body || {}).ticker || '').toUpperCase().trim();
+    if (!ticker) return res.status(400).json({ error: 'ticker is required' });
+    if (!TICKER_RE.test(ticker)) {
+      return res.status(400).json({ error: 'Ticker must be 1-12 characters: letters, digits, dot or dash.' });
+    }
+
+    const existing = db.prepare('SELECT ticker FROM watchlist WHERE user_id = ? AND ticker = ?')
+      .get(req.userId, ticker);
+    if (existing) return res.status(409).json({ error: 'You are already watching that stock.' });
+
+    /* Backfill only when the history is actually short of what the rules need.
+     *
+     * The window that matters is the trailing high's: HIGH_WINDOW_DAYS, 365. If
+     * prices already reach back that far — which they do for anything that has
+     * ever been held — asking Yahoo again buys nothing and costs a request. A
+     * stock arriving from a closed position is the common case here.
+     */
+    const { HIGH_WINDOW_DAYS } = require('./db-migrations');
+    const oldest = db.prepare('SELECT MIN(price_date) AS d FROM prices WHERE ticker = ?').get(ticker);
+    const needBy = new Date(Date.now() - HIGH_WINDOW_DAYS * 864e5).toISOString().slice(0, 10);
+    const historyIsDeepEnough = !!(oldest && oldest.d && oldest.d <= needBy);
+
+    let filled = { added: 0, from: oldest && oldest.d };
+    if (!historyIsDeepEnough) {
+      const YahooFinance = require('yahoo-finance2').default;
+      const { backfillTicker } = require('./backfill-history');
+      filled = await backfillTicker(db, new YahooFinance(), ticker, 2);
+
+      /* Two different failures both arrive as `added: 0`, and telling somebody
+       * their ticker does not exist when it does is worse than either.
+       *
+       * `note: 'no data returned'` is the real "no such symbol" — Yahoo sent no
+       * bars at all. But backfillTicker also skips every bar it cannot convert
+       * to euros, so a currency with no exchange_rates rows yet writes nothing
+       * for a stock that exists perfectly well. That case is about this app's
+       * own data, not about what was typed, and it must say so.
+       */
+      if (filled.note === 'no data returned') {
+        return res.status(404).json({
+          error: `No price history found for ${ticker}. Check the symbol — Yahoo uses suffixes like .AS or .DE for non-US listings.`
+        });
+      }
+      if (!filled.added && filled.skipped) {
+        return res.status(503).json({
+          error: `${ticker} quotes in ${filled.currency}, and there is no exchange rate on file to convert that to euros yet. `
+            + 'It should work after the next daily price run.'
+        });
+      }
+      if (!filled.added) {
+        return res.status(404).json({
+          error: `No usable price history found for ${ticker}.`
+        });
+      }
+    }
+
+    const latest = db.prepare(
+      'SELECT price_eur AS eur, price_native AS native, currency FROM prices '
+      + 'WHERE ticker = ? ORDER BY price_date DESC LIMIT 1'
+    ).get(ticker);
+
+    // A typed price is in the market's own currency, the same as a Price level
+    // rule, so it reads like the number on screen rather than a converted one.
+    const typed = req.body.referencePrice !== undefined && req.body.referencePrice !== null
+      && req.body.referencePrice !== ''
+      ? positive(req.body.referencePrice, 1e9)
+      : null;
+    if (req.body.referencePrice !== undefined && req.body.referencePrice !== null
+        && req.body.referencePrice !== '' && typed === null) {
+      return res.status(400).json({ error: 'Reference price must be a positive number.' });
+    }
+
+    const rate = (latest && latest.eur && latest.native) ? latest.eur / latest.native : 1;
+
+    /* `carry: true` — a position that has just been closed keeps following the
+     * stock, and what it cost while it was held becomes the reference. Computed
+     * here from the transaction history rather than taken from the request: the
+     * browser knowing the number is not the same as the browser being allowed to
+     * choose it, and this is the figure a dip alert will fire on.
+     */
+    let source = typed !== null ? 'typed' : 'spotted';
+    let referenceEur = typed !== null ? parseFloat((typed * rate).toFixed(4))
+                                      : (latest ? latest.eur : null);
+    let referenceNative = typed !== null ? typed : (latest ? latest.native : null);
+
+    if (req.body.carry === true && typed === null) {
+      const carried = lastHeldAvgCost(db, req.userId, ticker);
+      if (!carried) {
+        return res.status(400).json({
+          error: `${ticker} has no closed position to carry a cost from.`
+        });
+      }
+      source = 'carried';
+      referenceEur = parseFloat(carried.avgCostEUR.toFixed(4));
+      // Cost basis is euros by definition — euros are what left the account —
+      // so there is no native figure to record alongside it. See portfolio.js.
+      referenceNative = null;
+    }
+
+    db.prepare(`
+      INSERT INTO watchlist
+        (user_id, ticker, reference_price_eur, reference_price_native, currency, reference_source, note)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(req.userId, ticker, referenceEur, referenceNative,
+           (latest && latest.currency) || filled.currency || 'USD',
+           source, str(req.body.note, 200) || null);
+
+    bumpDataVersion();
+    res.json({ success: true, ticker, referenceEur, referenceNative, referenceSource: source,
+               history: { added: filled.added, from: filled.from,
+                          alreadyDeepEnough: historyIsDeepEnough } });
+  } catch (err) {
+    console.error('POST /api/watchlist error:', err.message);
+    res.status(502).json({ error: 'Could not load price history for that ticker. It may not exist, or the price source may be unavailable.' });
+  }
+});
+
+// PATCH /api/watchlist/:ticker { referencePrice?, note? }
+app.patch('/api/watchlist/:ticker', (req, res) => {
+  try {
+    const ticker = String(req.params.ticker || '').toUpperCase().trim();
+    const row = db.prepare('SELECT * FROM watchlist WHERE user_id = ? AND ticker = ?')
+      .get(req.userId, ticker);
+    if (!row) return res.status(404).json({ error: 'Not on your watchlist.' });
+
+    let referenceEur = row.reference_price_eur;
+    let referenceNative = row.reference_price_native;
+    let source = row.reference_source;
+    if (req.body.referencePrice !== undefined) {
+      const typed = positive(req.body.referencePrice, 1e9);
+      if (typed === null) return res.status(400).json({ error: 'Reference price must be a positive number.' });
+      const latest = db.prepare(
+        'SELECT price_eur AS eur, price_native AS native FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1'
+      ).get(ticker);
+      const rate = (latest && latest.eur && latest.native) ? latest.eur / latest.native : 1;
+      referenceNative = typed;
+      referenceEur = parseFloat((typed * rate).toFixed(4));
+      source = 'typed';
+    }
+
+    db.prepare(`
+      UPDATE watchlist SET reference_price_eur = ?, reference_price_native = ?,
+                           reference_source = ?, note = COALESCE(?, note)
+      WHERE user_id = ? AND ticker = ?
+    `).run(referenceEur, referenceNative, source,
+           req.body.note !== undefined ? str(req.body.note, 200) : null,
+           req.userId, ticker);
+
+    bumpDataVersion();
+    res.json({ success: true, ticker, referenceEur, referenceNative, referenceSource: source });
+  } catch (err) {
+    console.error('PATCH /api/watchlist error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+// DELETE /api/watchlist/:ticker
+//
+// Alerts on the stock are deleted with it. Leaving them would recreate exactly
+// the silent failure this feature was built to close: a rule with nothing left
+// to measure against and no price arriving, sitting in the list looking armed.
+// The count goes back in the response so the UI can say what it took with it.
+app.delete('/api/watchlist/:ticker', (req, res) => {
+  try {
+    const ticker = String(req.params.ticker || '').toUpperCase().trim();
+    const row = db.prepare('SELECT ticker FROM watchlist WHERE user_id = ? AND ticker = ?')
+      .get(req.userId, ticker);
+    if (!row) return res.status(404).json({ error: 'Not on your watchlist.' });
+
+    const held = getAvgCostPerShare(ticker, req.userId);
+    let removedAlerts = 0;
+    if (!held) {
+      removedAlerts = db.prepare('DELETE FROM alerts WHERE user_id = ? AND ticker = ?')
+        .run(req.userId, ticker).changes;
+    }
+    db.prepare('DELETE FROM watchlist WHERE user_id = ? AND ticker = ?').run(req.userId, ticker);
+
+    bumpDataVersion();
+    res.json({ success: true, ticker, removedAlerts });
+  } catch (err) {
+    console.error('DELETE /api/watchlist error:', err.message);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });

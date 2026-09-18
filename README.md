@@ -156,7 +156,7 @@ suite. Everything below this line is the engineering record for the deployment a
   Backups below.
 - **Server:** Express.js on Node.js 22, rate-limited auth endpoints, CORS-aware
 - **Email Delivery:** Resend SMTP — magic-link login, price alerts, and the contact form all send real email
-- **Price-Fetch Scheduler:** systemd timer, runs daily at 09:00 UTC, market-aware (skips weekends,
+- **Price-Fetch Scheduler:** systemd timer, runs daily at 09:00 local time, market-aware (skips weekends,
   and skips US trading hours 13:00–20:00 UTC so it only ever records a settled close)
 - **Backups:** `./backup-db.sh` nightly via cron — see Backups below
 
@@ -657,6 +657,60 @@ backfill, because none was ever kept.
 Covered by `test/alert-log.test.js` (13 tests), and the Algorithm tab's timeline now reads
 `alert_events` — an alert the mailer refused shows there as *Alert raised, email not sent*
 rather than silently looking like an email that arrived.
+
+### 👁 A watchlist — following what you do not own — 2026-09-18
+
+Stocks can now be followed without being bought: candidates to buy, or positions that have been
+sold and are still worth hearing about. They get prices daily and **the same four alert rules a
+holding gets**, on a sixth tab.
+
+**The feature was already half-present, and the missing half failed silently.** `POST /api/alerts`
+never checked that the ticker meant anything to the person asking — only the UI's dropdown did, by
+being filled from holdings. Anything else was accepted, stored, and listed as enabled, while the
+daily job fetched prices only for tickers somebody held. An alert on an unowned stock could never
+fire and nothing said so. No such alert existed when this was found; the endpoint now refuses one.
+
+**A dip needs something to measure from.** Dip and Target are defined against average cost, and a
+stock you never bought has none. Rather than deny those two rules to a watched stock, the watchlist
+records a **reference price** and `reference-price.js` resolves which number applies:
+
+| Watched how | `reference_source` | The number |
+|---|---|---|
+| Added from the form | `spotted` | its price that day |
+| Typed by hand | `typed` | whatever you said |
+| Carried from a closed position | `carried` | the average cost you actually paid |
+
+**Holdings always win.** A stock both held and watched resolves to its cost basis and never looks
+at the watchlist. That ordering is the safety property of the whole change — it is why shipping it
+could not restate anybody's live alerts, and it was checked against the real database before
+release: all twelve existing cost-based alerts resolved to exactly the same number. Do not invert
+it, and do not add a "prefer the watchlist" option: two answers to one question is how the average
+cost calculation went wrong before.
+
+`basis` travels with the number into `alert_events.detail`, because `avg_cost_eur` now holds a cost
+basis for some rows and a watch price for others, and `alert-followthrough.js` would otherwise
+report "25% under what you paid" for a stock that was never bought.
+
+**Selling the last share offers to keep watching it.** That was where a ticker used to quietly
+leave the app. The offer is made by the server on the transaction that empties the position; the
+figure is recomputed from the history by `lastHeldAvgCost()` rather than taken from the browser,
+because the offer can be accepted later and a number the client sends is a number the client could
+have changed.
+
+**Adding a ticker validates it by backfilling it.** Every ticker until now arrived on a transaction
+somebody really made, so a typo corrected itself; `TICKER_RE` only says "1–12 characters", and
+`GOOG` for `GOOGL` passes it happily. Asking Yahoo for two years of history proves the symbol is
+real *and* stops the Trailing rule being silently dead for its first year — it needs 365 days.
+History already deep enough is left alone rather than re-fetched, which is the normal case for a
+stock arriving from a closed position.
+
+One trap found by testing rather than reasoning: `backfillTicker` reports `added: 0` both when Yahoo
+has no such symbol **and** when every bar was skipped for want of an exchange rate to convert it to
+euros. Conflating them told a tester that AMD was not a ticker. They are now separate answers, and
+`test/http.test.js` pins that a valid ticker is never reported as non-existent.
+
+Covered by `test/watchlist.test.js` (17) and thirteen HTTP tests against a real server; 161 tests in
+all. Checked in light, dark and at 390px.
 
 ### ⏱️ Two timers, one job — 2026-09-18
 

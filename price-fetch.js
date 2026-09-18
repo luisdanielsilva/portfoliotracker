@@ -18,7 +18,7 @@ const mailguard = require('./mailguard');
 const { identityFor } = require('./identity-db');
 const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
         ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureAlertEventLog,
-        ensureDataVersion, recentHigh } = require('./db-migrations');
+        ensureDataVersion, ensureWatchlist, recentHigh } = require('./db-migrations');
 const { recordAlertEvent, markDelivery } = require('./alert-log');
 require('dotenv').config();
 
@@ -502,10 +502,12 @@ function alertSubject(items) {
 // Average cost per share (EUR) — shared with the server so the figure a dip alert
 // fires on and the figure the app displays cannot drift apart. See portfolio.js.
 const { getAvgCostPerShare: avgCostFor } = require('./portfolio');
-function getAvgCostPerShare(db, ticker, userId) {
-  const cost = avgCostFor(db, userId, ticker);
-  return cost ? cost.avgCostEUR : null;
-}
+
+// What a Dip or Target rule measures from: the cost basis for a holding, or the
+// recorded reference price for a stock that is only watched. Holdings always
+// win, so this returns exactly what the old cost-basis lookup returned for every
+// alert that existed before the watchlist — see reference-price.js.
+const { referenceFor, allWatchedTickers } = require('./reference-price');
 
 // Map ticker to exchange (common US tech stocks)
 // Extend as needed for other exchanges
@@ -662,7 +664,7 @@ async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
       const threshold = alert.threshold;
       const rule = alert.rule_type;
       let triggered = false;
-      let avgCostEUR = null;
+      let reference = null;      // { eur, basis } — cost basis, or a watch price
       let highPeak = null;
 
       // A price threshold is compared in the market's own currency, which is what
@@ -677,8 +679,8 @@ async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
       } else if (rule === 'price_below' && nativePrice < threshold) {
         triggered = true;
       } else if (rule === 'dip_from_avg_cost') {
-        avgCostEUR = getAvgCostPerShare(db, alert.ticker, alert.user_id);
-        if (avgCostEUR !== null && currentPrice <= avgCostEUR * (1 - threshold / 100)) {
+        reference = referenceFor(db, alert.user_id, alert.ticker);
+        if (reference && currentPrice <= reference.eur * (1 - threshold / 100)) {
           triggered = true;
         }
       } else if (rule === 'drop_from_high') {
@@ -692,9 +694,11 @@ async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
       } else if (rule === 'gain_from_avg_cost') {
         // The sell-side mirror: fires when the holding is up `threshold`% on what
         // was actually paid. Measured in euros for the same reason a dip is — that
-        // is the currency the money left in.
-        avgCostEUR = getAvgCostPerShare(db, alert.ticker, alert.user_id);
-        if (avgCostEUR !== null && currentPrice >= avgCostEUR * (1 + threshold / 100)) {
+        // is the currency the money left in. On a watched stock there is nothing
+        // to sell, and the same rule reads as "it ran up this far from where I
+        // first looked at it" — the one that got away.
+        reference = referenceFor(db, alert.user_id, alert.ticker);
+        if (reference && currentPrice >= reference.eur * (1 + threshold / 100)) {
           triggered = true;
         }
       }
@@ -725,15 +729,17 @@ async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
       }
       let item;
       if (rule === 'dip_from_avg_cost') {
-        item = { kind: 'dip', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
-                 dropPct: ((avgCostEUR - currentPrice) / avgCostEUR) * 100 };
+        item = { kind: 'dip', ticker: alert.ticker, price: currentPrice, avgCost: reference.eur,
+                 basis: reference.basis,
+                 dropPct: ((reference.eur - currentPrice) / reference.eur) * 100 };
       } else if (rule === 'drop_from_high') {
         item = { kind: 'high', ticker: alert.ticker, price: nativePrice, peak: highPeak,
                  dropPct: ((highPeak - nativePrice) / highPeak) * 100, threshold,
                  currency: alert.currency || marketCurrency };
       } else if (rule === 'gain_from_avg_cost') {
-        item = { kind: 'gain', ticker: alert.ticker, price: currentPrice, avgCost: avgCostEUR,
-                 gainPct: ((currentPrice - avgCostEUR) / avgCostEUR) * 100, threshold };
+        item = { kind: 'gain', ticker: alert.ticker, price: currentPrice, avgCost: reference.eur,
+                 basis: reference.basis,
+                 gainPct: ((currentPrice - reference.eur) / reference.eur) * 100, threshold };
       } else {
         item = { kind: rule, ticker: alert.ticker, price: nativePrice, threshold,
                  currency: alert.currency || marketCurrency };
@@ -749,9 +755,13 @@ async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
         alertType: rule, alertId: alert.id,
         priceNative: nativePrice, priceEur: currentPrice,
         currency: alert.currency || marketCurrency,
-        threshold, avgCostEur: avgCostEUR,
-        detail: rule === 'dip_from_avg_cost' ? { dropPct: item.dropPct }
-          : rule === 'gain_from_avg_cost' ? { gainPct: item.gainPct }
+        threshold, avgCostEur: reference ? reference.eur : null,
+        // `basis` says what avg_cost_eur actually is. The column holds a cost
+        // basis for a holding and a watch price for a watched stock, and those
+        // are not the same fact — without the label, alert-followthrough would
+        // report "25% under what you paid" for a stock that was never bought.
+        detail: rule === 'dip_from_avg_cost' ? { dropPct: item.dropPct, basis: reference.basis }
+          : rule === 'gain_from_avg_cost' ? { gainPct: item.gainPct, basis: reference.basis }
           : rule === 'drop_from_high' ? { peak: highPeak, dropPct: item.dropPct }
           : null
       });
@@ -847,6 +857,49 @@ function tickerTier(db, ticker, now, identityDb = identityFor(db)) {
   return watched ? 'hot' : 'cold';
 }
 
+/* ---- which tickers the job asks about at all ----
+ *
+ * Two sources, and they have nothing in common. A **held** ticker is one
+ * somebody still owns: it used to be every ticker that had ever appeared in a
+ * transaction, so a position sold to nothing kept costing a request a day for
+ * ever. The test is split-adjusted rather than buys-minus-sells, because those
+ * disagree — one share bought before a 3-for-1 and one sold after it nets to
+ * zero on the raw numbers while two shares are still held. getAvgCostPerShare
+ * does that correctly and returns null on a closed position, so it is the
+ * authority.
+ *
+ * A **watched** ticker has no transaction row at all. Before the watchlist, the
+ * universe was simply "what somebody bought", which is why an alert on anything
+ * else could never fire: no price ever arrived for it, and nothing said so.
+ *
+ * Split out of fetchPrices() to be testable. It is the highest-risk line in the
+ * watchlist change — get the union wrong and watched stocks silently never get
+ * a price, which is precisely the failure the feature exists to end.
+ */
+function fetchUniverse(db) {
+  const heldPairs = db.prepare('SELECT DISTINCT user_id, ticker FROM transactions').all();
+  const everSeen = db.prepare('SELECT DISTINCT ticker FROM transactions ORDER BY ticker')
+    .all().map(r => r.ticker);
+  const stillHeld = new Set();
+  for (const { user_id, ticker } of heldPairs) {
+    if (avgCostFor(db, user_id, ticker)) stillHeld.add(ticker);
+  }
+
+  const watched = new Set(allWatchedTickers(db));
+  const held = everSeen.filter(t => stillHeld.has(t));
+  const watchOnly = [...watched].filter(t => !stillHeld.has(t)).sort();
+
+  return {
+    tickers: [...new Set([...held, ...watched])].sort(),
+    held,
+    watchOnly,
+    // A fully-sold position somebody still watches is not dropped — that is the
+    // case the watchlist was built for.
+    dropped: everSeen.filter(t => !stillHeld.has(t) && !watched.has(t)),
+    everSeen
+  };
+}
+
 /** Whole days between the newest stored price and now; Infinity if there is none. */
 function priceGapDays(db, ticker, now) {
   const row = db.prepare(
@@ -883,31 +936,12 @@ async function fetchPrices() {
     // Initialize Yahoo Finance (v3 API requires instantiation)
     const yahooFinance = new YahooFinance();
 
-    // Get unique tickers from transactions
-    /**
-     * Only what somebody still owns.
-     *
-     * This used to be every ticker that had ever appeared in a transaction, so a
-     * position sold down to nothing kept costing a request every day, for ever.
-     * Old prices are still needed for the history charts — they simply do not
-     * need new ones for something nobody holds.
-     *
-     * The test is split-adjusted rather than a raw sum of buys minus sells,
-     * because those disagree: one share bought before a 3-for-1 and one share
-     * sold after it nets to zero on the raw numbers while two shares are still
-     * held. getAvgCostPerShare already does this correctly and returns null when
-     * the position is closed, so it is the authority here too.
-     */
-    const heldPairs = db.prepare('SELECT DISTINCT user_id, ticker FROM transactions').all();
-    const everSeen = db.prepare('SELECT DISTINCT ticker FROM transactions ORDER BY ticker').all().map(r => r.ticker);
-    const stillHeld = new Set();
-    for (const { user_id, ticker } of heldPairs) {
-      if (avgCostFor(db, user_id, ticker)) stillHeld.add(ticker);
-    }
-    const tickers = everSeen.filter(t => stillHeld.has(t));
-    const dropped = everSeen.filter(t => !stillHeld.has(t));
+    const { tickers, held, watchOnly, dropped, everSeen } = fetchUniverse(db);
     if (dropped.length) {
       log(`ℹ Not fetching ${dropped.length} fully-sold position(s): ${dropped.join(', ')}`);
+    }
+    if (watchOnly.length) {
+      log(`👁 Also fetching ${watchOnly.length} watched, not held: ${watchOnly.join(', ')}`);
     }
 
     if (tickers.length === 0) {
@@ -951,7 +985,8 @@ async function fetchPrices() {
       }
     }
 
-    log(`Found ${tickers.length} held ticker(s): ${plan.quote.length} quoted, `
+    log(`Found ${tickers.length} ticker(s) (${held.length} held, ${watchOnly.length} watched): `
+      + `${plan.quote.length} quoted, `
       + `${plan.range.length} caught up by range, ${plan.skip.length} left alone`);
     if (plan.skip.length) {
       log(`  ⏭  nobody is watching, asked recently enough: ${plan.skip.map(p => p.ticker).join(', ')}`);
@@ -967,6 +1002,7 @@ async function fetchPrices() {
     ensureDropFromHighRuleType(db);
     ensureAlgorithmAlertSettings(db);
     ensureAlertEventLog(db);
+    ensureWatchlist(db);
     ensureDataVersion(db);
 
     const upsertStmt = db.prepare(`
@@ -1124,5 +1160,5 @@ if (require.main === module) {
 module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts, ordinal,
   RATE_UPSERT_SQL, fetchExchangeRates,
   identityFor, emailsByKey, resolveDbPath, failureRecentlyReported,
-  tickerTier, priceGapDays, HOT_SEEN_DAYS, COLD_INTERVAL_DAYS,
+  tickerTier, priceGapDays, fetchUniverse, HOT_SEEN_DAYS, COLD_INTERVAL_DAYS,
                    areMarketsClosedForFetch };

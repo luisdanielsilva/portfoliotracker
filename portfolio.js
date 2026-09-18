@@ -19,7 +19,19 @@
  * Returns null when nothing is held — a fully exited position has no average
  * cost, and dividing by zero quantity would otherwise produce Infinity.
  */
-function getAvgCostPerShare(db, userId, ticker) {
+/**
+ * Walk one position's transactions once, in order.
+ *
+ * Extracted so that "what is it worth now" and "what was it worth while it was
+ * still held" cannot disagree. This file exists because two copies of this
+ * arithmetic already drifted apart once; a second reader of the same rows would
+ * have been the same mistake in a new place.
+ *
+ * `lastHeld` is the answer as of the last transaction that left anything held —
+ * which, for a position that has since been closed, is the average cost actually
+ * paid over its whole life.
+ */
+function replayPosition(db, userId, ticker) {
   const rows = db.prepare(`
     SELECT tx_type, quantity, amount_eur, date(ts/1000,'unixepoch') AS tx_date
     FROM transactions
@@ -37,6 +49,7 @@ function getAvgCostPerShare(db, userId, ticker) {
 
   let quantity = 0;
   let totalAmount = 0;
+  let lastHeld = null;
   for (const tx of rows) {
     // express every transaction in today's share terms: multiply by each split
     // that happened after it was bought
@@ -52,10 +65,36 @@ function getAvgCostPerShare(db, userId, ticker) {
       quantity -= qty;
       totalAmount -= tx.amount_eur;
     }
+
+    if (quantity > 0) lastHeld = { avgCostEUR: totalAmount / quantity, quantity };
   }
 
+  return { quantity, totalAmount, lastHeld, transactionCount: rows.length };
+}
+
+function getAvgCostPerShare(db, userId, ticker) {
+  const { quantity, totalAmount } = replayPosition(db, userId, ticker);
   if (quantity <= 0) return null;
   return { avgCostEUR: totalAmount / quantity, quantity };
 }
 
-module.exports = { getAvgCostPerShare };
+/**
+ * What a share of this cost, on average, while it was still held — for a
+ * position that has since been closed.
+ *
+ * This is the reference a sold-out stock carries onto the watchlist. It has to
+ * be recomputed from the history rather than remembered at the moment of sale,
+ * because the offer to keep watching can be accepted long after the sale, and
+ * because a number the browser sends back is a number the browser could have
+ * changed.
+ *
+ * Returns null while anything is still held — ask getAvgCostPerShare then — and
+ * null for a ticker that was never held at all.
+ */
+function lastHeldAvgCost(db, userId, ticker) {
+  const { quantity, lastHeld } = replayPosition(db, userId, ticker);
+  if (quantity > 0) return null;
+  return lastHeld;
+}
+
+module.exports = { getAvgCostPerShare, lastHeldAvgCost, replayPosition };

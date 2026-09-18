@@ -137,3 +137,22 @@ CREATE TABLE IF NOT EXISTS data_version (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   version INTEGER NOT NULL
 );
+
+-- Stocks followed without being owned. reference_price_* is what a Dip or Target
+-- rule measures from when there is no cost basis to measure from; reference_source
+-- says whether it was the price on the day it was added, a figure typed by hand,
+-- or the average cost carried over from a position that was closed.
+CREATE TABLE IF NOT EXISTS watchlist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  reference_price_eur REAL,
+  reference_price_native REAL,
+  currency TEXT,
+  reference_source TEXT NOT NULL DEFAULT 'spotted'
+    CHECK(reference_source IN ('spotted','typed','carried')),
+  note TEXT,
+  added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_unique ON watchlist(user_id, ticker);
+CREATE INDEX IF NOT EXISTS idx_watchlist_ticker ON watchlist(ticker);

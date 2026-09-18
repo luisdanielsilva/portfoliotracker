@@ -80,7 +80,19 @@ function migratedDb() {
   m.ensureDropFromHighRuleType(db);
   m.ensureAlgorithmAlertSettings(db);
   m.ensureAlertEventLog(db);
+  m.ensureWatchlist(db);
   return db;
 }
 
-module.exports = { freshDb, migratedDb, addUser, identityIdFor, addTx, addPrice, addSplit, day };
+/** Put a ticker on somebody's watchlist, with or without a reference price. */
+function addWatch(db, userId, { ticker, referenceEur = null, referenceNative = null,
+                                currency = 'USD', source = 'spotted', note = null }) {
+  db.prepare(
+    `INSERT INTO watchlist (user_id, ticker, reference_price_eur, reference_price_native,
+                            currency, reference_source, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(userId, ticker, referenceEur,
+        referenceNative === null ? referenceEur : referenceNative, currency, source, note);
+}
+
+module.exports = { freshDb, migratedDb, addUser, identityIdFor, addTx, addPrice, addSplit, addWatch, day };

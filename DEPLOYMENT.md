@@ -139,7 +139,7 @@ Changing `.env` restarts the app automatically.
 
 | When | What | Where |
 |---|---|---|
-| 09:00 UTC daily | Price fetch + alert digests | systemd timer |
+| 09:00 local daily | Price fetch + alert digests | systemd timer |
 | 03:30 local daily | Database backup, 30-day retention | `crontab -l` |
 | 13:00 local daily | Job health watchdog | `crontab -l` |
 

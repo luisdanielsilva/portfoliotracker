@@ -328,6 +328,44 @@ function ensureAlertEventLog(db) {
 
 
 /**
+ * Stocks somebody follows without owning — candidates to buy, or positions they
+ * have left and still want to hear about.
+ *
+ * The only interesting column is the reference price. Two of the four alert
+ * rules — Dip and Target — are measured against what you paid, and on a stock
+ * you never bought there is no such number. Rather than deny those rules to a
+ * watched stock, the watchlist records a price to measure from: whatever it cost
+ * the day it was added, a figure typed by hand, or, when a position is closed,
+ * the average cost actually paid. `reference_source` says which of the three it
+ * is, because "€174" means something different in each case and a reader months
+ * later cannot tell them apart from the number alone.
+ *
+ * Deliberately *not* here: a holding's cost basis. A stock that is both held and
+ * watched resolves to its cost basis, always — see referenceFor() in
+ * reference-price.js. Storing a second number for a held stock would create two
+ * answers to one question, and the wrong one would eventually win.
+ */
+function ensureWatchlist(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS watchlist (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      reference_price_eur REAL,
+      reference_price_native REAL,
+      currency TEXT,
+      reference_source TEXT NOT NULL DEFAULT 'spotted'
+        CHECK(reference_source IN ('spotted','typed','carried')),
+      note TEXT,
+      added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlist_unique ON watchlist(user_id, ticker);
+    CREATE INDEX IF NOT EXISTS idx_watchlist_ticker ON watchlist(ticker);
+  `);
+}
+
+
+/**
  * A single counter bumped whenever anything the computed views depend on
  * changes. It is what makes caching those views safe across processes: a cache
  * entry is keyed by this number, so a write in one process retires every other
@@ -350,5 +388,6 @@ function ensureDataVersion(db) {
 module.exports = {
   ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
   ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureAlertEventLog, ensureDataVersion,
+  ensureWatchlist,
   recentHigh, HIGH_WINDOW_DAYS, columnNames
 };
