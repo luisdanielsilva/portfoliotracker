@@ -287,6 +287,10 @@
         any=true;
         var cb=cbBy[U.name];
         if(rt!=null){ cb=v/(1+rt/100); }                    // exact: back out cost from return %
+        // Both fallbacks are for snapshots typed in by hand, which carry no cost.
+        // They cannot see a stock split: it raises the quantity without a purchase,
+        // and the second line would book it as one. API data always arrives with a
+        // return % now (see the transform in loadSnapshots), so it never lands here.
         else if(cb==null){ cb=v; }                          // first seen, no return %: assume cost ~ value
         else if(q!=null && U.qty[i-1]!=null && q>U.qty[i-1]){ cb+=(q-U.qty[i-1])*(v/q); } // bought more: add at current price
         cbBy[U.name]=cb;
@@ -3393,7 +3397,21 @@
                   tickerIdx = BKEY.length - 1;
                 }
               }
-              return [tickerIdx, h.quantity, h.marketValue, null];
+              /* The fourth field is the holding's return %, and sending null for it
+                 was expensive. With it absent, the invested-capital estimator below
+                 falls back to "a quantity increase means a purchase at today's
+                 price" — and a stock split is a quantity increase. Tesla's two
+                 splits alone added €53,738 of imaginary capital, which showed a
+                 149% gain as a 0.8% loss. The cost is not a mystery: /api/snapshots
+                 sends `amount` per holding, the euros that actually went in. Derive
+                 the return from it and the exact path is taken instead.
+
+                 A holding whose sales have exceeded its purchases has no positive
+                 cost to measure against, so it stays null rather than inventing
+                 one. */
+              const cost = h.amount;
+              const rent = (cost > 0 && h.marketValue != null) ? (h.marketValue / cost - 1) * 100 : null;
+              return [tickerIdx, h.quantity, h.marketValue, rent];
             }).filter(h => h !== null);
 
             if (holdings.length === 0) return null;

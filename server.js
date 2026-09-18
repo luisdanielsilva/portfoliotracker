@@ -1255,7 +1255,13 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
         ts,
         holdings: holdingsArray,
         portfolioTotal: marketValue,
-        costBasis: Object.values(stateAtDate).reduce((sum, h) => sum + h.totalAmount, 0)
+        /* The cost of what is held, which is what the page puts beside the market
+           value. Summing every entry instead included positions closed years ago,
+           whose totalAmount is proceeds minus purchases — a realised gain, arriving
+           here as negative cost. Airbus and AT&T between them moved this figure by
+           €175.87 against a portfolio they are no longer part of. The holdings array
+           above already filters on the same condition. */
+        costBasis: Object.values(stateAtDate).reduce((sum, h) => h.qty > 0 ? sum + h.totalAmount : sum, 0)
       };
     });
 

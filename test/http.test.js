@@ -210,6 +210,45 @@ test('a write retires the cached portfolio', async () => {
   s.idb.close(); s.pdb.close();
 });
 
+/**
+ * What the Portfolio tab puts beside the market value.
+ *
+ * Two defects met here on 2026-09-18, on a portfolio with eleven years of history:
+ * the endpoint counted positions closed years ago in `costBasis` (their
+ * totalAmount is proceeds minus purchases — a realised gain arriving as negative
+ * cost), and the browser threw away the per-holding `amount` it is sent and
+ * estimated the cost instead, booking every stock split as a purchase. Together
+ * they showed a 149% gain as a 0.8% loss.
+ */
+test('cost basis counts what is held, and every holding carries what it cost', async () => {
+  const s = signIn('basis@example.com');
+  const { headers } = s;
+  const buy = (ticker, quantity, amountEUR, ts) => fetch(base + '/api/transactions', {
+    method: 'POST', headers, body: JSON.stringify({ ticker, quantity, amountEUR, type: 'buy', ts })
+  });
+  const sell = (ticker, quantity, amountEUR, ts) => fetch(base + '/api/transactions', {
+    method: 'POST', headers, body: JSON.stringify({ ticker, quantity, amountEUR, type: 'sell', ts })
+  });
+
+  assert.strictEqual((await buy('KEEP', 10, 1000, Date.UTC(2026, 0, 10))).status, 200);
+  assert.strictEqual((await buy('GONE', 5, 500, Date.UTC(2026, 0, 11))).status, 200);
+  // sold for more than it cost: the realised gain is what used to leak into cost
+  assert.strictEqual((await sell('GONE', 5, 800, Date.UTC(2026, 0, 12))).status, 200);
+
+  const { snapshots } = await fetch(base + '/api/snapshots', { headers }).then(r => r.json());
+  const last = snapshots[snapshots.length - 1];
+
+  assert.strictEqual(last.costBasis, 1000,
+    'a closed position must not move the cost of what is still held (it was 700 with GONE counted)');
+  assert.deepStrictEqual(last.holdings.map(h => h.ticker), ['KEEP'], 'only open positions are holdings');
+  for (const h of last.holdings) {
+    assert.strictEqual(typeof h.amount, 'number',
+      'the browser derives its return % from `amount`; without it every split reads as a purchase');
+    assert.ok(h.amount > 0, 'a held position has a positive cost to measure against');
+  }
+  s.idb.close(); s.pdb.close();
+});
+
 test('the database runs in WAL mode with a busy timeout', () => {
   // Both are required before a second worker is safe: WAL so readers do not block
   // on a writer, busy_timeout so a blocked writer waits rather than erroring.
