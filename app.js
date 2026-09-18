@@ -1468,7 +1468,16 @@
       if(btn.scrollIntoView) btn.scrollIntoView({block:"nearest",inline:"nearest",behavior:"smooth"});
       if(pair[0]==="tab-dca") loadAndRenderDCA();
       if(pair[0]==="tab-algo") loadAndRenderAlgo();
-      if(pair[0]==="tab-watch") loadWatchlist();
+      if(pair[0]==="tab-watch"){
+        /* The watchlist chart draws alert lines, so it needs the alerts.
+         *
+         * They were only ever fetched when the Alerts tab was opened, so opening
+         * Watchlist first drew a chart saying "no alerts on ASML.AS" directly
+         * above a row saying "1 ALERT" — the row counts server-side, the chart
+         * reads the client array. One of them was lying.
+         */
+        Promise.all([loadWatchlist(), loadAlerts()]).then(function(){ amRefresh(MAPS.wm); });
+      }
     });
   });
 
@@ -1675,6 +1684,10 @@
     if(!WATCHLIST.length){
       list.innerHTML='<p style="color:var(--faint);font-size:13px">Nothing on the watchlist yet. '
         +'Add a ticker above and it starts getting prices tomorrow morning.</p>';
+      // Removing the last stock has to empty the chart too, not leave the one
+      // that was just deleted still drawn above the list.
+      var emptyView=document.getElementById("view-watch");
+      if(emptyView&&!emptyView.hidden) amRefresh(MAPS.wm);
       return;
     }
 
@@ -1737,8 +1750,25 @@
         ? w.alertCount+(w.alertCount===1?" alert":" alerts")
         : '<span style="color:var(--faint)">no alerts</span>';
 
+      /* Say so when there is not a full year behind it.
+       *
+       * A trailing rule calls itself "off 52w high" and takes the highest close
+       * it can find inside 365 days. On a stock that listed three months ago
+       * that is a three-month high, and nothing else would ever mention it.
+       */
+      if(w.historyShort){
+        var months=Math.max(1,Math.round(w.historyDays/30));
+        alertTxt+=' <span style="color:var(--warn)" title="A trailing rule needs a year of prices'
+          +' to mean what it says. This stock has '+w.historyDays+' days.">· '
+          +months+'m history</span>';
+      }
+
+      // The ticker doubles as the chart's selector — the row and the picker above
+      // are two ways to ask the same question, so clicking either should answer it.
       return '<div class="wl-row" data-ticker="'+esc(w.ticker)+'">'
-        +'<div><span class="al-tk">'+esc(w.ticker)+'</span>'
+        +'<div><button type="button" class="al-tk wl-pick" data-ticker="'+esc(w.ticker)+'"'
+          +' style="background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;'
+          +'border-bottom:1px dotted var(--hair)">'+esc(w.ticker)+'</button>'
           +'<span class="wl-sub">'+alertTxt+'</span></div>'
         +'<div class="wl-num">'+refTxt
           +'<span class="wl-sub">'+esc(WL_SOURCE_LABEL[w.referenceSource]||w.referenceSource)+'</span></div>'
@@ -1754,6 +1784,15 @@
         +'</div>'
       +'</div>';
     }).join("");
+
+    /* Keep the chart in step with the list, but only while the tab is open.
+     *
+     * renderWatchlist also runs at startup, and redrawing then would fetch a
+     * price history for a chart nobody is looking at. Opening the tab refreshes
+     * it anyway.
+     */
+    var view=document.getElementById("view-watch");
+    if(view&&!view.hidden) amRefresh(MAPS.wm);
   }
 
   /** A price in its own currency, so it reads like the number on the exchange. */
@@ -1822,6 +1861,12 @@
 
     // Delegated, because the rows are rewritten on every render.
     document.getElementById("wl-list").addEventListener("click",function(e){
+      var pick=e.target.closest(".wl-pick");
+      if(pick){
+        amSelect(pick.getAttribute("data-ticker"), MAPS.wm);
+        document.getElementById("wm-card").scrollIntoView({block:"nearest",behavior:"smooth"});
+        return;
+      }
       var del=e.target.closest(".wl-del"), edit=e.target.closest(".wl-edit");
       if(del){
         var t=del.getAttribute("data-ticker");
@@ -1969,7 +2014,7 @@
         if(sel) sel.innerHTML=opts;
         renderRulePreview();
         renderAlertTickerPicker();
-        if(AM_TICKER) amLoadSeries(AM_TICKER).then(renderAlertMap);
+        if(MAPS.am.ticker) amLoadSeries(MAPS.am.ticker).then(function(){ renderAlertMap(MAPS.am); });
       })
       .catch(function(err){ console.error('Failed to load avg cost:',err); });
   }
@@ -2222,7 +2267,7 @@
   }
 
   function loadAlerts(){
-    apiFetch('./api/alerts')
+    return apiFetch('./api/alerts')
       .then(r=>{
         if(!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
         return r.json();
@@ -2234,7 +2279,7 @@
         return loadAlertHistory(tickers).then(function(){
           renderAlerts();
           renderAlertTickerPicker();
-          if(AM_TICKER) amLoadSeries(AM_TICKER).then(renderAlertMap); else renderAlertMap();
+          if(MAPS.am.ticker) amLoadSeries(MAPS.am.ticker).then(function(){ renderAlertMap(MAPS.am); }); else renderAlertMap(MAPS.am);
         });
       })
       .catch(err=>{
@@ -2253,7 +2298,19 @@
      implied rate (native/eur from that day's row) rather than at today's — which is
      why those lines can drift slightly even when your average cost has not moved.
      Triggering is always tested in the rule's own currency, never the drawn one. */
-  var AM_TICKER=null, AM_PERIOD="1y", AM_SERIES={}, AM_PENDING={};
+  /* Two instances of one chart.
+   *
+   * The Alerts tab draws a holding with its rules on it; the Watchlist tab draws
+   * a watched stock with its reference price and its rules on it. They are the
+   * same picture of the same data, so they are the same renderer parameterised
+   * over an element-id prefix and its own selection — not a second copy that
+   * would drift from this one the first time either is touched.
+   */
+  var MAPS={
+    am:{p:"am", ticker:null, period:"1y"},
+    wm:{p:"wm", ticker:null, period:"1y"}
+  };
+  var AM_SERIES={}, AM_PENDING={};
   var AM_DAYS={"3m":90,"6m":180,"1y":365,"2y":730,"all":3650};
   var AM_HIGH_DAYS=365;   // must match HIGH_WINDOW_DAYS in db-migrations.js
 
@@ -2310,7 +2367,12 @@
         r.levelAt=function(i){ return lvlEUR==null?null:lvlEUR*amRatio(S[i]); };
         r.firedAt=function(i){ var v=S[i].eur;
           return v!=null && lvlEUR!=null && (isDip?v<=lvlEUR:v>=lvlEUR); };
-        r.label=(isDip?"Dip −":"Target +")+a.threshold+"% on cost";
+        // "on cost" is only true when it is measuring a cost. referenceBasis
+        // comes from the server, which resolves it exactly as the alert job does.
+        var onWhat=(a.referenceBasis&&a.referenceBasis!=="avg_cost")
+          ? (a.referenceBasis==="carried"?"% on what you paid":"% on your reference")
+          : "% on cost";
+        r.label=(isDip?"Dip −":"Target +")+a.threshold+onWhat;
         r.tag=isDip?"dip":"gain";
       } else if(a.ruleType==="drop_from_high"){
         if(!roll) roll=amRollingHigh(S,AM_HIGH_DAYS);
@@ -2349,65 +2411,124 @@
     return out;
   }
 
-  function renderAlertTickerPicker(){
-    var box=document.getElementById("am-tickers"); if(!box) return;
+  /* Which stocks each chart offers.
+   *
+   * The Alerts map draws holdings and anything carrying a rule; the Watchlist
+   * map draws what is being watched, and nothing else — a holding has its own
+   * place and putting it here would make the two tabs answer the same question.
+   */
+  function amTickerList(M){
     var counts={};
     alerts.forEach(function(a){ counts[a.ticker]=(counts[a.ticker]||0)+1; });
-    var list=Object.keys(AVG_COST||{});
-    Object.keys(counts).forEach(function(t){ if(list.indexOf(t)<0) list.push(t); });
+    var list;
+    if(M.p==="wm"){
+      list=WATCHLIST.map(function(w){ return w.ticker; });
+    } else {
+      list=Object.keys(AVG_COST||{});
+      Object.keys(counts).forEach(function(t){ if(list.indexOf(t)<0) list.push(t); });
+    }
     list.sort(function(x,y){ return (counts[y]||0)-(counts[x]||0) || x.localeCompare(y); });
-    if(!list.length){ box.innerHTML='<span style="font-size:12.5px;color:var(--faint)">Register a transaction first — the map draws a holding you own.</span>'; return; }
-    if(!AM_TICKER || list.indexOf(AM_TICKER)<0) AM_TICKER=list[0];
+    return {list:list, counts:counts};
+  }
+
+  function renderAlertTickerPicker(M){
+    M=M||MAPS.am;
+    var box=document.getElementById(M.p+"-tickers"); if(!box) return;
+    var r=amTickerList(M), list=r.list, counts=r.counts;
+    if(!list.length){
+      box.innerHTML='<span style="font-size:12.5px;color:var(--faint)">'
+        +(M.p==="wm"
+          ? "Add a stock above and its price history will be drawn here."
+          : "Register a transaction first — the map draws a holding you own.")
+        +'</span>';
+      M.ticker=null;
+      return;
+    }
+    if(!M.ticker || list.indexOf(M.ticker)<0) M.ticker=list[0];
     box.innerHTML=list.map(function(t){
       var n=counts[t]||0;
-      return '<button type="button" class="chip" data-t="'+esc(t)+'" aria-pressed="'+(t===AM_TICKER)+'">'+esc(t)
+      return '<button type="button" class="chip" data-t="'+esc(t)+'" aria-pressed="'+(t===M.ticker)+'">'+esc(t)
         +(n?'<span class="am-n">'+n+'</span>':'')+'</button>';
     }).join("");
     Array.prototype.forEach.call(box.querySelectorAll("button"),function(b){
-      b.addEventListener("click",function(){ amSelect(b.dataset.t); });
+      b.addEventListener("click",function(){ amSelect(b.dataset.t, M); });
     });
   }
 
-  function amSelect(ticker){
-    AM_TICKER=ticker;
-    renderAlertTickerPicker();
-    amLoadSeries(ticker).then(renderAlertMap);
+  function amSelect(ticker, M){
+    M=M||MAPS.am;
+    M.ticker=ticker;
+    renderAlertTickerPicker(M);
+    amLoadSeries(ticker).then(function(){ renderAlertMap(M); });
   }
 
-  function renderAlertMap(){
-    var svg=document.getElementById("am-chart"); if(!svg) return;
+  /** Draw one of the two maps from scratch: picker, then chart. */
+  function amRefresh(M){
+    renderAlertTickerPicker(M);
+    if(M.ticker) amLoadSeries(M.ticker).then(function(){ renderAlertMap(M); });
+    else renderAlertMap(M);
+  }
+
+  function renderAlertMap(M){
+    var svg=document.getElementById(M.p+"-chart"); if(!svg) return;
     while(svg.firstChild) svg.removeChild(svg.firstChild);
-    var rowsBox=document.getElementById("am-rows"), sub=document.getElementById("am-sub"),
-        note=document.getElementById("am-note"), lg=document.getElementById("am-legend"),
-        tip=document.getElementById("am-tip");
+    var rowsBox=document.getElementById(M.p+"-rows"), sub=document.getElementById(M.p+"-sub"),
+        note=document.getElementById(M.p+"-note"), lg=document.getElementById(M.p+"-legend"),
+        tip=document.getElementById(M.p+"-tip");
     rowsBox.innerHTML=""; lg.innerHTML=""; note.textContent="";
-    if(!AM_TICKER){
+    if(!M.ticker){
       sub.textContent="";
-      drawEmptyChart(svg,"Pick a holding above to see its price with every rule you have on it drawn across the same chart.",false);
+      drawEmptyChart(svg, M.p==="wm"
+        ? "Add a stock to the watchlist and its price history will be drawn here, with your reference price and any alerts on it."
+        : "Pick a holding above to see its price with every rule you have on it drawn across the same chart.",false);
       return;
     }
     clearEmptyChart(svg);
 
-    var name=tickerLabel(AM_TICKER);
+    var name=tickerLabel(M.ticker);
     sub.textContent="· "+name;
-    var S=AM_SERIES[AM_TICKER];
-    if(!S){ amLoadSeries(AM_TICKER).then(renderAlertMap); return; }
+    var S=AM_SERIES[M.ticker];
+    if(!S){ amLoadSeries(M.ticker).then(renderAlertMap); return; }
     if(S.length<2){
       note.textContent="";
-      drawEmptyChart(svg,"No stored price history for "+AM_TICKER+" yet. Register a transaction for it and choose a history depth, or wait for the daily fetch to build one up.",false);
+      drawEmptyChart(svg, M.p==="wm"
+        ? "No stored price history for "+M.ticker+" yet. It is fetched when a stock is added, so this usually means that call did not finish \u2014 remove it and add it again."
+        : "No stored price history for "+M.ticker+" yet. Register a transaction for it and choose a history depth, or wait for the daily fetch to build one up.",false);
       return;
     }
 
     // window
     var i0=0;
-    if(AM_PERIOD!=="all"){
-      var cut=Date.now()-AM_DAYS[AM_PERIOD]*864e5;
+    if(M.period!=="all"){
+      var cut=Date.now()-AM_DAYS[M.period]*864e5;
       while(i0<S.length-2 && amTs(S[i0].d)<cut) i0++;
     }
     var cur=S[S.length-1].currency||"USD";
-    var rules=amRules(AM_TICKER,S);
-    var info=(AVG_COST||{})[AM_TICKER];
-    var avgAt=function(i){ return (info&&info.avgCostEUR!=null)?info.avgCostEUR*amRatio(S[i]):null; };
+    var rules=amRules(M.ticker,S);
+    var info=(AVG_COST||{})[M.ticker];
+
+    /* The dashed line the cost-based rules hang off.
+     *
+     * For a holding that is the average cost. For a watched stock there is no
+     * cost, so it is the reference price — and the label has to say which, or
+     * the chart claims you paid for something you never bought. Holdings win,
+     * the same precedence the server applies in reference-price.js.
+     */
+    // The end label sits in a 124-unit gutter, so it gets a short form; the
+    // legend has room for the full wording and carries which kind it is.
+    var refEUR=null, refLabel="", refShort="";
+    if(info&&info.avgCostEUR!=null){
+      refEUR=info.avgCostEUR; refLabel="Avg cost"; refShort="Avg cost";
+    } else {
+      var w=WATCHLIST.filter(function(x){ return x.ticker===M.ticker; })[0];
+      if(w&&w.referenceEur!=null){
+        refEUR=w.referenceEur;
+        refLabel=w.referenceSource==="carried"?"What you paid"
+               :(w.referenceSource==="typed"?"Your reference":"Price when added");
+      refShort="Ref";
+      }
+    }
+    var avgAt=function(i){ return refEUR!=null?refEUR*amRatio(S[i]):null; };
 
     // vertical domain: the price band, plus any level close enough to be worth showing.
     // A +200% target on a stock that has not moved would otherwise flatten the price
@@ -2433,7 +2554,7 @@
     });
     var av=avgAt(S.length-1); var avgOn=consider(av);
 
-    var W=960,H=430,l=70,r=132,tp=20,bt=36,pW=W-l-r,pH=H-tp-bt;
+    var W=960,H=430,l=70,r=150,tp=20,bt=36,pW=W-l-r,pH=H-tp-bt;
     var tks=niceTicksGeneric(dLo-(dHi-dLo)*0.04,dHi+(dHi-dLo)*0.04,5);
     var yhi=Math.max(tks[tks.length-1],dHi), ylo=Math.min(tks[0],dLo);
     var t0=amTs(S[i0].d), t1=amTs(S[S.length-1].d);
@@ -2462,7 +2583,7 @@
       if(ad){
         svg.appendChild(el("path",{class:"serieline",d:ad,stroke:"var(--muted)","stroke-width":1.4,"stroke-dasharray":"5 4"}));
         var alb=el("text",{class:"endlbl",x:W-r+8,y:Yc(av)+3.5,fill:"var(--muted)"});
-        alb.textContent="Avg cost "+fmtNative(av,cur); svg.appendChild(alb);
+        alb.textContent=refShort+" "+fmtNative(av,cur); svg.appendChild(alb);
       }
     }
 
@@ -2548,10 +2669,11 @@
 
     /* legend + one row per rule: what it fires at, how far away, how often it fired */
     lg.innerHTML='<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)"><i style="width:11px;height:11px;border-radius:3px;background:var(--ink)"></i>Price</span>'
-      +(avgOn?'<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)"><i style="width:11px;height:2px;background:var(--muted)"></i>Your average cost</span>':'');
+      +(avgOn?'<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)"><i style="width:11px;height:2px;background:var(--muted)"></i>'+esc(refLabel)+'</span>':'');
 
     if(!rules.length){
-      rowsBox.innerHTML='<p class="hint" style="margin:12px 0 0">No alerts on '+esc(AM_TICKER)+' yet &mdash; the forms above create one, and it will appear here as a line.</p>';
+      rowsBox.innerHTML='<p class="hint" style="margin:12px 0 0">No alerts on '+esc(M.ticker)+' yet &mdash; '
+        +(M.p==="wm"?'the Alerts tab creates one':'the forms above create one')+', and it will appear here as a line.</p>';
     } else {
       var days=Math.round((t1-t0)/864e5);
       rowsBox.innerHTML='<div class="am-rows">'+rules.map(function(rr){
@@ -2571,7 +2693,11 @@
     }
 
     var offs=rules.filter(function(rr){ return !rr.onChart; }).length;
-    note.innerHTML="Markers are the day a rule <b>crossed</b> into firing, not every day it stayed there, and they use the levels as they stand today applied to past prices &mdash; your average cost has changed over time, this does not model that. A trailing rule recomputes its own "
+    note.innerHTML="Markers are the day a rule <b>crossed</b> into firing, not every day it stayed there, and they use the levels as they stand today applied to past prices &mdash; "
+      +(M.p==="wm"
+        ? "the reference is the one recorded now, not what it was on each of those days."
+        : "your average cost has changed over time, this does not model that.")
+      +" A trailing rule recomputes its own "
       +AM_HIGH_DAYS+"-day high at each date, so its line moves. Triggering is tested in each rule's own currency; the drawing is in "+cur+"."
       +(offs?" "+offs+" rule"+(offs>1?"s sit":" sits")+" too far from the current price to fit on the chart without flattening it — the row below still gives the level and the distance.":"");
   }
@@ -2728,16 +2854,19 @@
     });
   }
 
-  if(document.getElementById("am-periods")){
-    Array.prototype.forEach.call(document.querySelectorAll("#am-periods button"),function(b){
+  // Both maps get the same period control, wired the same way.
+  Object.keys(MAPS).forEach(function(k){
+    var M=MAPS[k], sel="#"+M.p+"-periods";
+    if(!document.querySelector(sel)) return;
+    Array.prototype.forEach.call(document.querySelectorAll(sel+" button"),function(b){
       b.addEventListener("click",function(){
-        AM_PERIOD=b.dataset.p;
-        Array.prototype.forEach.call(document.querySelectorAll("#am-periods button"),function(x){
+        M.period=b.dataset.p;
+        Array.prototype.forEach.call(document.querySelectorAll(sel+" button"),function(x){
           x.setAttribute("aria-pressed", x===b?"true":"false"); });
-        renderAlertMap();
+        renderAlertMap(M);
       });
     });
-  }
+  });
 
   if(document.getElementById("rule-create")){
     document.getElementById("rule-create").addEventListener("click",createRuleAlert);

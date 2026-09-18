@@ -712,6 +712,30 @@ euros. Conflating them told a tester that AMD was not a ticker. They are now sep
 Covered by `test/watchlist.test.js` (17) and thirteen HTTP tests against a real server; 161 tests in
 all. Checked in light, dark and at 390px.
 
+### 📉 The watchlist chart — 2026-09-18
+
+The Watchlist tab draws the stock it is showing: price history, the reference a dip is measured
+from as a dashed line, and every alert on it as its own line, with markers on the days each rule
+**crossed** into firing.
+
+It is not a second chart. The Alerts tab's map already drew exactly this for a holding, so the
+renderer was parameterised over an element-id prefix and its own selection, and mounted twice —
+`MAPS.am` and `MAPS.wm`. Writing a second one would have been a second copy of two hundred lines
+that answer the same question, and this codebase already has a file (`portfolio.js`) that exists
+because two copies of one calculation drifted apart.
+
+The dashed line is the reference, resolved with the same precedence as everywhere else: a
+holding's average cost if there is one, otherwise the watch price, labelled *Avg cost*, *What you
+paid*, *Your reference* or *Price when added* so it never claims you bought something you did not.
+
+**A stock that listed recently does not have a 52-week high, and nothing used to say so.**
+`recentHigh()` takes the highest close inside its 365-day window and reports it whatever the
+window actually contains. Every ticker used to arrive on a transaction, so there were always years
+behind it; a watchlist can hold something that listed last quarter, and a Trailing rule on it
+measures off a three-month high while calling itself *off 52w high*. `GET /api/watchlist` now
+returns `historyDays` and `historyShort`, and the row says "3m history" when there is not a year
+behind it. Found by reading a real watchlist entry, not by reasoning about the code.
+
 ### ⏱️ Two timers, one job — 2026-09-18
 
 Two systemd timers were running `price-fetch.js` every day: `price-fetch.timer` at 09:00 local and

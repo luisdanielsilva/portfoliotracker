@@ -1795,12 +1795,33 @@ app.get('/api/watchlist', (req, res) => {
       'SELECT price_eur AS eur, price_native AS native, currency, price_date AS date '
       + 'FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1'
     );
+    /* How much history each one actually has.
+     *
+     * A watchlist can hold a stock that listed last quarter, which holdings
+     * never could — every ticker used to arrive on a transaction for something
+     * the user had owned for a while. recentHigh() takes the maximum over
+     * whatever rows fall inside its 365-day window and says nothing when that is
+     * only sixty of them, so a Trailing rule on a young listing measures off a
+     * three-month high while calling itself "off 52w high". Reporting the depth
+     * is what lets the list say so instead.
+     */
+    const span = db.prepare(
+      'SELECT MIN(price_date) AS first, MAX(price_date) AS last FROM prices WHERE ticker = ?'
+    );
+    const { HIGH_WINDOW_DAYS } = require('./db-migrations');
     for (const r of rows) {
       const p = latest.get(r.ticker);
       r.price = p || null;
       r.dropPct = (p && r.referenceEur)
         ? ((r.referenceEur - p.eur) / r.referenceEur) * 100
         : null;
+
+      const s = span.get(r.ticker);
+      r.historyFrom = s && s.first ? s.first : null;
+      r.historyDays = (s && s.first && s.last)
+        ? Math.round((Date.parse(s.last) - Date.parse(s.first)) / 864e5)
+        : 0;
+      r.historyShort = r.historyDays < HIGH_WINDOW_DAYS;
     }
     res.json({ watchlist: rows });
   } catch (err) {

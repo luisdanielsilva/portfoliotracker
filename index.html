@@ -1573,6 +1573,32 @@
         </div>
       </div>
 
+      <div class="addcard" id="wm-card">
+        <h3>Price history <span id="wm-sub" style="color:var(--faint);font-weight:400;font-size:13px"></span></h3>
+        <p class="hint">One watched stock at a time: its price history, the reference a dip is
+          measured from, and every alert you have on it drawn as its own line. The markers show
+          where each rule <b>would have fired</b> over the period.</p>
+        <div class="picker-wrap" style="margin-bottom:12px">
+          <div class="picker" id="wm-tickers" role="group" aria-label="Choose a watched stock"></div>
+        </div>
+        <div class="toolbar" style="margin-bottom:10px">
+          <div class="legend" id="wm-legend"></div>
+          <div class="segmented" role="group" aria-label="Period" id="wm-periods">
+            <button type="button" data-p="3m">3M</button>
+            <button type="button" data-p="6m">6M</button>
+            <button type="button" data-p="1y" aria-pressed="true">1Y</button>
+            <button type="button" data-p="2y">2Y</button>
+            <button type="button" data-p="all">All</button>
+          </div>
+        </div>
+        <div class="chartbox">
+          <svg class="chart" id="wm-chart" viewBox="0 0 960 430" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Price history with your reference price and alert levels drawn on it"></svg>
+          <div class="tip" id="wm-tip"></div>
+        </div>
+        <div id="wm-rows"></div>
+        <p class="microcopy" id="wm-note"></p>
+      </div>
+
       <div class="addcard">
         <h3>Watching <span id="wl-count" style="color:var(--faint);font-weight:400"></span></h3>
         <p class="hint">Non-US listings need the exchange suffix Yahoo uses &mdash; <code>ASML.AS</code>,

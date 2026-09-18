@@ -498,3 +498,30 @@ test('a real ticker with no exchange rate on file says so, and does not blame th
   if (r.status === 503) assert.match(body.error, /exchange rate/i);
   s.idb.close(); s.pdb.close();
 });
+
+/* A stock that listed recently does not have a 52-week high, and nothing said so.
+ *
+ * recentHigh() takes the maximum over whatever rows fall inside its 365-day
+ * window. Holdings always had years behind them; a watchlist can hold something
+ * that listed last quarter, so a Trailing rule there measures off a three-month
+ * high while calling itself "off 52w high". The list reports the depth so it can
+ * be said out loud.
+ */
+test('the watchlist reports how much history each stock actually has', async () => {
+  const s = signIn('depth@example.com');
+  watch(s.pdb, s.key, 'NEWCO', 100);
+  watch(s.pdb, s.key, 'OLDCO', 100);
+  const px = s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
+                            VALUES (?, 100, 100, 'EUR', date('now', ?), 'test')`);
+  px.run('NEWCO', '-60 day'); px.run('NEWCO', '-1 day');
+  px.run('OLDCO', '-800 day'); px.run('OLDCO', '-1 day');
+
+  const { watchlist } = await (await fetch(base + '/api/watchlist', { headers: s.headers })).json();
+  const nw = watchlist.find(w => w.ticker === 'NEWCO');
+  const od = watchlist.find(w => w.ticker === 'OLDCO');
+
+  assert.strictEqual(nw.historyShort, true, 'sixty days is not a year');
+  assert.strictEqual(nw.historyDays, 59);
+  assert.strictEqual(od.historyShort, false, 'eight hundred days is');
+  s.idb.close(); s.pdb.close();
+});
