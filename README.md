@@ -781,6 +781,52 @@ duplicate run report stopping. It stays inside the safe market-hours window at e
 *Scheduled Tasks*). `OnBootSec=5min` catches up a run missed to a reboot. `price-fetch.timer` and
 `price-fetch.service` were disabled and deleted.
 
+### 🧮 A stock split is not a purchase — 2026-09-18
+
+An eleven-year transaction history was imported into an account that had held eighteen months of
+it, and the figures under the chart came back **upside down**: invested capital **€103,956**
+against a market value of **€103,140**, a **149% gain rendered as a 0.8% loss**.
+
+Two defects, and the same shape twice: a cost that was already known and not used.
+
+**1. The browser estimated a number the API sends it.** `app.js` mapped every holding to
+`[idx, quantity, marketValue, null]`, discarding the `amount` beside it — the euros that actually
+went in. With the return % null, the invested-capital estimator falls back to *"a quantity increase
+means a purchase at today's price"*. **A stock split is a quantity increase:**
+
+| snapshot | position | booked as invested |
+|---|---|--:|
+| 2020-08-31 | 8 → 40 shares (5-for-1) | €13,356 |
+| 2022-08-25 | 68 → 204 shares (3-for-1) | €40,381 |
+
+**€53,738 of capital that was never invested.** The same fallback never subtracts on a sale, so
+**€14,251** of proceeds stayed in the cost as well. One holding read €85,265 invested against a
+true €22,513.
+
+The fix is not a better estimate — it is to stop estimating. The transform derives the return from
+`amount`, which takes the exact path (`cb = v / (1 + rt/100)`) that already existed for hand-entered
+snapshots. A holding whose sales exceed its purchases has no positive cost to measure against and
+stays null rather than inventing one. **Both fallbacks remain for snapshots typed in by hand, and
+both are commented with what they cannot see** — neither knows a split from a purchase.
+
+**2. `/api/snapshots` counted closed positions in `costBasis`.** For a position long since sold,
+`totalAmount` is proceeds minus purchases — a realised gain arriving as *negative cost*. Two closed
+holdings were moving the figure beside the market value by **€175.87**. The holdings array
+immediately above it already filtered on `qty > 0`; the cost basis now does too.
+
+**Why it took eleven years of history to show up.** The account had no pre-split transactions and
+no closed positions until the import. Neither bug was dormant by luck — both needed data the app
+had never been given. *A feature that has only ever seen one shape of data has not been tested.*
+
+**How it was verified with no browser available.** Minting a session cookie to screenshot a
+logged-in page is refused by this sandbox, so: all **4,105 daily snapshots** were rebuilt offline
+exactly as `server.js` builds them, the replication was checked against figures computed
+independently from the transactions (market value and cost basis both matching to the cent), and
+the client's own estimator was then run over the result. Every holding's invested capital now
+agrees with its transactions. `test/http.test.js` pins the server half and **was seen to fail
+without it**. The remaining step — reading the page — was done by the user, which is also how the
+wrong figures were noticed in the first place.
+
 ### ⏳ Open Items / Backlog
 
 **Support address is a gmail one — change it when the new domain is in place.** The app already
