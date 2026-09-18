@@ -1,0 +1,11 @@
+[Unit]
+Description=Portfolio Tracker - Daily Price Fetch Timer
+Requires=portfolio-price-fetch.service
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+Unit=portfolio-price-fetch.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=Portfolio Tracker - Yahoo Finance Price Fetch
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=1h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+User=deploy
+WorkingDirectory=/var/www/portfoliotracker
+Environment="NODE_ENV=production"
+Environment="DB_PATH=/var/www/portfoliotracker/portfolio.db"
+ExecStart=/usr/bin/node /var/www/portfoliotracker/price-fetch.js
+StandardOutput=journal
+StandardError=journal
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

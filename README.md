@@ -1362,11 +1362,14 @@ git push         # pushes to remote
 pm2 restart portfolio-api   # if needed
 ```
 
-**Note on systemd units:** the price-fetch timer/service files live under
-`/etc/systemd/system/` and are *not* part of this git repo. If the project directory ever moves
-again, remember to update `WorkingDirectory`, `DB_PATH`, and `ExecStart` in
+**Note on systemd units:** systemd reads the price-fetch timer/service from
+`/etc/systemd/system/`, which is outside this repo. Since 2026-09-18 **copies are tracked in
+`deploy/systemd/`**, with install and drift-check commands in `deploy/systemd/README.md`. They are
+copies, so they can go stale — the `diff` is the point, not the copy. If the project directory ever
+moves again, remember to update `WorkingDirectory`, `DB_PATH`, and `ExecStart` in
 `portfolio-price-fetch.service` too — this was missed during the Sept 7 consolidation and caused
-a silent ~14h outage of price fetching until caught on Sept 9.
+a silent ~14h outage of price fetching until caught on Sept 9. The backup and health-check jobs
+are cron, not systemd, and `crontab -l` is still their only copy.
 
 ### 💾 Backups
 

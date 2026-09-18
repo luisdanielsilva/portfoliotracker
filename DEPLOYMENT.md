@@ -52,6 +52,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/api/auth/config  
 systemctl list-timers portfolio-price-fetch.timer   # EMPTY output = the fetch is not armed
 node check-job-health.js --status           # did the daily job actually succeed recently
 crontab -l                                  # backup 03:30, health check 13:00
+diff -u /etc/systemd/system/portfolio-price-fetch.timer deploy/systemd/portfolio-price-fetch.timer
 ```
 
 `systemctl list-timers` printing nothing has happened twice and is silent — the app looks
@@ -92,10 +93,12 @@ integrity-checked before they count.
 
 Each of these cost real time. They are listed because none is obvious from the code.
 
-**1. systemd units are not in the repo.** `portfolio-price-fetch.{timer,service}` live in
-`/etc/systemd/system/`. When the project moved directories, `WorkingDirectory`, `DB_PATH` and
-`ExecStart` still pointed at the old path and the job died for ~14h without a sound. After any
-move: `systemctl cat portfolio-price-fetch.service` and check all three.
+**1. systemd units live outside the repo.** `portfolio-price-fetch.{timer,service}` are read by
+systemd from `/etc/systemd/system/`. When the project moved directories, `WorkingDirectory`,
+`DB_PATH` and `ExecStart` still pointed at the old path and the job died for ~14h without a sound.
+Since 2026-09-18 **copies are tracked in `deploy/systemd/`** — copies, not the live files, so they
+can drift. After any move, or any change to the Node version or the schedule, check both:
+`systemctl cat portfolio-price-fetch.service`, then the drift `diff` in `deploy/systemd/README.md`.
 
 **2. Stopping the service leaves the timer disarmed.** `systemctl stop` on the service does not
 re-arm the timer afterwards. Re-enable explicitly:
