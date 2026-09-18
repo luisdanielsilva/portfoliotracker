@@ -393,9 +393,11 @@ test('accepting the offer carries the real cost, not a number the client chose',
 
   // A ticker with transactions already has price history in the real app; here
   // there is none, so this also proves `carry` does not depend on the backfill
-  // having found anything.
+  // having found anything. The row is dated beyond WATCH_HISTORY_DAYS (730) so
+  // the add sees history deep enough to skip Yahoo — 400 days used to be enough
+  // and is not any more, which is the point of that constant.
   s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
-                 VALUES ('ORCL', 90, 90, 'EUR', date('now','-400 day'), 'test')`).run();
+                 VALUES ('ORCL', 90, 90, 'EUR', date('now','-800 day'), 'test')`).run();
 
   const r = await fetch(base + '/api/watchlist', {
     method: 'POST', headers: s.headers,
@@ -417,7 +419,7 @@ test('accepting the offer carries the real cost, not a number the client chose',
 test('carry is refused when there is no closed position to carry from', async () => {
   const s = signIn('nocarry@example.com');
   s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
-                 VALUES ('GOOGL', 140, 140, 'EUR', date('now','-400 day'), 'test')`).run();
+                 VALUES ('GOOGL', 140, 140, 'EUR', date('now','-800 day'), 'test')`).run();
   const r = await fetch(base + '/api/watchlist', {
     method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: 'GOOGL', carry: true })
   });
@@ -523,5 +525,39 @@ test('the watchlist reports how much history each stock actually has', async () 
   assert.strictEqual(nw.historyShort, true, 'sixty days is not a year');
   assert.strictEqual(nw.historyDays, 59);
   assert.strictEqual(od.historyShort, false, 'eight hundred days is');
+  s.idb.close(); s.pdb.close();
+});
+
+/* The backfill depth is the chart's, not a rule's.
+ *
+ * The chart's period buttons reach 2Y, so two years is what a watched stock is
+ * expected to carry. Testing that against the trailing rule's 365 instead left a
+ * stock with 400 days looking deep enough to skip the backfill, after which
+ * pressing 2Y drew a short line and said nothing about why.
+ */
+test('a stock with more than a year but less than two is still short', async () => {
+  const s = signIn('twoyear@example.com');
+  watch(s.pdb, s.key, 'MIDCO', 100);
+  const px = s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
+                            VALUES ('MIDCO', 100, 100, 'EUR', date('now', ?), 'test')`);
+  px.run('-400 day'); px.run('-1 day');
+
+  const { watchlist } = await (await fetch(base + '/api/watchlist', { headers: s.headers })).json();
+  const w = watchlist.find(x => x.ticker === 'MIDCO');
+  assert.strictEqual(w.historyDays, 399);
+  assert.strictEqual(w.historyShort, true,
+    '400 days fills 1Y but not the 2Y the chart offers, so it must still be flagged');
+  s.idb.close(); s.pdb.close();
+});
+
+test('two full years is not short', async () => {
+  const s = signIn('deep@example.com');
+  watch(s.pdb, s.key, 'DEEPCO', 100);
+  const px = s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
+                            VALUES ('DEEPCO', 100, 100, 'EUR', date('now', ?), 'test')`);
+  px.run('-800 day'); px.run('-1 day');
+
+  const { watchlist } = await (await fetch(base + '/api/watchlist', { headers: s.headers })).json();
+  assert.strictEqual(watchlist.find(x => x.ticker === 'DEEPCO').historyShort, false);
   s.idb.close(); s.pdb.close();
 });

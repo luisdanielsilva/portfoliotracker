@@ -733,8 +733,17 @@ paid*, *Your reference* or *Price when added* so it never claims you bought some
 window actually contains. Every ticker used to arrive on a transaction, so there were always years
 behind it; a watchlist can hold something that listed last quarter, and a Trailing rule on it
 measures off a three-month high while calling itself *off 52w high*. `GET /api/watchlist` now
-returns `historyDays` and `historyShort`, and the row says "3m history" when there is not a year
-behind it. Found by reading a real watchlist entry, not by reasoning about the code.
+returns `historyDays` and `historyShort`, and the row says "3m history" when it is short. Found by
+reading a real watchlist entry, not by reasoning about the code.
+
+**How much history is enough is the chart's question, not a rule's.** The period buttons go
+3M / 6M / 1Y / 2Y, so two years is the longest fixed span the chart can be asked to draw, and that
+is what `WATCH_HISTORY_DAYS` is. It was briefly `HIGH_WINDOW_DAYS` — the trailing rule's 365 — and
+the two answer different questions: a stock with 400 days looked deep enough to skip the backfill,
+after which pressing **2Y** drew a 400-day line and said nothing about the other 330. The backfill
+depth, the skip test and the short flag all read the one constant now, and the chart says
+*"2Y is more history than there is"* with the date the prices start when a button reaches past
+them. **All** is exempt — it means "everything there is", so it is honest at any depth.
 
 ### ⏱️ Two timers, one job — 2026-09-18
 

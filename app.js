@@ -1758,9 +1758,9 @@
        */
       if(w.historyShort){
         var months=Math.max(1,Math.round(w.historyDays/30));
-        alertTxt+=' <span style="color:var(--warn)" title="A trailing rule needs a year of prices'
-          +' to mean what it says. This stock has '+w.historyDays+' days.">· '
-          +months+'m history</span>';
+        alertTxt+=' <span style="color:var(--warn);white-space:nowrap" title="'+w.historyDays+' days of prices stored.'
+          +' The chart offers 2Y, and a trailing rule needs a year to mean what it says — this is'
+          +' less than both.">· '+months+'m history</span>';
       }
 
       // The ticker doubles as the chart's selector — the row and the picker above
@@ -2499,9 +2499,21 @@
 
     // window
     var i0=0;
+    /* A period button can ask for more history than is stored.
+     *
+     * Pressing 2Y on a stock that listed three months ago draws three months and
+     * looks, without saying anything, exactly like a stock that has been flat
+     * for twenty-one months. `shortOfPeriod` is how far the button reaches past
+     * the first price there is; the note below says so.
+     */
+    var shortOfPeriod=null;
     if(M.period!=="all"){
       var cut=Date.now()-AM_DAYS[M.period]*864e5;
       while(i0<S.length-2 && amTs(S[i0].d)<cut) i0++;
+      // A week of slack: a series that starts a day or two inside the window is
+      // a weekend or a holiday, not a stock that did not exist yet.
+      var missing=Math.round((amTs(S[0].d)-cut)/864e5);
+      if(missing>7) shortOfPeriod=missing;
     }
     var cur=S[S.length-1].currency||"USD";
     var rules=amRules(M.ticker,S);
@@ -2699,7 +2711,12 @@
         : "your average cost has changed over time, this does not model that.")
       +" A trailing rule recomputes its own "
       +AM_HIGH_DAYS+"-day high at each date, so its line moves. Triggering is tested in each rule's own currency; the drawing is in "+cur+"."
-      +(offs?" "+offs+" rule"+(offs>1?"s sit":" sits")+" too far from the current price to fit on the chart without flattening it — the row below still gives the level and the distance.":"");
+      +(offs?" "+offs+" rule"+(offs>1?"s sit":" sits")+" too far from the current price to fit on the chart without flattening it — the row below still gives the level and the distance.":"")
+      +(shortOfPeriod
+        ? " <b>"+M.period.toUpperCase()+" is more history than there is</b> — prices start "
+          +S[0].d+", so the line covers "+Math.round((amTs(S[S.length-1].d)-amTs(S[0].d))/864e5)
+          +" days rather than "+AM_DAYS[M.period]+". Nothing earlier is stored."
+        : "");
   }
 
 

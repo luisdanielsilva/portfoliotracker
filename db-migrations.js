@@ -170,6 +170,22 @@ function ensureDropFromHighRuleType(db) {
 
 /** Highest close over the trailing window, in the market's own currency. */
 const HIGH_WINDOW_DAYS = 365;
+
+/**
+ * How much price history a watched stock is expected to carry.
+ *
+ * Tied to the chart, not to a rule: its period buttons go 3M / 6M / 1Y / 2Y, so
+ * two years is the longest fixed span it can be asked to draw, and anything
+ * shorter leaves a button that quietly draws less than it says. (The **All**
+ * button is deliberately not included — it means "everything there is", so it is
+ * honest at any depth.)
+ *
+ * This is why it is not HIGH_WINDOW_DAYS: 365 is what a *trailing rule* needs to
+ * mean what it says, and the two answer different questions. Testing the chart's
+ * need against the rule's number left a stock with, say, 400 days looking deep
+ * enough to skip the backfill, after which 2Y drew a short line and said nothing.
+ */
+const WATCH_HISTORY_DAYS = 730;
 function recentHigh(db, ticker, days = HIGH_WINDOW_DAYS) {
   const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
   const row = db.prepare(`
@@ -389,5 +405,5 @@ module.exports = {
   ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
   ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureAlertEventLog, ensureDataVersion,
   ensureWatchlist,
-  recentHigh, HIGH_WINDOW_DAYS, columnNames
+  recentHigh, HIGH_WINDOW_DAYS, WATCH_HISTORY_DAYS, columnNames
 };

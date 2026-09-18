@@ -1808,7 +1808,7 @@ app.get('/api/watchlist', (req, res) => {
     const span = db.prepare(
       'SELECT MIN(price_date) AS first, MAX(price_date) AS last FROM prices WHERE ticker = ?'
     );
-    const { HIGH_WINDOW_DAYS } = require('./db-migrations');
+    const { WATCH_HISTORY_DAYS } = require('./db-migrations');
     for (const r of rows) {
       const p = latest.get(r.ticker);
       r.price = p || null;
@@ -1821,7 +1821,7 @@ app.get('/api/watchlist', (req, res) => {
       r.historyDays = (s && s.first && s.last)
         ? Math.round((Date.parse(s.last) - Date.parse(s.first)) / 864e5)
         : 0;
-      r.historyShort = r.historyDays < HIGH_WINDOW_DAYS;
+      r.historyShort = r.historyDays < WATCH_HISTORY_DAYS;
     }
     res.json({ watchlist: rows });
   } catch (err) {
@@ -1852,21 +1852,23 @@ app.post('/api/watchlist', backfillLimiter, async (req, res) => {
 
     /* Backfill only when the history is actually short of what the rules need.
      *
-     * The window that matters is the trailing high's: HIGH_WINDOW_DAYS, 365. If
-     * prices already reach back that far — which they do for anything that has
-     * ever been held — asking Yahoo again buys nothing and costs a request. A
-     * stock arriving from a closed position is the common case here.
+     * The span that matters is the chart's: WATCH_HISTORY_DAYS, two years,
+     * because that is the longest period its buttons offer. Measuring against
+     * the trailing rule's 365 instead left a stock with 400 days looking deep
+     * enough to skip, after which the 2Y button drew a short line in silence.
+     * If prices already reach back that far — which they do for anything held
+     * for a while — asking Yahoo again buys nothing and costs a request.
      */
-    const { HIGH_WINDOW_DAYS } = require('./db-migrations');
+    const { WATCH_HISTORY_DAYS } = require('./db-migrations');
     const oldest = db.prepare('SELECT MIN(price_date) AS d FROM prices WHERE ticker = ?').get(ticker);
-    const needBy = new Date(Date.now() - HIGH_WINDOW_DAYS * 864e5).toISOString().slice(0, 10);
+    const needBy = new Date(Date.now() - WATCH_HISTORY_DAYS * 864e5).toISOString().slice(0, 10);
     const historyIsDeepEnough = !!(oldest && oldest.d && oldest.d <= needBy);
 
     let filled = { added: 0, from: oldest && oldest.d };
     if (!historyIsDeepEnough) {
       const YahooFinance = require('yahoo-finance2').default;
       const { backfillTicker } = require('./backfill-history');
-      filled = await backfillTicker(db, new YahooFinance(), ticker, 2);
+      filled = await backfillTicker(db, new YahooFinance(), ticker, WATCH_HISTORY_DAYS / 365);
 
       /* Two different failures both arrive as `added: 0`, and telling somebody
        * their ticker does not exist when it does is worse than either.
