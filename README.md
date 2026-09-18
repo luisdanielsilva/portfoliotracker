@@ -270,10 +270,10 @@ the conclusion was **tested against the running app**, not read off the source.
    tables, so any signed-in user can fetch history for a symbol only someone else holds. It
    reveals *what* is tracked, never *who* holds it or how much. Low severity; fixing it means
    scoping shared price data per user, which costs more than it returns.
-2. **The client's `esc()` does not escape `>` or `'`.** Safe as used — every interpolation lands
-   in a text node or a double-quoted attribute, and tickers are validated server-side — but it
-   is narrower than the server's `escapeHtml` and would not survive being used in a
-   single-quoted attribute. Worth aligning.
+2. ~~**The client's `esc()` does not escape `>` or `'`.**~~ **Aligned in `5c06643`
+   (2026-09-14).** `esc()` in `app.js:110` now covers the same five characters as
+   `escapeHtml()`, which lives in `auth-mail.js` and is re-exported to `server.js` — one
+   definition, two callers.
 3. **Open registration** remains the multiplier under every authenticated limit.
 
 ### ⚡ Capacity work — 2026-09-13
@@ -495,9 +495,16 @@ speaking the old database's language.
 **Maintenance scripts now refuse to run on `require`.** `recompute-eur.js` executed a
 top-level IIFE, so `require('./recompute-eur')` — checking the module still loads, say —
 restated every euro price in whatever `DB_PATH` pointed at. It and `split-databases.js` are
-both behind `require.main === module` now. `check-job-health.js` and `send-backup.js` have the
-same shape and send mail on load; they are invoked only by systemd today, but guard them
-before requiring them from anything.
+both behind `require.main === module` now, and **`check-job-health.js` and `send-backup.js`
+joined them on 2026-09-18** — they had the same shape and the same reach: loading the first
+opens the database, prints a verdict, can email an operator and calls `process.exit()` whichever
+way it goes; loading the second either exits 1 for want of a file argument or emails the
+database as an attachment. Either one takes its caller down with it, so the damage was never
+limited to the script that was loaded.
+
+`test/module-wiring.test.js` pins all four — the source must mention `require.main`, and the two
+mail-sending ones are actually required in the test, where an unguarded script would end the run
+rather than reach the assertion. Verified by deleting the guard and watching it fail.
 
 ### 📭 The login email that never sent — 2026-09-16
 
@@ -895,10 +902,14 @@ limit on cost, not a rule about how anyone should invest.
 server's `escapeHtml()` covers five. Safe as used, but two escapers with two definitions is the
 actual defect; there is now one definition in two places.
 
-**Edge rate limiting — written, not applied.** `nginx-rate-limit.conf.example` holds the config
-and the reasoning. It needs root, which this account does not have without a password, so it is
-one `sudo` edit and a reload away. It protects what the app's own limiters cannot: the ~280KB of
-static files served to anyone with no account at all.
+**~~Edge rate limiting — written, not applied~~ — applied, verified 2026-09-18.**
+`/etc/nginx/conf.d/portfoliotracker-limits.conf` declares `pt_req` (10r/s) and `pt_conn`, and
+both `location /portfoliotracker/` and `location /portfoliotracker/api/` in
+`sites-enabled/singleuseapps-com` use them (`limit_req … burst=40 nodelay`, `limit_conn pt_conn
+20`, both answering 429). `nginx-rate-limit.conf.example` stays as the reasoning and the copy
+this repository can see — **the live files are not in git**, so `diff` them the way
+`deploy/systemd/README.md` says to diff the units. This is what the app's own limiters cannot
+reach: the ~280KB of static files served to anyone with no account at all.
 
 **Personal and financial data are now separate files (done 2026-09-14).**
 
@@ -968,15 +979,18 @@ price table on every call. `/api/backfill` also accepted **any string as a ticke
 it to Yahoo; it now validates like every other endpoint. `trust proxy` is set, so limits key on
 the real client rather than on nginx.
 
-*Still open:*
-1. **No limit in nginx.** Everything relies on the Node process being reached first. A limit at
-   the edge would shed load before it costs a thread.
-2. **`/app.js` (167KB) and `/` (112KB) are public and unlimited** — ~280KB per page load with
-   no account needed. A bandwidth drain rather than a CPU one, but nothing caps it.
-3. **`/api/snapshots` returns 463KB** and recomputes the whole series per request. Caching it
-   per user until the next price fetch would remove the pressure rather than merely rationing it.
-4. **Open registration** remains the multiplier: every authenticated limit above assumes
-   getting an account is meaningful, and right now signing in *is* registering.
+*Where this stands, re-checked 2026-09-18:*
+1. ~~**No limit in nginx.**~~ **Done.** `limit_req`/`limit_conn` are live on both
+   `/portfoliotracker/` locations — see *Edge rate limiting* under Open Items.
+2. ~~**`/app.js` and `/` are public and unlimited.**~~ **Covered by the same limits**, which sit
+   on the static location and not only on `/api`. The bytes are unchanged; what is capped now is
+   how fast one address can ask for them.
+3. ~~**`/api/snapshots` recomputes the whole series per request.**~~ **Cached since `e6c6dbc`
+   (2026-09-13)** — `BoundedCache(40)` in `server.js`, keyed by `userId` + the database-wide
+   version counter, so an entry is served only while nothing has been written. `/api/algorithm`
+   has the same treatment per ticker.
+4. **Open registration** remains open, and remains the multiplier: every authenticated limit
+   above assumes getting an account is meaningful, and right now signing in *is* registering.
 
 
 **Donations — widget built 2026-09-14, NOT yet able to take money.**
@@ -1001,12 +1015,13 @@ disk. Worth fixing before they grow.
 
 **It cannot take money yet, for reasons that have nothing to do with this app:**
 
-1. **The licence service is stopped** in pm2 and **nginx has no `/api` route** for it on
-   singleuseapps.com, so `POST /api/checkout/donation` 404s. *This also means DupSweep's
-   existing buy widget cannot work right now* — worth knowing, since that one is supposed to
-   be selling something.
-2. **Stripe is in test mode** (`sk_test_` / `pk_test_`). Real cards will not work until live
-   keys are set in the service's `.env` and in the publishable key inside both widgets.
+1. ~~**The licence service is stopped and nginx has no `/api` route.**~~ **Fixed — checked
+   2026-09-18:** `license-service` is online in pm2 and `POST /api/checkout/donation` answers
+   **400** to an empty body, which is the route replying rather than nginx 404ing. DupSweep's
+   buy widget can reach its endpoint again too.
+2. **Stripe is in test mode** — the only blocker left. No `sk_live` key is present in the
+   service's `.env`. Real cards will not work until live keys are set there and in the
+   publishable key inside both widgets.
 
 Until then the section fails *visibly* rather than silently — clicking Donate shows "Could not
 start checkout" and re-enables the button. A donation that fails quietly is worse than one

@@ -1,5 +1,11 @@
-# Edge rate limiting for Portfolio Tracker — needs root, so it is written here
-# rather than applied. One sudo edit and one reload.
+# Edge rate limiting for Portfolio Tracker.
+#
+# APPLIED — verified 2026-09-18. The zone lines are live in
+# /etc/nginx/conf.d/portfoliotracker-limits.conf and both portfoliotracker
+# locations in sites-enabled/singleuseapps-com carry the limit_* lines below.
+# nginx is not in this repository, so this file is the readable copy and the
+# reasoning; when one changes, diff them, the way deploy/systemd/README.md
+# says to diff the units.
 #
 # WHY AT THE EDGE. The limits inside the app work, but they only work after Node
 # has accepted the connection, parsed the request and looked up the session — all
@@ -19,7 +25,7 @@
 #   limit_conn 20  One browser opens at most six connections per host. Twenty is
 #                a couple of tabs; a hundred is a tool.
 #
-# HOW TO APPLY
+# HOW IT WAS APPLIED, and how to re-apply it on a rebuilt server
 #   sudo nano /etc/nginx/sites-available/singleuseapps-com
 #   ...paste the two zone lines at the top, inside http{} — if the file has no
 #      http{} block, put them in /etc/nginx/conf.d/portfoliotracker-limits.conf
