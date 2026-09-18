@@ -34,6 +34,14 @@ function mailer() {
   });
 }
 
+// Requiring this file must not run it. Loading it opens the database, prints a
+// verdict, can email an operator, and ends in process.exit() whatever it finds — so
+// a stray require() takes its caller down with it. Same guard as recompute-eur.js.
+if (require.main !== module) {
+  module.exports = { dbPath, MAX_AGE_HOURS };
+  return;
+}
+
 // Writable, not because this script changes anything it reports on, but because
 // the mail ledger has to record what it sends — a cap that cannot write is not a
 // cap, it is a suggestion.

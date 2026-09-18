@@ -51,3 +51,28 @@ test('the web app sends only through the guarded helpers', () => {
   assert.match(authMail, /require\('\.\/mailguard'\)/, 'and that is where the ceiling is applied');
   assert.doesNotMatch(authMail, /mailer\.sendMail\(/, 'even here, sendGuarded does the sending');
 });
+
+/**
+ * The operational scripts must not run on `require`.
+ *
+ * `recompute-eur.js` and `split-databases.js` were guarded on 2026-09-16, after one of
+ * them was executed by accident. These two were left: loading `check-job-health.js`
+ * opens the database, prints a verdict, can email an operator and then calls
+ * process.exit() whichever way it goes, and loading `send-backup.js` either exits 1 for
+ * want of a file argument or emails the database as an attachment. Either one takes its
+ * caller down with it, which is why a missing guard here fails the whole run.
+ */
+const SCRIPTS = ['check-job-health', 'send-backup', 'recompute-eur', 'split-databases'];
+
+test('requiring an operational script does not run it', () => {
+  for (const name of SCRIPTS) {
+    const text = fs.readFileSync(path.join(ROOT, `${name}.js`), 'utf-8');
+    assert.match(text, /require\.main/, `${name}.js must not act merely because it was loaded`);
+  }
+  // And the guard has to hold in practice, not just appear in the source. An unguarded
+  // script would exit the process here rather than reach the assertion below.
+  for (const name of ['check-job-health', 'send-backup']) {
+    const m = require(path.join(ROOT, `${name}.js`));
+    assert.ok(m && typeof m === 'object', `${name} should export rather than execute`);
+  }
+});

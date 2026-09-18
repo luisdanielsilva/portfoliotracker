@@ -18,6 +18,15 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 // why it should not be the one exception to the rule.
 const Database = require('better-sqlite3');
 const mailguard = require('./mailguard');
+
+// Requiring this file must not run it. With no file argument it exits 1 on load, and
+// with one it emails a database backup as an attachment — neither is something the
+// caller asked for. Same guard as recompute-eur.js.
+if (require.main !== module) {
+  module.exports = {};
+  return;
+}
+
 let ledger = null;
 try {
   ledger = new Database(process.env.DB_PATH || path.join(__dirname, 'portfolio.db'));
