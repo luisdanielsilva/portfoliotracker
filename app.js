@@ -2299,8 +2299,17 @@
 
      Everything is drawn in the market's own currency, matching the price. The two
      cost-based rules are euro thresholds, so they are converted at each date's own
-     implied rate (native/eur from that day's row) rather than at today's — which is
-     why those lines can drift slightly even when your average cost has not moved.
+     implied rate (native/eur from that day's row) rather than at today's.
+
+     That is why a cost-based line on a foreign listing is not straight, and the
+     movement is not small: over the year to 2026-09-18 the euro/dollar rate ranged
+     1.1354 → 1.2018, so a Target +200% on AMD — a fixed €521.31 — was drawn
+     anywhere between $591.91 and $626.49 while the rule itself never moved. The
+     same rule on ASML.AS converts at ×1 every day and draws flat. The wandering
+     line is the honest one: it is the price that listing would have needed on that
+     date to put you 200% up in euros, and converting at today's rate instead would
+     claim the rule had been reachable on days it was not.
+
      Triggering is always tested in the rule's own currency, never the drawn one. */
   /* Two instances of one chart.
    *
