@@ -1010,8 +1010,10 @@ receipt; that is Stripe's record and none of it comes back here.
 | `donate-widget.js` | `/var/www/singleuseapps-com/` | the shared widget (**new**) |
 | `src/routes/donation.js`, `src/routes/webhook.js`, `src/server.js` | `/var/www/license-service/` | the checkout endpoint and a webhook guard |
 
-**Neither of those two directories is a git repository**, so those changes exist only on
-disk. Worth fixing before they grow.
+**~~Neither of those two directories is a git repository~~ — both are, since 2026-09-17**
+(`singleuseapps-com` at `713348a`, `license-service` at `c8066ae`; both private on GitHub, both
+clean and in sync, checked 2026-09-18). Only `.env.example` is tracked in either — no `.env`, no
+keys. What is still outside git is nginx (see *Edge rate limiting*) and the cron entries.
 
 **It cannot take money yet, for reasons that have nothing to do with this app:**
 
