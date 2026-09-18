@@ -658,7 +658,56 @@ Covered by `test/alert-log.test.js` (13 tests), and the Algorithm tab's timeline
 `alert_events` — an alert the mailer refused shows there as *Alert raised, email not sent*
 rather than silently looking like an email that arrived.
 
+### ⏱️ Two timers, one job — 2026-09-18
+
+Two systemd timers were running `price-fetch.js` every day: `price-fetch.timer` at 09:00 local and
+`portfolio-price-fetch.timer` at 09:00 UTC, which is 10:00 WEST in summer. Both ran the whole job —
+fetch, store, evaluate, mail — so every day's prices were fetched twice, the second run restating
+the first with a later quote, and the run report was mailed twice. The alert digest escaped going
+out twice only because of the 24h per-alert throttle. That is a safety net catching a mistake, not
+a design.
+
+`price-fetch.timer` was the stray. It was created during the Sept 7 consolidation and never cleaned
+up, and it never received either fix the other unit was deliberately given: `DB_PATH` was left
+implicit, and its `StartLimitInterval` / `StartLimitBurst` sat in `[Service]` under the pre-229
+names, where systemd ignores them — so the retry cap described above was never actually in force on
+that unit. Every mention in this README, in `DEPLOYMENT.md`, and in `check-job-health.js`'s own
+diagnostics already names `portfolio-price-fetch`.
+
+So `portfolio-price-fetch` survives, and it took the two things the stray had that were better:
+
+| | was | now |
+|---|---|---|
+| `OnCalendar` | `09:00:00 UTC` | `09:00:00` (local) |
+| `OnBootSec` | — | `5min` |
+
+Local time holds the same wall-clock slot across DST instead of sliding an hour every summer, and
+it is the slot the alert digest already arrived in — so nothing changes for a reader except the
+duplicate run report stopping. It stays inside the safe market-hours window at either offset (see
+*Scheduled Tasks*). `OnBootSec=5min` catches up a run missed to a reboot. `price-fetch.timer` and
+`price-fetch.service` were disabled and deleted.
+
 ### ⏳ Open Items / Backlog
+
+**Support address is a gmail one — change it when the new domain is in place.** The app already
+*sends* from `singleuseapps.com` (`ALERT_EMAIL_FROM`, `AUTH_EMAIL_FROM` in `.env`); what is still
+a personal gmail is the address a reader is *given* to write to, and the inbox that receives.
+Six places publish it and two `.env` keys point at it:
+
+| Where | What |
+|---|---|
+| `index.html:1584` | the app footer |
+| `index.html:1129` | the landing-page footer |
+| `privacy.html:93`, `privacy.html:108` | the deletion request and the contact block |
+| `terms.html:83` | the contact block |
+| `contact.js:177` | the fallback shown when the contact form fails to send |
+| `.env` → `CONTACT_EMAIL_TO` | where the contact form delivers |
+| `.env` → `OPS_EMAIL_TO` | where job-health and backup mail go — worth keeping separate from the above, so machine noise and people asking for help do not share an inbox |
+
+Blocked on the domain, not on the work: it is one `grep -rn singleuseapp@gmail.com` and two `.env`
+edits, plus a `pm2 restart portfolio-api` for the `.env` change to be read. Privacy Policy and
+Terms both name the address as the contact of record, so changing it is a change to a published
+document — worth a line in each saying when it changed.
 
 **~~The systemd unit still names the pre-split database~~ — fixed 2026-09-15.**
 
@@ -1407,11 +1456,12 @@ Environment variables in `.env`:
 
 ### 🗓️ Scheduled Tasks
 
-**Price-Fetch (daily at 09:00 UTC):**
+**Price-Fetch (daily at 09:00 local):**
 - Fetches closing prices from Yahoo Finance
 - Stores in SQLite
 - Evaluates price alerts and sends one digest email per user via Resend
-- Managed by `portfolio-price-fetch.timer` / `.service` under `/etc/systemd/system/`
+- Managed by `portfolio-price-fetch.timer` / `.service` under `/etc/systemd/system/` — the only
+  timer for this job since 2026-09-18, when a duplicate was removed
 - Check it is actually armed: `systemctl list-timers portfolio-price-fetch.timer` — an empty
   listing means no automated fetch at all, which has happened twice
 - The market-hours window wraps midnight: safe after the 21:00 UTC close **and** again before the
