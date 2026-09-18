@@ -829,6 +829,41 @@ wrong figures were noticed in the first place.
 
 ### ⏳ Open Items / Backlog
 
+**Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**
+
+`price-fetch.js` runs at 09:00 local, before the US session it is reporting on has opened, so the
+close it fetches belongs to the *previous* session — and it stores it under **the date the job
+ran**. `backfill-history.js` stores each bar under **its own trading date**. Both are reasonable in
+isolation; together they put the same close on two different dates.
+
+Checked against Yahoo the same afternoon:
+
+| ticker | row | holds | |
+|---|---|---|---|
+| ORCL | 2026-09-16 | the 09-15 close | a day late |
+| ORCL | 2026-09-17 | the 09-16 close | a day late |
+| ORCL | 2026-09-18 | the 09-17 close | a day late |
+| TSLA | 2026-09-17 | the 09-17 close | on its own date |
+
+TSLA reads correctly only because a backfill that morning rewrote its recent rows; ORCL was left
+alone and still carries the job's dating. **So the two conventions now coexist inside one
+portfolio, and two holdings on the same chart can be a session apart.**
+
+**What it does and does not break.** Every total, average cost, gain and alert is computed from the
+*latest* price, so none of them is wrong — the newest row is the newest close whatever it is called.
+What is wrong is anything read *by date*: comparing a point on the chart against an external chart,
+or reading two holdings against each other across a day the job ran.
+
+**A second, smaller thing the same morning:** a backfill run while a market is open writes that
+day's *intraday* price as though it were a close. TSLA's 09-18 row holds 363.525 against a 363.60
+close. Harmless once the next day's row lands, but it is not a close and is labelled as one.
+
+**The fix is a decision plus a migration**, which is why it is here and not done: settle on the
+bar's own trading date, have `price-fetch.js` date each close by the session it belongs to rather
+than by the clock, re-date the rows the job has already written, and refuse to write a bar for a
+market that is still open. Doing that carelessly would restate history, so it wants its own change
+with its own before-and-after — not a line slipped into an import.
+
 **Support address is a gmail one — change it when the new domain is in place.** The app already
 *sends* from `singleuseapps.com` (`ALERT_EMAIL_FROM`, `AUTH_EMAIL_FROM` in `.env`); what is still
 a personal gmail is the address a reader is *given* to write to, and the inbox that receives.
