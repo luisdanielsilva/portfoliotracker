@@ -118,6 +118,15 @@
     if(!t) return "";
     return BSHORT[BKEY.indexOf(String(t).toLowerCase())] || TICKER_NAMES[String(t).toUpperCase()] || t;
   }
+  /* Every holding picker shows the symbol, and hands the company name over on hover.
+     The symbol is what the rest of the app is keyed by, what the alert list and the
+     transaction rows already show, and what stays the same width per holding; the
+     name is the part you may not have memorised. Skipped when tickerLabel has no
+     name to give and would only repeat the symbol back. */
+  function chipTitle(t){
+    var nm=tickerLabel(t);
+    return (nm && nm!==t) ? ' title="'+esc(nm)+'"' : '';
+  }
   // Symbols are stored exactly as Yahoo knows them (price-fetch.js quotes them
   // unchanged), so the quote page is a straight substitution — suffixes included.
   function yahooQuoteLink(t, label, cls){
@@ -1103,7 +1112,8 @@
     }
     if(!algoSelected||tickers.indexOf(algoSelected)===-1) algoSelected=tickers[0];
     wrap.innerHTML=tickers.map(function(t){
-      return '<button type="button" class="chip" data-ticker="'+esc(t)+'" aria-pressed="'+(t===algoSelected?"true":"false")+'">'+esc(tickerLabel(t))+'</button>';
+      return '<button type="button" class="chip" data-ticker="'+esc(t)+'"'+chipTitle(t)
+        +' aria-pressed="'+(t===algoSelected?"true":"false")+'">'+esc(t)+'</button>';
     }).join("");
     Array.prototype.forEach.call(wrap.querySelectorAll("button"),function(b){
       b.addEventListener("click",function(){
@@ -2460,7 +2470,8 @@
     if(!M.ticker || list.indexOf(M.ticker)<0) M.ticker=list[0];
     box.innerHTML=list.map(function(t){
       var n=counts[t]||0;
-      return '<button type="button" class="chip" data-t="'+esc(t)+'" aria-pressed="'+(t===M.ticker)+'">'+esc(t)
+      return '<button type="button" class="chip" data-t="'+esc(t)+'"'+chipTitle(t)
+        +' aria-pressed="'+(t===M.ticker)+'">'+esc(t)
         +(n?'<span class="am-n">'+n+'</span>':'')+'</button>';
     }).join("");
     Array.prototype.forEach.call(box.querySelectorAll("button"),function(b){
@@ -3069,8 +3080,8 @@
       }
       if(!dcaSelected || DCA_TICKERS.indexOf(dcaSelected)===-1) dcaSelected=DCA_TICKERS[0];
       document.getElementById("dca-tickers").innerHTML=DCA_TICKERS.map(function(t){
-        var nm=tickerLabel(t);
-        return '<button type="button" class="chip" data-ticker="'+t+'" aria-pressed="'+(t===dcaSelected?"true":"false")+'">'+esc(nm)+'</button>';
+        return '<button type="button" class="chip" data-ticker="'+t+'"'+chipTitle(t)
+          +' aria-pressed="'+(t===dcaSelected?"true":"false")+'">'+esc(t)+'</button>';
       }).join("");
       // say so rather than silently shortening the list, which is how the old bug hid
       var note=document.getElementById("dca-thin");
