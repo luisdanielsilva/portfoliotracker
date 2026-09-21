@@ -1103,7 +1103,7 @@
     }
     if(!algoSelected||tickers.indexOf(algoSelected)===-1) algoSelected=tickers[0];
     wrap.innerHTML=tickers.map(function(t){
-      return '<button data-ticker="'+esc(t)+'" aria-pressed="'+(t===algoSelected?"true":"false")+'">'+esc(tickerLabel(t))+'</button>';
+      return '<button type="button" class="chip" data-ticker="'+esc(t)+'" aria-pressed="'+(t===algoSelected?"true":"false")+'">'+esc(tickerLabel(t))+'</button>';
     }).join("");
     Array.prototype.forEach.call(wrap.querySelectorAll("button"),function(b){
       b.addEventListener("click",function(){
@@ -3070,7 +3070,7 @@
       if(!dcaSelected || DCA_TICKERS.indexOf(dcaSelected)===-1) dcaSelected=DCA_TICKERS[0];
       document.getElementById("dca-tickers").innerHTML=DCA_TICKERS.map(function(t){
         var nm=tickerLabel(t);
-        return '<button data-ticker="'+t+'" aria-pressed="'+(t===dcaSelected?"true":"false")+'">'+esc(nm)+'</button>';
+        return '<button type="button" class="chip" data-ticker="'+t+'" aria-pressed="'+(t===dcaSelected?"true":"false")+'">'+esc(nm)+'</button>';
       }).join("");
       // say so rather than silently shortening the list, which is how the old bug hid
       var note=document.getElementById("dca-thin");

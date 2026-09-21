@@ -200,6 +200,9 @@
   .segmented button{font:inherit;font-size:12.5px;font-weight:500;padding:6px 12px;border:0;cursor:pointer;background:var(--surface);color:var(--muted);flex:0 0 auto;white-space:nowrap}
   .segmented button[aria-pressed="true"]{background:var(--surface-2);color:var(--ink)}
   .segmented button+button{border-left:1px solid var(--hair)}
+  /* A .segmented strip is a fixed set of three or four choices and cannot wrap; the
+     two holdings pickers grow with the portfolio, so they use .picker/.chip like the
+     Alerts and Watchlist pickers above — see the note on #dca-tickers. */
   .ctlrow{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin-bottom:14px}
   .ctlrow .lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:600}
 
@@ -1275,7 +1278,12 @@
   <section id="view-dca" hidden>
     <div class="panel">
       <p class="microcopy" style="margin:0 0 12px">Where a holding sits against its own recent norm, in both directions: how far below its trailing average it is trading &mdash; the case for adding &mdash; and how far above, which is where taking something off is worth thinking about. Plus how often each has happened over the last year, so you can judge whether today&rsquo;s level is unusual or routine.</p>
-      <div class="segmented" role="group" aria-label="Select stock" id="dca-tickers" style="margin-bottom:8px"></div>
+      <!-- One chip per holding, so it wraps: as a .segmented strip it ran past the
+           right edge of the panel at fourteen holdings, slicing the last name mid-word
+           and putting the ones behind it out of reach. The strip does scroll, but with
+           no visible scrollbar and no clipped-edge cue that is a gesture nobody knows
+           is there. Same picker the Alerts and Watchlist tabs use. -->
+      <div class="picker" role="group" aria-label="Select stock" id="dca-tickers" style="margin-bottom:8px"></div>
       <p class="microcopy" id="dca-thin" style="margin:0 0 16px"></p>
       <div class="kpi-grid" id="dca-kpi"></div>
       <h3 class="ind-h" id="dca-h1">Price vs. trailing average</h3>
@@ -1316,7 +1324,7 @@
         </div>
       </div>
 
-      <div class="segmented" role="group" aria-label="Select stock" id="algo-tickers"></div>
+      <div class="picker" role="group" aria-label="Select stock" id="algo-tickers" style="margin-bottom:8px"></div>
       <p class="microcopy" id="algo-note"></p>
 
       <div id="algo-today"></div>
