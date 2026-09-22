@@ -229,8 +229,12 @@
   .firstrun .fr-cta{margin-top:16px}
   svg.chart{display:block;width:100%;height:auto;touch-action:pan-y}
   .gridline{stroke:var(--grid);stroke-width:1}
-  .axislbl{fill:var(--faint);font-size:11px;font-family:"IBM Plex Mono",monospace}
-  .xlbl{fill:var(--muted);font-size:11px;font-family:"IBM Plex Mono",monospace;text-anchor:middle}
+  /* --axis-fs is set per chart at draw time: these SVGs scale with their container,
+     so a fixed 11px shrinks with everything else and lands at about four pixels on a
+     phone. axisMetrics() in app.js works back from the rendered width to whatever
+     size renders at 11px, and the tick count follows the same number. */
+  .axislbl{fill:var(--faint);font-size:var(--axis-fs,11px);font-family:"IBM Plex Mono",monospace}
+  .xlbl{fill:var(--muted);font-size:var(--axis-fs,11px);font-family:"IBM Plex Mono",monospace;text-anchor:middle}
   .serieline{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
   .dot{stroke:var(--surface);stroke-width:1.5}
   .endlbl{font-size:11px;font-weight:600;font-family:"IBM Plex Mono",monospace}

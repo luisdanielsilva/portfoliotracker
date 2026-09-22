@@ -338,44 +338,146 @@
     renderTable();
   }
 
-  function monthTicks(){
-    var span=(new Date(chartT1).getFullYear()-new Date(chartT0).getFullYear())*12 + (new Date(chartT1).getMonth()-new Date(chartT0).getMonth());
-    var useQuarters = span > 6;
-    var out=[], d=new Date(chartT0); d.setDate(1); d.setHours(0,0,0,0);
+  /* ================= axes =================
+   *
+   * Every chart draws into a fixed viewBox and is scaled to its container, so a
+   * label comfortable on a desktop is squeezed along with everything else on a
+   * phone: at 390px the scale is about 0.37 and an 11-unit label lands at four
+   * pixels. Reading the rendered width is what lets both the size of a label and
+   * the number of them follow the space actually available.
+   *
+   * There used to be three y routines -- two identical 1/2/5 searches and one that
+   * stepped in fixed €500s while ignoring the count it was handed, which gave the
+   * whole portfolio 22 labels and a single small holding two -- and two x routines
+   * that disagreed about how to step a long window. There is one of each now, and
+   * the only knobs are the three gaps below.
+   */
+  var AXIS_MIN_PX = 11;     // no label may render smaller than this on screen
+  var AXIS_Y_GAP  = 2.4;    // clear space between y labels, in multiples of the font size
+  var AXIS_X_GAP  = 14;     // clear space between x labels, in viewBox units
 
-    if(useQuarters){
-      // Show quarters: year label first, then quarters, format like "2022    Q1    Q2    Q3    2023"
-      while(d.getMonth()%3!==0) d.setMonth(d.getMonth()+1);
-      var currentYear=null;
-      var guard=0;
-      while(d.getTime()<=chartT1 && guard++<200){
-        if(d.getTime()>=chartT0){
-          var year=d.getFullYear();
-          if(year!==currentYear){
-            // The year label stands in for that quarter — pushing both put "2026" and
-            // "Q1" on the same x, one printed over the other.
-            out.push({t:d.getTime(), lab:String(year), isYear:true});
-            currentYear=year;
-          } else {
-            out.push({t:d.getTime(), lab:"Q"+(Math.floor(d.getMonth()/3)+1)});
-          }
-        }
-        d.setMonth(d.getMonth()+3);
-      }
+  /** Label size (in viewBox units) for one chart, derived from how big it is drawn. */
+  function axisMetrics(svg){
+    var vb=String((svg&&svg.getAttribute("viewBox"))||"0 0 960 540").split(/[\s,]+/).map(Number);
+    var w=svg&&svg.getBoundingClientRect?svg.getBoundingClientRect().width:0;
+    var scale=(w&&vb[2])?w/vb[2]:1;                  // viewBox units -> css pixels
+    var fs=Math.max(11, AXIS_MIN_PX/scale);
+    if(svg&&svg.style) svg.style.setProperty("--axis-fs", fs.toFixed(1)+"px");
+    return {fs:fs, scale:scale, charW:fs*0.62};      // IBM Plex Mono runs about 0.6em per character
+  }
+
+  /** How many labels fit along `px` units at `per` units each, kept inside [min,max]. */
+  function axisCount(px,per,min,max){
+    return Math.max(min, Math.min(max, Math.floor(px/Math.max(per,1))));
+  }
+
+  /** Ticks at 1, 2 or 5 x 10^n -- the search algoTicks and niceTicksGeneric both had. */
+  var NICE_STEPS=[1,2,5,10];
+  function niceScale(lo,hi,count){
+    var span=hi-lo; if(!(span>0)) return [lo];
+    var target=Math.max(count,2);
+    var mag=Math.pow(10,Math.floor(Math.log(span/target)/Math.LN10));
+    // Take the first step that actually fits the target rather than the nearest
+    // one to it: a nice step rounds down, which is how the old routines answered
+    // a request for 8 labels with 11.
+    var step=mag*NICE_STEPS[NICE_STEPS.length-1], finer=null;
+    for(var i=0;i<NICE_STEPS.length;i++){
+      if(span/(mag*NICE_STEPS[i])<=target){ step=mag*NICE_STEPS[i]; break; }
+      finer=mag*NICE_STEPS[i];
+    }
+    function build(st){
+      var out=[], v=Math.ceil(lo/st)*st;
+      // Math.ceil of a small negative is -0, which formats as "-0" on the axis
+      for(;v<=hi+st*0.5;v+=st){ var val=Math.round(v*1e6)/1e6; out.push(val===0?0:val); }
+      return out;
+    }
+    var ticks=build(step);
+    // Fitting the target caps the count but does not floor it: a range that sits
+    // awkwardly against the step can come out with two labels, which is an axis
+    // nobody can read a value off. Step back down when that happens.
+    if(ticks.length<3 && finer) ticks=build(finer);
+    return ticks;
+  }
+
+  /* The calendar ladder: days and weeks for a window of weeks, then months,
+     quarters and half-years, then years and multiples of a year once one label
+     per year no longer fits. The first step whose labels fit is the one taken,
+     so the axis keeps as much detail as the space allows and no more. */
+  var TIME_STEPS=[{days:1},{days:2},{days:7},{days:14},
+                  {months:1},{months:2},{months:3},{months:6},
+                  {months:12},{months:24},{months:60},{months:120}];
+  var AXIS_MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  function tickSeq(t0,t1,step){
+    var out=[], d;
+    if(step.days){
+      d=new Date(t0); d.setHours(0,0,0,0);
+      // weeks anchor on Monday, so the labels do not drift as the window moves
+      if(step.days>=7){ d.setDate(d.getDate()-((d.getDay()+6)%7)); }
+      var ms=step.days*864e5;
+      for(var t=d.getTime(); t<=t1; t+=ms){ if(t>=t0) out.push(new Date(t)); }
     } else {
-      // Show months
-      d=new Date(chartT0); d.setDate(1); d.setHours(0,0,0,0);
-      var guard=0;
-      while(d.getTime()<=chartT1 && guard++<200){
-        if(d.getTime()>=chartT0){
-          var lab = d.toLocaleDateString("en-GB",{month:"short"}) + (span>2 ? " ‘"+String(d.getFullYear()).slice(2) : "");
-          out.push({t:d.getTime(), lab:lab});
-        }
-        d.setMonth(d.getMonth()+1);
-      }
+      var mstep=step.months;
+      d=new Date(t0); d.setDate(1); d.setHours(0,0,0,0);
+      // anchor on January: a year boundary is then always a tick rather than
+      // falling between two, which is what used to hide the year on a long window
+      if(mstep>=12){ var ys=mstep/12; d=new Date(Math.floor(d.getFullYear()/ys)*ys,0,1); }
+      else { d.setMonth(Math.floor(d.getMonth()/mstep)*mstep); }
+      while(d.getTime()<t0){ d.setMonth(d.getMonth()+mstep); }
+      for(; d.getTime()<=t1; d.setMonth(d.getMonth()+mstep)) out.push(new Date(d));
     }
     return out;
   }
+
+  function tickLabel(dt,step,years){
+    if(step.days) return dt.getDate()+" "+AXIS_MON[dt.getMonth()];
+    if(step.months>=12 || dt.getMonth()===0) return String(dt.getFullYear());
+    return AXIS_MON[dt.getMonth()]+(years>1?" \u2019"+String(dt.getFullYear()).slice(2):"");
+  }
+
+  /** Time ticks for [t0,t1], never more than `maxTicks` of them. */
+  function timeTicks(t0,t1,maxTicks){
+    if(!(t1>t0)) return [];
+    var years=(t1-t0)/(365.25*864e5), chosen=TIME_STEPS[TIME_STEPS.length-1], seq=null;
+    for(var i=0;i<TIME_STEPS.length;i++){
+      var candidate=tickSeq(t0,t1,TIME_STEPS[i]);
+      if(candidate.length<=Math.max(maxTicks,2)){ chosen=TIME_STEPS[i]; seq=candidate; break; }
+    }
+    if(!seq) seq=tickSeq(t0,t1,chosen);
+    return seq.map(function(dt){
+      return {t:dt.getTime(), lab:tickLabel(dt,chosen,years),
+              isYear:(chosen.months>=12) || (!chosen.days && dt.getMonth()===0)};
+    });
+  }
+
+  /** The gutter a chart needs on the left for its widest y label, at this label size. */
+  function axisGutter(svg,widest,base){
+    var m=axisMetrics(svg);
+    return Math.max(base, Math.round(m.charW*String(widest||"").length)+16);
+  }
+
+  /** Pull a first or last x label back inside the drawing instead of letting it hang off. */
+  function fitXLabels(svg,left,right){
+    Array.prototype.forEach.call(svg.querySelectorAll("text.xlbl"),function(t){
+      var b; try{ b=t.getBBox(); }catch(e){ return; }
+      // .xlbl sets text-anchor in CSS, which beats the presentation attribute —
+      // setting the attribute alone moved the label and left it centred
+      if(b.x<left){ t.style.textAnchor="start"; t.setAttribute("x",left); }
+      else if(b.x+b.width>right){ t.style.textAnchor="end"; t.setAttribute("x",right); }
+    });
+  }
+
+  /** The x ticks one chart can carry: as many as fit, never more. */
+  function xTicksFor(svg,t0,t1,plotW){
+    var m=axisMetrics(svg);
+    return timeTicks(t0,t1,axisCount(plotW, m.charW*7+AXIS_X_GAP, 2, 9));
+  }
+  /** The y ticks one chart can carry. */
+  function yTicksFor(svg,lo,hi,plotH){
+    var m=axisMetrics(svg);
+    return niceScale(lo,hi,axisCount(plotH, m.fs*AXIS_Y_GAP, 3, 8));
+  }
+
 
   function renderHeadline(){
     // With no transactions T is empty, and new Date(undefined) made Intl throw here —
@@ -477,17 +579,6 @@
     if(lo===hi) return [lo-1,hi+1];
     var pad=(hi-lo)*0.08; return [lo-pad,hi+pad];
   }
-  function niceTicks(lo,hi,c){
-    var span=hi-lo; if(span<=0) return [lo];
-    var step=500;
-    var tickCount=span/step;
-    if(tickCount>10) step=1000;
-    if(tickCount>15) step=2000;
-    if(tickCount>20) step=5000;
-    var out=[], start=Math.ceil(lo/step)*step;
-    for(var v=start;v<=hi+step*0.5;v+=step) out.push(Math.round(v*1e6)/1e6);
-    return out;
-  }
   function getTimeRange(){
     // Calculate the earliest date from selected stocks
     var minT=T0;
@@ -529,14 +620,22 @@
     chartT1=tr.t1;
 
     DOMc=computeDomain();
-    niceTicks(DOMc[0],DOMc[1],5).forEach(function(tk){
+    var yTk=yTicksFor(svg,DOMc[0],DOMc[1],pH);
+    // The labels are sized from the rendered width, so on a phone they are three
+    // times wider in viewBox units than on a desktop: a 72-unit gutter that fitted
+    // "45.000" at 11 units cut it down to "000" at 29.
+    D.l=axisGutter(svg,yTk.reduce(function(a,t){
+      var lab=mode==="eur"?nfEur0.format(t):String(Math.round(t*CURRENT_EUR_TO_USD));
+      return lab.length>a.length?lab:a; },""),72);
+    pW=D.w-D.l-D.r;
+    yTk.forEach(function(tk){
       var y=Y(tk); if(y<D.t-1||y>D.t+pH+1) return;
       svg.appendChild(el("line",{class:"gridline",x1:D.l,x2:D.w-D.r,y1:y,y2:y}));
       var lb=el("text",{class:"axislbl","text-anchor":"end",x:D.l-10,y:y+3.5});
       lb.textContent=mode==="eur"?nfEur0.format(tk):Math.round(tk*CURRENT_EUR_TO_USD); svg.appendChild(lb);
     });
     svg.appendChild(el("line",{class:"gridline",x1:D.l,x2:D.w-D.r,y1:D.t+pH,y2:D.t+pH}));
-    monthTicks().forEach(function(m){
+    xTicksFor(svg,chartT0,chartT1,pW).forEach(function(m){
       var x=D.l+(m.t-chartT0)/((chartT1-chartT0)||1)*pW;
       if(x<D.l||x>D.w-D.r) return;
       if(!m.isYear){
@@ -866,16 +965,17 @@
     /* --- invested vs value --- */
     var svg=document.getElementById("g-iv");
     while(svg.firstChild) svg.removeChild(svg.firstChild);
-    var W=960,H=430,l=66,r=108,tp=22,bt=40, pW=W-l-r, pH=H-tp-bt, box=svg.parentNode;
+    var W=960,H=430,r=108,tp=22,bt=40, pH=H-tp-bt, box=svg.parentNode;
     var vmax=Math.max.apply(null,TOTAL.filter(function(x){return x!=null;}));
-    var tks=niceTicks(0,vmax,5), yhi=tks[tks.length-1];
+    var tks=yTicksFor(svg,0,vmax,pH), yhi=tks[tks.length-1];
+    var l=axisGutter(svg,nfEur0.format(yhi),66), pW=W-l-r;
     function X(i){ return l+(T[i]-T0)/((T1-T0)||1)*pW; }
     function Y(v){ return tp+(1-v/yhi)*pH; }
     tks.forEach(function(t){ var y=Y(t);
       svg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
       var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5}); lb.textContent=nfEur0.format(t); svg.appendChild(lb);
     });
-    monthTicks().forEach(function(m){ var x=l+(m.t-T0)/((T1-T0)||1)*pW;
+    xTicksFor(svg,T0,T1,pW).forEach(function(m){ var x=l+(m.t-T0)/((T1-T0)||1)*pW;
       svg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:tp,y2:tp+pH,"stroke-dasharray":"2 3"}));
       var lb=el("text",{class:"xlbl",x:x,y:tp+pH+22}); lb.textContent=m.lab; svg.appendChild(lb);
     });
@@ -924,15 +1024,16 @@
     /* --- underwater --- */
     var uw=document.getElementById("g-uw");
     while(uw.firstChild) uw.removeChild(uw.firstChild);
-    var UW=960,UHt=300,ul=66,urt=108,utp=20,ubt=34, upW=UW-ul-urt, upH=UHt-utp-ubt;
-    var dmin=Math.min(-0.02, g.ddMin*1.08), stepd=Math.abs(dmin)>0.32?0.1:0.05;
+    var UW=960,UHt=300,urt=108,utp=20,ubt=34, upH=UHt-utp-ubt;
+    var dmin=Math.min(-0.02, g.ddMin*1.08);
+    var ul=axisGutter(uw,Math.round(dmin*100)+"%",66), upW=UW-ul-urt;
     function UX(i){ return ul+(T[i]-T0)/((T1-T0)||1)*upW; }
     function UY(v){ return utp+(1-(v-dmin)/(0-dmin))*upH; }
-    for(var t=0;t>=dmin-1e-9;t-=stepd){ var y=UY(t);
+    yTicksFor(uw,dmin,0,upH).forEach(function(t){ var y=UY(t);
       uw.appendChild(el("line",{class:"gridline",x1:ul,x2:UW-urt,y1:y,y2:y}));
       var lb=el("text",{class:"axislbl","text-anchor":"end",x:ul-10,y:y+3.5}); lb.textContent=Math.round(t*100)+"%"; uw.appendChild(lb);
-    }
-    monthTicks().forEach(function(m){ var x=ul+(m.t-T0)/((T1-T0)||1)*upW;
+    });
+    xTicksFor(uw,T0,T1,upW).forEach(function(m){ var x=ul+(m.t-T0)/((T1-T0)||1)*upW;
       uw.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:utp,y2:utp+upH,"stroke-dasharray":"2 3"}));
       var lb=el("text",{class:"xlbl",x:x,y:utp+upH+20}); lb.textContent=m.lab; uw.appendChild(lb);
     });
@@ -1153,7 +1254,13 @@
         }
         ALGO_CACHE[t]=res.body; ALGO=res.body; renderAlgo(res.body);
       })
-      .catch(function(){ algoMessage("Could not reach the server to score "+esc(t)+"."); });
+      // The catch covers renderAlgo() as well as the request, so a rendering bug used
+      // to surface as "could not reach the server". The reader still gets the simple
+      // message; the console gets what actually happened.
+      .catch(function(err){
+        console.error("algorithm: "+t+" failed", err);
+        algoMessage("Could not reach the server to score "+esc(t)+".");
+      });
   }
 
   function renderAlgo(d){
@@ -1230,7 +1337,8 @@
   var ALGO_GEO=null;
   function drawAlgoChart(d){
     var days=d.days, n=days.length;
-    var L=74,R=948,T=16,B=244;
+    var algoSvg=document.getElementById("algo-chart"), aM=axisMetrics(algoSvg);
+    var L=axisGutter(algoSvg,algoSym(d.currency)+"000,0",74), R=948,T=16,B=244;
     var LANE=[{key:"e",y:276,label:"Early"},{key:"f",y:300,label:"Confirmed"}], LH=14;
     var EVY=334;   // the events timeline, clear of the signal lanes above it
     var lo=Infinity,hi=-Infinity;
@@ -1243,11 +1351,11 @@
 
     var s='';
     // y grid + labels
-    var ticks=algoTicks(lo,hi,5);
+    var ticks=niceScale(lo,hi,axisCount(B-T,aM.fs*AXIS_Y_GAP,3,8));
     ticks.forEach(function(v){
       var y=Y(v);
       s+='<line x1="'+L+'" y1="'+y.toFixed(1)+'" x2="'+R+'" y2="'+y.toFixed(1)+'" stroke="var(--grid)" stroke-width="1"/>';
-      s+='<text x="'+(L-8)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end" style="font-size:11px;fill:var(--faint)">'+algoSym(d.currency)+comma(v>=100?String(Math.round(v)):v.toFixed(1))+'</text>';
+      s+='<text class="axislbl" x="'+(L-8)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end">'+algoSym(d.currency)+comma(v>=100?String(Math.round(v)):v.toFixed(1))+'</text>';
     });
     // price line
     var path='';
@@ -1255,10 +1363,10 @@
     s+='<path d="'+path+'" fill="none" stroke="var(--s-total)" stroke-width="1.6" stroke-linejoin="round"/>';
 
     // x labels
-    var every=Math.max(1,Math.round(n/6));
+    var every=Math.max(1,Math.round(n/axisCount(R-L,aM.charW*8+AXIS_X_GAP,2,8)));
     for(var i=0;i<n;i+=every){
       var p=days[i].date.split("-"), mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+p[1]-1];
-      s+='<text x="'+X(i).toFixed(1)+'" y="262" text-anchor="middle" style="font-size:11px;fill:var(--faint)">'+mn+" "+p[0]+'</text>';
+      s+='<text class="xlbl" x="'+X(i).toFixed(1)+'" y="262">'+mn+" "+p[0]+'</text>';
     }
 
     // the two lanes
@@ -1303,7 +1411,7 @@
     });
     var evIdx=Object.keys(evByIndex);
     if(!evIdx.length){
-      s+='<text x="'+((L+R)/2)+'" y="'+(EVY+5)+'" text-anchor="middle" style="font-size:11px;fill:var(--faint)">no emails sent and no settings changed in this period</text>';
+      s+='<text class="axislbl algo-empty" x="'+((L+R)/2)+'" y="'+(EVY+5)+'" text-anchor="middle">no emails sent and no settings changed in this period</text>';
     } else {
       evIdx.forEach(function(k){
         var i=parseInt(k,10), list=evByIndex[i], x=X(i);
@@ -1325,8 +1433,8 @@
     s+='<circle id="algo-dot" r="3.5" fill="var(--s-total)" opacity="0"/>';
     s+='<rect id="algo-hit" x="'+L+'" y="'+T+'" width="'+(R-L)+'" height="'+(EVY+12-T)+'" fill="transparent" style="cursor:crosshair"/>';
 
-    var svg=document.getElementById("algo-chart");
-    svg.innerHTML=s;
+    algoSvg.innerHTML=s;
+    fitXLabels(algoSvg,2,958);
     bindAlgoHover(d);
   }
 
@@ -1341,14 +1449,6 @@
     return days.length-1;
   }
 
-  function algoTicks(lo,hi,count){
-    var span=hi-lo; if(span<=0) return [lo];
-    var raw=span/count, mag=Math.pow(10,Math.floor(Math.log(raw)/Math.LN10)), norm=raw/mag, step;
-    if(norm<1.5) step=mag; else if(norm<3) step=2*mag; else if(norm<7) step=5*mag; else step=10*mag;
-    var out=[], v=Math.ceil(lo/step)*step;
-    for(;v<=hi;v+=step) out.push(Math.round(v*1e6)/1e6);
-    return out;
-  }
 
   function bindAlgoHover(d){
     var svg=document.getElementById("algo-chart"), tip=document.getElementById("algo-tip");
@@ -2416,23 +2516,6 @@
     });
   }
 
-  function amXTicks(t0,t1){
-    var span=t1-t0;
-    var step=span>730*864e5?6:(span>365*864e5?3:(span>150*864e5?2:1));
-    // anchor the sequence on January so a year boundary is always one of the ticks —
-    // stepping from the window's own first month hid "2026" whenever it fell between two
-    var d0=new Date(t0), y=d0.getUTCFullYear(), m=Math.floor(d0.getUTCMonth()/step)*step;
-    var d=new Date(Date.UTC(y,m,1));
-    if(d.getTime()<t0) d=new Date(Date.UTC(y,m+step,1));
-    var out=[];
-    while(d.getTime()<=t1){
-      var isYear=d.getUTCMonth()===0;
-      out.push({t:d.getTime(),isYear:isYear,
-        lab:isYear?String(d.getUTCFullYear()):["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()]});
-      d=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+step,1));
-    }
-    return out;
-  }
 
   /* Which stocks each chart offers.
    *
@@ -2590,8 +2673,9 @@
     });
     var av=avgAt(S.length-1); var avgOn=consider(av);
 
-    var W=960,H=430,l=70,r=150,tp=20,bt=36,pW=W-l-r,pH=H-tp-bt;
-    var tks=niceTicksGeneric(dLo-(dHi-dLo)*0.04,dHi+(dHi-dLo)*0.04,5);
+    var W=960,H=430,r=150,tp=20,bt=36,pH=H-tp-bt;
+    var tks=yTicksFor(svg,dLo-(dHi-dLo)*0.04,dHi+(dHi-dLo)*0.04,pH);
+    var l=axisGutter(svg,fmtNative(tks[tks.length-1],cur),70), pW=W-l-r;
     var yhi=Math.max(tks[tks.length-1],dHi), ylo=Math.min(tks[0],dLo);
     var t0=amTs(S[i0].d), t1=amTs(S[S.length-1].d);
     function X(i){ return l+(amTs(S[i].d)-t0)/((t1-t0)||1)*pW; }
@@ -2604,7 +2688,7 @@
       lb.textContent=fmtNative(t,cur); svg.appendChild(lb);
     });
     svg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:tp+pH,y2:tp+pH}));
-    amXTicks(t0,t1).forEach(function(m){
+    xTicksFor(svg,t0,t1,pW).forEach(function(m){
       var x=l+(m.t-t0)/((t1-t0)||1)*pW; if(x<l||x>W-r) return;
       svg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:tp,y2:tp+pH,"stroke-dasharray":"2 3"}));
       var lb=el("text",{class:"xlbl",x:x,y:tp+pH+21});
@@ -3099,16 +3183,6 @@
     });
   }
 
-  function niceTicksGeneric(lo,hi,count){
-    var span=hi-lo; if(span<=0) return [lo];
-    var rawStep=span/count;
-    var mag=Math.pow(10,Math.floor(Math.log(rawStep)/Math.LN10));
-    var norm=rawStep/mag, step;
-    if(norm<1.5) step=1*mag; else if(norm<3) step=2*mag; else if(norm<7) step=5*mag; else step=10*mag;
-    var out=[], start=Math.ceil(lo/step)*step;
-    for(var v=start;v<=hi+step*0.5;v+=step) out.push(Math.round(v*1e6)/1e6);
-    return out;
-  }
   function computeTrailingAvg(prices,ts,windowDays){
     var out=[],sum=0,ws=0,wms=windowDays*864e5;
     for(var i=0;i<prices.length;i++){
@@ -3186,18 +3260,19 @@
     /* --- price + average chart --- */
     var svg=document.getElementById("dca-price");
     while(svg.firstChild) svg.removeChild(svg.firstChild);
-    var W=960,H=320,l=66,r=100,tp=20,bt=34,pW=W-l-r,pH=H-tp-bt;
+    var W=960,H=320,r=100,tp=20,bt=34,pH=H-tp-bt;
     var t0=ts[0],t1=ts[m];
     var vmax=Math.max.apply(null,prices),vmin=Math.min.apply(null,prices);
-    var tks=niceTicksGeneric(vmin*0.98,vmax*1.02,5),yhi=Math.max(tks[tks.length-1],vmax*1.02),ylo=Math.min(tks[0],vmin*0.98);
+    var tks=yTicksFor(svg,vmin*0.98,vmax*1.02,pH),yhi=Math.max(tks[tks.length-1],vmax*1.02),ylo=Math.min(tks[0],vmin*0.98);
+    // one gutter for all three DCA charts, from the widest label any of them shows
+    var l=axisGutter(svg,fmt(yhi),66), pW=W-l-r;
     function X(i){ return l+(ts[i]-t0)/((t1-t0)||1)*pW; }
     function Y(v){ return tp+(1-(v-ylo)/((yhi-ylo)||1))*pH; }
     tks.forEach(function(t){ var y=Y(t);
       svg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
       var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5}); lb.textContent=fmt(t); svg.appendChild(lb);
     });
-    var yrTicks=[]; var yStart=new Date(t0).getFullYear(), yEnd=new Date(t1).getFullYear();
-    for(var yy=yStart;yy<=yEnd;yy++){ var yt=new Date(yy,0,1).getTime(); if(yt>=t0 && yt<=t1) yrTicks.push({t:yt,lab:String(yy)}); }
+    var yrTicks=xTicksFor(svg,t0,t1,pW);
     yrTicks.forEach(function(yt){ var x=l+(yt.t-t0)/((t1-t0)||1)*pW;
       svg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:tp,y2:tp+pH,"stroke-dasharray":"2 3"}));
       var lb=el("text",{class:"xlbl",x:x,y:tp+pH+20}); lb.textContent=yt.lab; svg.appendChild(lb);
@@ -3242,7 +3317,7 @@
     var bsvg=document.getElementById("dca-bb");
     while(bsvg.firstChild) bsvg.removeChild(bsvg.firstChild);
     var bvmax=Math.max.apply(null,bb.upper),bvmin=Math.min.apply(null,bb.lower);
-    var btks=niceTicksGeneric(bvmin*0.98,bvmax*1.02,5),byhi=Math.max(btks[btks.length-1],bvmax*1.02),bylo=Math.min(btks[0],bvmin*0.98);
+    var btks=yTicksFor(bsvg,bvmin*0.98,bvmax*1.02,pH),byhi=Math.max(btks[btks.length-1],bvmax*1.02),bylo=Math.min(btks[0],bvmin*0.98);
     function BY(v){ return tp+(1-(v-bylo)/((byhi-bylo)||1))*pH; }
     btks.forEach(function(t){ var y=BY(t);
       bsvg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
@@ -3302,18 +3377,13 @@
     var dsvg=document.getElementById("dca-dev");
     while(dsvg.firstChild) dsvg.removeChild(dsvg.firstChild);
     var dmin=Math.min.apply(null,dev)*1.08, dmax=Math.max(0.02,Math.max.apply(null,dev)*1.08);
-    var dspan=Math.max(Math.abs(dmin),dmax);
-    var stepd = dspan>1.2 ? 0.25 : dspan>0.6 ? 0.2 : dspan>0.32 ? 0.1 : 0.05;
     function DX(i){ return l+(ts[i]-t0)/((t1-t0)||1)*pW; }
     function DY(v){ return tp+(1-(v-dmin)/((dmax-dmin)||1))*pH; }
-    for(var t=0;t>=dmin-1e-9;t-=stepd){ var y=DY(t);
+    yTicksFor(dsvg,dmin,dmax,pH).forEach(function(t){ var y=DY(t);
       dsvg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
-      var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5}); lb.textContent=Math.round(t*100)+"%"; dsvg.appendChild(lb);
-    }
-    for(var t=stepd;t<=dmax+1e-9;t+=stepd){ var y=DY(t);
-      dsvg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
-      var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5}); lb.textContent="+"+Math.round(t*100)+"%"; dsvg.appendChild(lb);
-    }
+      var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5});
+      lb.textContent=(t>0?"+":"")+Math.round(t*100)+"%"; dsvg.appendChild(lb);
+    });
     yrTicks.forEach(function(yt){ var x=l+(yt.t-t0)/((t1-t0)||1)*pW;
       dsvg.appendChild(el("line",{class:"gridline",x1:x,x2:x,y1:tp,y2:tp+pH,"stroke-dasharray":"2 3"}));
       var lb=el("text",{class:"xlbl",x:x,y:tp+pH+20}); lb.textContent=yt.lab; dsvg.appendChild(lb);
