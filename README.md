@@ -34,7 +34,9 @@ a holding has moved far enough from its own normal to be worth a look.
 
 1. **Sign in** with a login link sent to your email, or with Google. There is no password.
 2. **Register your transactions** on the *Transactions* tab — date, ticker, quantity, and the
-   amount that left your account. Each new ticker offers to load its price history.
+   amount that left your account. Each new ticker offers to load its price history. A CSV
+   export from your broker can be imported instead: the file is read in your browser, you
+   confirm what it found, and the import can be undone in one action.
 3. **Wait a day.** Prices are fetched once every weekday morning. History appears immediately
    for a backfilled ticker; today's value updates each morning after that.
 4. **Set the alerts you want** on the *Alerts* tab: pick a type — a dip below your average
@@ -100,6 +102,8 @@ suite. Everything below this line is the engineering record for the deployment a
   transaction list. Split out of the old combined "Add transactions and alerts" tab on
   2026-09-12 — registering a holding and deciding when to be told about it are different
   jobs, and one screen was doing both.
+- **Transactions tab:** the register form, the transaction list, and **import from a broker
+  CSV** — read in the browser, confirmed row by row, undoable. See *Import from a broker file*.
 - **Alerts tab:** one form for all four rule types (dip, target, trailing, price level), the
   alert map and the alert list. The Algorithm tab has its own alert, which is deliberately *not* here — see
   *Algorithm alerts* below.
@@ -827,6 +831,79 @@ agrees with its transactions. `test/http.test.js` pins the server half and **was
 without it**. The remaining step — reading the page — was done by the user, which is also how the
 wrong figures were noticed in the first place.
 
+### 📥 Import from a broker file — 2026-09-23
+
+Until today there was one way to get a transaction into this app: type it. That is why eleven
+years of history went in by hand, and why it went in without anything reusable to show for it.
+There is now a **CSV import** in the *Register transaction* card on the Transactions tab, under
+the form and beside the transaction list — the two ways of registering a trade in one place:
+choose a file, confirm what the app read, import. `csv-import.js` (the reader), `POST /api/transactions/import`, `POST
+/api/import/check`, `GET /api/securities/lookup`, and 34 tests across `test/csv-import.test.js`
+and `test/import-api.test.js`.
+
+**The file is read in the browser and never uploaded.** `csv-import.js` is loaded by the page
+and by node — the same code the tests exercise is the code that reads your statement — and the
+only thing that reaches the server is the list of rows confirmed on the preview. This is not a
+privacy gesture bolted on afterwards: it removes the upload endpoint, the multipart dependency,
+the 64kb body limit and the promise to delete a file afterwards, because there is no file here
+to delete.
+
+**Four decisions were taken before anything was written**, and each one is visible in the code:
+
+| Decision | What it means |
+|---|---|
+| Cost basis is **price × quantity** | Fees and commission are not in `amount_eur`. Where a file has no price column the price is derived from the total, and the preview says so on that row, because the fee is still inside it |
+| A security is resolved by **ISIN, confirmed once** | Yahoo answers, a person confirms, and the answer is remembered per user in `security_map`. The second import from the same broker asks nothing |
+| Re-imports are caught by **`import_key`** | And an import is undoable in one action through `import_batch_id` |
+| **EUR and USD only** | They are the only currencies with stored rates. A GBP row is listed as skipped with that as the reason, rather than converted at a guess |
+
+**Why the ticker is confirmed and not accepted.** Yahoo's first answer for "Volkswagen AG" is
+`VOW3.DE`. The position actually held in this database is `VOW.DE` — a different share class,
+a different price, and a silent corruption of the portfolio if a machine picks it. ISIN lookups
+are exact (`NL0010273215` → `ASML.AS`, `US88160R1014` → `TSLA`) and still go past a person once.
+
+**What the preview refuses to do quietly.** Every row that will not be imported is listed with
+the line number and the reason — dividends, deposits, fees, transfers, splits, a currency with
+no rate, an unreadable date. The app stores buys and sells and has nowhere to put a dividend;
+importing one as a purchase is the same shape as the split-as-purchase bug above, which took a
+day to find. Refusing and saying so is the safe failure.
+
+**The price check, and why its threshold is loose.** `POST /api/import/check` compares each
+row's price against the stored close for that ticker on that date, and flags anything more than
+**20%** away. Two things make this less obvious than it sounds. `prices` holds Yahoo's
+split-adjusted history while a transaction holds what was actually paid — TSLA's 2015 close
+reads 17.68 in one and 265.92 in the other, both correct — so the close is scaled back up by
+every split since the trade date before the comparison. And the threshold has to be generous:
+measured against this account's own 49 hand-typed rows, the honest spread against the close runs
+from −38% to +27%, because trades fill intraday and because rights issues and unrecorded splits
+move it further. A tight bound would cry wolf on ordinary rows and teach the reader to click
+past the warning that matters. What it does catch is the failure modes that are quiet: a decimal
+comma read as a thousands separator, a total mapped into the price column, a pre-split quantity
+against a post-split price.
+
+**Rates are read backwards, never forwards.** The euro amount uses the last rate on or before
+the trade date. Trades land on days the rate table skips — weekends, holidays, and 363 weekdays
+in this database that simply have no row — so an exact-date lookup would reject ordinary trades.
+A date earlier than the table itself (it starts 2015-04-30) is refused rather than converted at
+the oldest rate we happen to hold.
+
+**Two columns, one table, one partial index.** `transactions` gained `import_batch_id` and
+`import_key`; `security_map` holds the confirmed ISIN → ticker choices. The uniqueness on
+`import_key` is partial — `WHERE import_key IS NOT NULL` — because every hand-typed transaction
+has a NULL key, and a plain UNIQUE index would allow exactly one of them per user.
+
+**Limits.** 500 rows per import, refused rather than truncated. One JSON body limit of 1MB for
+this endpoint alone, chosen per path so raising it does not widen every other endpoint. The whole
+batch is one SQLite transaction: a half-applied import is the worst outcome available, because
+the obvious response to it — upload the file again — doubles everything that did land. Price
+history for a new ticker is backfilled one ticker at a time, as far back as that holding's own
+oldest imported trade, because firing six ten-year requests at Yahoo at once is how an IP gets
+throttled and the daily job everything depends on breaks.
+
+**Not covered, deliberately:** `.xlsx` (save as CSV — a parser dependency for a format every
+broker also exports as CSV), currencies beyond EUR and USD, fees, and corporate actions. A split
+row in a file is flagged and skipped, not applied; `stock_splits` is still maintained by hand.
+
 ### ⏳ Open Items / Backlog
 
 **Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**
@@ -1176,7 +1253,7 @@ scored at all, which also means a cooldown shorter than that cannot be observed 
 prices moving too. `test/helpers.js` gained `migratedDb()` because `schema.sqlite.sql` alone
 lacks anything added by an ALTER, `prices.price_native` included.
 
-**Testing — 92 tests, in CI since 2026-09-12.**
+**Testing — 200 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,

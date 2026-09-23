@@ -401,9 +401,61 @@ function ensureDataVersion(db) {
   db.prepare('INSERT OR IGNORE INTO data_version (id, version) VALUES (1, 1)').run();
 }
 
+/**
+ * What an imported transaction remembers about the file it came from.
+ *
+ * Two columns, and each one answers a question the importer cannot answer
+ * without it. `import_key` is what makes re-uploading an overlapping export
+ * safe: it identifies the trade itself — the broker's own order reference where
+ * there is one, a hash of the trade where there is not — so the second upload
+ * recognises what the first one already wrote instead of doubling the position.
+ * `import_batch_id` is what makes an import undoable in one action, which is
+ * the difference between trying an import and committing to one.
+ *
+ * The uniqueness is partial, on purpose. Every hand-typed transaction has a
+ * NULL key and always will; a plain UNIQUE index would let exactly one of them
+ * exist per user, so the index covers only rows that came from a file.
+ */
+function ensureTransactionImports(db) {
+  const cols = columnNames(db, 'transactions');
+  if (!cols.includes('import_batch_id')) db.exec('ALTER TABLE transactions ADD COLUMN import_batch_id TEXT');
+  if (!cols.includes('import_key')) db.exec('ALTER TABLE transactions ADD COLUMN import_key TEXT');
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_import_key
+      ON transactions(user_id, import_key) WHERE import_key IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_tx_import_batch
+      ON transactions(user_id, import_batch_id) WHERE import_batch_id IS NOT NULL;
+  `);
+
+  /*
+   * A broker names a security by ISIN; this app names it by the ticker its
+   * price source uses, and the two do not line up on their own — one ISIN
+   * lists on several exchanges, and Yahoo's best guess for "Volkswagen AG" is
+   * VOW3.DE when the position actually held is VOW.DE. So the answer is
+   * confirmed by a person once and then remembered here, per user, because
+   * which listing somebody holds is a fact about them and not about the ISIN.
+   *
+   * The `isin` column holds whatever identifies the security in the file it
+   * came from: the ISIN where there is one, and otherwise `NAME:<normalised>`,
+   * because an export that only names its securities has to be remembered too —
+   * see `securityKeyFor()` in server.js for why re-asking is not harmless.
+   */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS security_map (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      isin TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      name TEXT,
+      confirmed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_security_map_unique ON security_map(user_id, isin);
+  `);
+}
+
 module.exports = {
   ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
   ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureAlertEventLog, ensureDataVersion,
-  ensureWatchlist,
+  ensureWatchlist, ensureTransactionImports,
   recentHigh, HIGH_WINDOW_DAYS, WATCH_HISTORY_DAYS, columnNames
 };

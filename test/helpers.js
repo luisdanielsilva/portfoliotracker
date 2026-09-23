@@ -81,6 +81,7 @@ function migratedDb() {
   m.ensureAlgorithmAlertSettings(db);
   m.ensureAlertEventLog(db);
   m.ensureWatchlist(db);
+  m.ensureTransactionImports(db);
   return db;
 }
 

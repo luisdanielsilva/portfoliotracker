@@ -130,6 +130,7 @@ require('./db-migrations').ensureDropFromHighRuleType(db);
 require('./db-migrations').ensureAlgorithmAlertSettings(db);
 require('./db-migrations').ensureAlertEventLog(db);
 require('./db-migrations').ensureWatchlist(db);
+require('./db-migrations').ensureTransactionImports(db);
 require('./db-migrations').ensureDataVersion(db);
 
 // Migration: stop the same rule being saved twice. Nothing prevented it, and one
@@ -238,7 +239,18 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '64kb' }));
+/*
+ * 64kb is the right ceiling for everything this app accepts by hand — a
+ * transaction, an alert, a contact message — and it is the wrong one for a
+ * confirmed CSV import, where 500 rows of JSON is a few hundred kilobytes of
+ * perfectly legitimate body. Raising the global limit to suit the one endpoint
+ * would widen every other one, so the limit is chosen per path and the import
+ * route is the only exception.
+ */
+const jsonBody = express.json({ limit: '64kb' });
+const jsonImportBody = express.json({ limit: '1mb' });
+const BULK_JSON_PATHS = new Set(['/api/transactions/import', '/api/import/check']);
+app.use((req, res, next) => (BULK_JSON_PATHS.has(req.path) ? jsonImportBody : jsonBody)(req, res, next));
 app.use(express.urlencoded({ extended: false, limit: '16kb' })); // for the magic-link confirm form
 app.use(cookieParser());
 // SECURITY: only these four files are public.
@@ -255,7 +267,11 @@ const PUBLIC_FILES = {
   '/privacy.html': 'privacy.html',
   '/terms.html': 'terms.html',
   '/contact.js': 'contact.js',
-  '/app.js': 'app.js'
+  '/app.js': 'app.js',
+  // The CSV reader runs in the browser, which is the point of it: a broker
+  // statement is parsed on the reader's own machine and only the rows they
+  // confirm are ever sent here.
+  '/csv-import.js': 'csv-import.js'
 };
 app.get(Object.keys(PUBLIC_FILES), (req, res) => {
   res.sendFile(path.join(__dirname, PUBLIC_FILES[req.path]));
@@ -918,6 +934,330 @@ app.delete('/api/transactions/:id', (req, res) => {
   } catch (err) {
     console.error('DELETE /api/transactions error:', err.message);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+/* ------------------------------------------------------------------ import
+ *
+ * The file itself is parsed in the browser and never arrives here: what this
+ * endpoint receives is rows a person has already seen on a confirmation screen
+ * and approved. That is the whole trust model — the server still validates
+ * every field exactly as it does a hand-typed one, because a confirmed row and
+ * a forged one look identical over HTTP.
+ */
+
+const MAX_IMPORT_ROWS = 500;
+
+/**
+ * What a unit of this currency was worth in euros on the day of the trade.
+ *
+ * The nearest *earlier* rate, not the rate on the date: trades happen on days
+ * the rate table skips — weekends, holidays, and 363 weekdays in this database
+ * that simply have no row. Looking for an exact match would reject a Saturday
+ * settlement that is otherwise perfectly ordinary. Reaching backwards is safe
+ * in a way reaching forwards would not be, because the earlier rate is one that
+ * existed when the trade happened.
+ *
+ * A date before the table starts returns null and the row is refused. The
+ * alternative — the oldest rate we happen to hold — would silently price a 2014
+ * trade at a 2015 rate and look entirely plausible doing it.
+ */
+function rateOnDate(currency, isoDate) {
+  if (currency === 'EUR') return { rate: 1, date: isoDate };
+  const row = db.prepare(`
+    SELECT rate, date FROM exchange_rates
+    WHERE from_currency = ? AND to_currency = 'EUR' AND date <= ?
+    ORDER BY date DESC LIMIT 1
+  `).get(currency, isoDate);
+  return row ? { rate: row.rate, date: row.date } : null;
+}
+
+/**
+ * The identity of a trade, stable across re-uploads of the same export.
+ *
+ * A broker's own order reference is used where the file has one, because it is
+ * the only identifier that survives the broker restating a row. Without one,
+ * the trade is its own key: ticker, date, direction, quantity and amount. The
+ * occurrence number is what keeps two genuine partial fills of the same size on
+ * the same day from being read as one trade imported twice — and because the
+ * numbering is by position within the file, the same file re-uploaded produces
+ * the same numbers and is still recognised.
+ */
+function importKeyFor(row, occurrence) {
+  const material = row.orderRef
+    ? `ref:${row.orderRef}:${row.ticker}`
+    : `trade:${row.ticker}:${row.date}:${row.type}:${row.quantity}:${row.amountEur.toFixed(2)}#${occurrence}`;
+  return crypto.createHash('sha256').update(material).digest('hex').slice(0, 32);
+}
+
+/**
+ * What to file a confirmed ticker under.
+ *
+ * An ISIN is the right key and many exports do not carry one — they name the
+ * security and nothing else. Those still deserve to be remembered, or every
+ * import from that broker asks the same questions again and, worse, may answer
+ * them differently: the dedupe key includes the ticker, so the same trade
+ * confirmed as VOW.DE once and suggested as VOW3.DE the next time imports
+ * twice. The name is normalised so "Volkswagen AG" and "VOLKSWAGEN AG " are one
+ * key, and prefixed so it can never collide with a real ISIN.
+ */
+function securityKeyFor(isin, name) {
+  if (isin) return isin;
+  const flat = String(name || '')
+    .toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9]+/g, ' ').trim().replace(/ /g, '-');
+  return flat ? 'NAME:' + flat.slice(0, 60) : null;
+}
+
+// POST /api/transactions/import — register a confirmed batch of rows in one go
+app.post('/api/transactions/import', (req, res) => {
+  try {
+    const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : null;
+    if (!rows || !rows.length) return res.status(400).json({ error: 'No rows to import.' });
+    if (rows.length > MAX_IMPORT_ROWS) {
+      return res.status(400).json({ error: `An import is limited to ${MAX_IMPORT_ROWS} rows. Split the file and import it in parts.` });
+    }
+
+    const skipped = [];
+    const ready = [];
+    const occurrences = new Map();
+
+    rows.forEach((raw, i) => {
+      const line = num(raw.line) || i + 1;
+      const refuse = reason => skipped.push({ line, reason });
+
+      const ticker = String(raw.ticker || '').toUpperCase().trim();
+      const type = String(raw.type || '');
+      const currency = String(raw.currency || '').toUpperCase();
+      const quantity = positive(raw.quantity, 1e9);
+      const price = positive(raw.price, 1e9);
+      const date = String(raw.date || '');
+
+      if (!TICKER_RE.test(ticker)) return refuse('no ticker was chosen for this security');
+      if (!TX_TYPES.has(type)) return refuse('not a buy or a sell');
+      if (quantity === null) return refuse('quantity is not a positive number');
+      if (price === null) return refuse('price is not a positive number');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return refuse('date is not a real date');
+
+      const ts = Date.parse(date + 'T12:00:00Z');
+      if (!isFinite(ts) || ts < MIN_TX_TS || ts > Date.now() + 2 * 864e5) {
+        return refuse('date is outside 1990 to tomorrow');
+      }
+
+      const fx = rateOnDate(currency, date);
+      if (!fx) return refuse(`no ${currency} rate is stored on or before ${date}`);
+
+      // Price times quantity, converted at the trade date's rate. Fees are
+      // deliberately not in this number: cost basis here is the market cost of
+      // the shares, which is the convention chosen when this was designed.
+      const amountEur = positive(price * quantity * fx.rate, 1e12);
+      if (amountEur === null) return refuse('the amount does not come to a positive number');
+
+      const row = { line, ticker, type, currency, quantity, price, date, ts, amountEur, rate: fx.rate,
+                    orderRef: raw.orderRef ? String(raw.orderRef).slice(0, 64) : null,
+                    isin: raw.isin ? String(raw.isin).toUpperCase().slice(0, 12) : null,
+                    name: raw.name ? String(raw.name).slice(0, 120) : null };
+
+      const bucket = `${row.ticker}|${row.date}|${row.type}|${row.quantity}|${row.amountEur.toFixed(2)}`;
+      const occurrence = (occurrences.get(bucket) || 0) + 1;
+      occurrences.set(bucket, occurrence);
+      row.importKey = importKeyFor(row, occurrence);
+      ready.push(row);
+    });
+
+    if (!ready.length) return res.status(400).json({ error: 'Nothing in this file could be imported.', skipped });
+
+    // The ticker ceiling counts what the import would add, not what it contains:
+    // a file with forty rows of a ticker already held adds nothing to the count.
+    const held = new Set(db.prepare(
+      'SELECT DISTINCT ticker FROM transactions WHERE user_id = ?'
+    ).all(req.userId).map(r => r.ticker));
+    const arriving = new Set(ready.map(r => r.ticker).filter(t => !held.has(t)));
+    if (held.size + arriving.size > MAX_TICKERS_PER_USER) {
+      return res.status(409).json({
+        error: `This import would take you to ${held.size + arriving.size} tickers and the limit is ${MAX_TICKERS_PER_USER}. `
+          + 'Get in touch through the Support link if you need more — it is a limit on server cost, not a rule.'
+      });
+    }
+
+    const batchId = crypto.randomUUID();
+    const insert = db.prepare(
+      `INSERT INTO transactions
+       (user_id, ticker, quantity, amount_eur, currency, exchange_rate, tx_type, ts, import_batch_id, import_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const alreadyThere = db.prepare(
+      'SELECT ts FROM transactions WHERE user_id = ? AND import_key = ?'
+    );
+    const rememberSecurity = db.prepare(
+      `INSERT INTO security_map (user_id, isin, ticker, name) VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id, isin) DO UPDATE SET ticker = excluded.ticker, name = excluded.name,
+                                                confirmed_at = CURRENT_TIMESTAMP`
+    );
+
+    /*
+     * One transaction for the whole batch. A half-applied import is the worst
+     * outcome available here: the reader cannot tell which rows landed without
+     * reading all of them, and the obvious response — upload it again — doubles
+     * everything that did.
+     */
+    const imported = [];
+    const duplicates = [];
+    db.transaction(() => {
+      for (const row of ready) {
+        if (alreadyThere.get(req.userId, row.importKey)) {
+          duplicates.push({ line: row.line, reason: 'already imported from an earlier file' });
+          continue;
+        }
+        insert.run(req.userId, row.ticker, row.quantity, row.amountEur, row.currency,
+                   row.rate, row.type, row.ts, batchId, row.importKey);
+        imported.push(row);
+        const securityKey = securityKeyFor(row.isin, row.name);
+        if (securityKey) rememberSecurity.run(req.userId, securityKey, row.ticker, row.name);
+      }
+    })();
+
+    res.json({
+      success: true,
+      batchId: imported.length ? batchId : null,
+      imported: imported.length,
+      tickers: [...new Set(imported.map(r => r.ticker))],
+      newTickers: [...arriving].filter(t => imported.some(r => r.ticker === t)),
+      duplicates,
+      skipped
+    });
+  } catch (err) {
+    console.error('POST /api/transactions/import error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+/**
+ * DELETE /api/transactions/import/:batchId — undo one import.
+ *
+ * Scoped to the batch and the user, so it can only ever remove rows this
+ * import created: a hand-typed transaction has no batch id and is untouchable
+ * here however the id is spelled.
+ */
+app.delete('/api/transactions/import/:batchId', (req, res) => {
+  try {
+    const batchId = String(req.params.batchId || '');
+    const result = db.prepare(
+      'DELETE FROM transactions WHERE user_id = ? AND import_batch_id = ?'
+    ).run(req.userId, batchId);
+    if (!result.changes) return res.status(404).json({ error: 'That import was not found, or has already been undone.' });
+    res.json({ success: true, removed: result.changes });
+  } catch (err) {
+    console.error('DELETE /api/transactions/import error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+/**
+ * POST /api/import/check — does each row's price resemble what that share cost
+ * that day.
+ *
+ * This is the preview's one arithmetic check on the file, and it exists
+ * because the failure modes of a CSV are quiet ones: a decimal comma read as a
+ * thousands separator, a total mapped into the price column, a pre-split
+ * quantity against a post-split price. All three produce a number that looks
+ * ordinary in a table and is wrong by a factor.
+ *
+ * Comparing is not as simple as reading `prices`, because the two tables mean
+ * different things by a price. `prices` holds Yahoo's split-adjusted history —
+ * TSLA's 2015 close reads 17.68 there — while a transaction holds what was
+ * actually paid, 265.92, and both are correct. So the stored close is scaled
+ * back up by every split since the trade date before the two are compared.
+ *
+ * The threshold is deliberately loose. A trade fills at an intraday price, not
+ * at the close, and a rights issue or a split this database has never recorded
+ * moves it further; on this account the honest spread against the close runs
+ * past 30%. A tight bound here would cry wolf on ordinary rows and teach the
+ * reader to click past the warning that matters.
+ */
+app.post('/api/import/check', (req, res) => {
+  try {
+    const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, MAX_IMPORT_ROWS) : [];
+    const closeStmt = db.prepare(`
+      SELECT price_native, currency, price_date FROM prices
+      WHERE ticker = ? AND price_date <= ? AND price_native IS NOT NULL
+      ORDER BY price_date DESC LIMIT 1
+    `);
+    const splitStmt = db.prepare('SELECT ratio FROM stock_splits WHERE ticker = ? AND split_date > ?');
+
+    const checks = rows.map(raw => {
+      const ticker = String(raw.ticker || '').toUpperCase().trim();
+      const date = String(raw.date || '');
+      const price = positive(raw.price, 1e9);
+      if (!TICKER_RE.test(ticker) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || price === null) {
+        return { line: raw.line, status: 'unchecked' };
+      }
+      const close = closeStmt.get(ticker, date);
+      if (!close) return { line: raw.line, status: 'no history', ticker };
+
+      const factor = splitStmt.all(ticker, date).reduce((a, s) => a * s.ratio, 1);
+      const expected = close.price_native * factor;
+      if (!expected) return { line: raw.line, status: 'no history', ticker };
+
+      return {
+        line: raw.line,
+        status: 'checked',
+        ticker,
+        expected: parseFloat(expected.toFixed(4)),
+        closeDate: close.price_date,
+        splitFactor: factor,
+        deviationPct: parseFloat((100 * (price - expected) / expected).toFixed(1))
+      };
+    });
+
+    res.json({ checks, threshold: 20 });
+  } catch (err) {
+    console.error('POST /api/import/check error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+/**
+ * GET /api/securities/lookup?isin=&name= — which ticker is this security.
+ *
+ * A confirmed answer is remembered per user, so the common case never reaches
+ * the network: the second import from the same broker resolves every security
+ * it has seen before from the database. Only genuinely new ones are looked up,
+ * and even then the answer is a list of candidates for a person to choose
+ * from, never a decision. Yahoo's first result for "Volkswagen AG" is VOW3.DE;
+ * the position actually held in this database is VOW.DE.
+ */
+app.get('/api/securities/lookup', backfillLimiter, async (req, res) => {
+  try {
+    const isin = String(req.query.isin || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    const name = String(req.query.name || '').slice(0, 80);
+    if (!isin && !name) return res.status(400).json({ error: 'Give an ISIN or a name to look up.' });
+
+    const key = securityKeyFor(isin, name);
+    if (key) {
+      const saved = db.prepare('SELECT ticker, name FROM security_map WHERE user_id = ? AND isin = ?')
+        .get(req.userId, key);
+      if (saved) return res.json({ isin: isin || null, remembered: saved.ticker, candidates: [] });
+    }
+
+    const YahooFinance = require('yahoo-finance2').default;
+    const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+    const result = await yf.search(isin || name, { quotesCount: 8, newsCount: 0 });
+    const candidates = (result.quotes || [])
+      .filter(q => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF'))
+      .map(q => ({
+        symbol: q.symbol,
+        exchange: q.exchange || null,
+        name: q.shortname || q.longname || null,
+        type: q.quoteType
+      }))
+      .filter(q => TICKER_RE.test(q.symbol))
+      .slice(0, 6);
+
+    res.json({ isin: isin || null, remembered: null, candidates });
+  } catch (err) {
+    console.error('GET /api/securities/lookup error:', err.message);
+    res.status(502).json({ error: 'The security lookup is unavailable right now. You can type the ticker instead.' });
   }
 });
 

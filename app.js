@@ -1770,6 +1770,416 @@
     if(!row.hidden) document.getElementById("tx-hist-ticker").textContent=t;
   }
 
+  /* ================= import from a broker file =================
+   *
+   * The file is read here and stays here. Nothing is uploaded: csv-import.js
+   * turns the text into candidate rows in this tab, and the only thing that
+   * ever reaches the server is the list of rows the reader has looked at and
+   * approved. That is why there is no upload endpoint to delete a file from
+   * afterwards — there was never a file to delete.
+   *
+   * The screen is a confirmation screen, so everything it is unsure about is
+   * said out loud rather than resolved quietly: a column it could not place, a
+   * security whose ticker is a guess, a price that does not resemble what the
+   * share cost that day, and every row that will not be imported with the
+   * reason why.
+   */
+  var IMP_FIELDS=[
+    ["date","Date"],["type","Buy / sell"],["quantity","Quantity"],["price","Price"],
+    ["amount","Total"],["currency","Currency"],["isin","ISIN"],["ticker","Ticker"],
+    ["name","Name"],["orderRef","Order ref"]
+  ];
+  var impState=null;   // {fileName, text, rows, headers, headerRow, mapping, decimal, dateOrder, candidates, skipped, securities, checks, batchId}
+
+  function impEl(id){ return document.getElementById(id); }
+  function impShow(stage){
+    impEl("imp-pick").hidden = stage!=="pick";
+    impEl("imp-work").hidden = stage!=="work";
+    impEl("imp-done").hidden = stage!=="done";
+  }
+
+  /** A security is one line in the Securities list: the thing a broker names and this app has to name back. */
+  function impSecurityKey(row){ return row.isin || row.rawTicker || row.name || "?"; }
+
+  function impReadFile(file){
+    var reader=new FileReader();
+    reader.onerror=function(){ showError("That file could not be read."); };
+    reader.onload=function(){
+      var text=String(reader.result||"");
+      if(!text.trim()){ showError("That file is empty."); return; }
+      impState={fileName:file.name, text:text};
+      impParse({});
+      impShow("work");
+    };
+    // Most European exports are UTF-8; the ones that are not are Latin-1, where
+    // a misread byte shows up in a name and never in a number.
+    reader.readAsText(file,"utf-8");
+  }
+
+  /**
+   * Re-read the file under whatever mapping and formats are currently chosen.
+   *
+   * Only a *human* choice of decimal or date order sticks across a re-read.
+   * Feeding the previous detection back in as an override looks equivalent and
+   * is not: detection reads the values in the mapped columns, so a file whose
+   * headers could not be guessed is first detected against no columns at all,
+   * falls back to a decimal point, and then keeps that answer however the
+   * columns are mapped afterwards. That turned "127,11" into 12711 and stored
+   * a position at a hundred times its cost.
+   */
+  function impParse(overrides){
+    var opts=overrides||{};
+    if(opts.decimal) impState.decimalChosen=opts.decimal;
+    if(opts.dateOrder) impState.dateOrderChosen=opts.dateOrder;
+    if(opts.defaultCurrency!=null) impState.defaultCurrency=opts.defaultCurrency;
+    var out=window.CsvImport.readFile(impState.text,{
+      delimiter:opts.delimiter||impState.delimiter,
+      headerRow:opts.headerRow!=null?opts.headerRow:impState.headerRow,
+      mapping:opts.mapping||impState.mapping,
+      decimal:impState.decimalChosen,
+      dateOrder:impState.dateOrderChosen,
+      defaultCurrency:impState.defaultCurrency
+    });
+    if(out.error){ showError(out.error); return; }
+
+    impState.delimiter=out.delimiter; impState.headers=out.headers; impState.headerRow=out.headerRow;
+    impState.mapping=out.mapping; impState.decimal=out.decimal; impState.dateOrder=out.dateOrder;
+    impState.candidates=out.candidates; impState.skipped=out.skipped;
+
+    // Securities carry over their confirmed ticker when the file is re-read, so
+    // changing a date format does not throw away the choices already made.
+    var previous=impState.securities||{};
+    var securities={};
+    out.candidates.forEach(function(row){
+      var key=impSecurityKey(row);
+      if(!securities[key]){
+        securities[key]={key:key, isin:row.isin, name:row.name, rawTicker:row.rawTicker,
+                         ticker:(previous[key]&&previous[key].ticker)||row.rawTicker||"",
+                         source:(previous[key]&&previous[key].source)||(row.rawTicker?"file":""),
+                         candidates:(previous[key]&&previous[key].candidates)||null, rows:0};
+      }
+      securities[key].rows++;
+    });
+    impState.securities=securities;
+    impState.checks=null;
+
+    impRender();
+    impLookupSecurities();
+  }
+
+  /** Ask the server which ticker each unresolved ISIN belongs to. */
+  function impLookupSecurities(){
+    var pending=Object.keys(impState.securities).filter(function(k){
+      var s=impState.securities[k];
+      return !s.ticker && (s.isin||s.name) && !s.candidates;
+    });
+    if(!pending.length){ impCheckPrices(); return; }
+
+    var queue=pending.slice(0,12);   // a file with more new securities than that wants a person, not twelve lookups
+    var done=0;
+    queue.forEach(function(key){
+      var s=impState.securities[key];
+      var q=s.isin?("isin="+encodeURIComponent(s.isin)):("name="+encodeURIComponent(s.name||""));
+      apiFetch("./api/securities/lookup?"+q)
+        .then(function(r){ return r.ok?r.json():null; })
+        .then(function(d){
+          if(d){
+            if(d.remembered){ s.ticker=d.remembered; s.source="remembered"; }
+            else if(d.candidates&&d.candidates.length){
+              s.candidates=d.candidates;
+              if(!s.ticker){ s.ticker=d.candidates[0].symbol; s.source="suggested"; }
+            }
+          }
+        })
+        .catch(function(){ /* the lookup is a convenience; typing the ticker is the fallback */ })
+        .then(function(){ if(++done===queue.length){ impRender(); impCheckPrices(); } });
+    });
+  }
+
+  /** Does each row's price resemble what that share cost that day. */
+  function impCheckPrices(){
+    var rows=impResolvedRows();
+    if(!rows.length) return;
+    apiFetch("./api/import/check",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({rows:rows.map(function(r){ return {line:r.line,ticker:r.ticker,date:r.date,price:r.price}; })})
+    })
+      .then(function(r){ return r.ok?r.json():null; })
+      .then(function(d){ if(d&&d.checks){ impState.checks=d.checks; impState.checkThreshold=d.threshold||20; impRender(); } })
+      .catch(function(){ /* without the check the preview is still usable, just quieter */ });
+  }
+
+  /** Candidate rows with a ticker chosen for them. */
+  function impResolvedRows(){
+    if(!impState||!impState.candidates) return [];
+    return impState.candidates.map(function(row){
+      var s=impState.securities[impSecurityKey(row)];
+      var ticker=((s&&s.ticker)||"").toUpperCase().trim();
+      return {line:row.line, date:row.date, type:row.type, quantity:row.quantity, price:row.price,
+              currency:row.currency, ticker:ticker, isin:row.isin, name:row.name,
+              orderRef:row.orderRef, priceDerived:row.priceDerived};
+    }).filter(function(r){ return r.ticker; });
+  }
+
+  function impCheckFor(line){
+    if(!impState.checks) return null;
+    for(var i=0;i<impState.checks.length;i++) if(impState.checks[i].line===line) return impState.checks[i];
+    return null;
+  }
+
+  /** A row that looks like one already registered by hand — same holding, same day, same size. */
+  function impLooksExisting(row){
+    for(var i=0;i<transactions.length;i++){
+      var t=transactions[i];
+      if(String(t.ticker).toUpperCase()!==row.ticker) continue;
+      if(new Date(t.ts).toISOString().slice(0,10)!==row.date) continue;
+      if(Math.abs(t.quantity-row.quantity)>0.0001) continue;
+      return true;
+    }
+    return false;
+  }
+
+  function impRender(){
+    if(!impState) return;
+    var headers=impState.headers||[];
+    var resolved=impResolvedRows();
+    var unresolved=Object.keys(impState.securities||{}).filter(function(k){ return !impState.securities[k].ticker; });
+
+    impEl("imp-filename").textContent=impState.fileName||"";
+    impEl("imp-read").innerHTML=
+      "Read <b>"+esc(String(impState.fileName||"the file"))+"</b> — "
+      +(impState.candidates.length)+" trade"+(impState.candidates.length===1?"":"s")+" found"
+      +(impState.skipped.length?", "+impState.skipped.length+" other row"+(impState.skipped.length===1?"":"s")+" not imported":"")+".";
+
+    /* ---- columns ---- */
+    var placed=IMP_FIELDS.filter(function(f){ return impState.mapping[f[0]]!=null; }).length;
+    impEl("imp-cols-sum").textContent="— "+placed+" of "+IMP_FIELDS.length+" placed"
+      +(impState.mapping.date==null||impState.mapping.quantity==null?" · something essential is missing":"");
+    impEl("imp-map").innerHTML=IMP_FIELDS.map(function(f){
+      var opts=['<option value="">— none —</option>'].concat(headers.map(function(h,i){
+        return '<option value="'+i+'"'+(impState.mapping[f[0]]===i?" selected":"")+'>'+esc(h||("column "+(i+1)))+"</option>";
+      })).join("");
+      return '<label>'+esc(f[1])+'<select data-imp-field="'+f[0]+'">'+opts+"</select></label>";
+    }).join("");
+
+    impEl("imp-fmt").innerHTML=
+      '<span>Dates</span><select id="imp-dateorder">'
+      +[["dmy","day first (31/12/2024)"],["mdy","month first (12/31/2024)"],["ymd","year first (2024-12-31)"]].map(function(o){
+        return '<option value="'+o[0]+'"'+(impState.dateOrder===o[0]?" selected":"")+">"+esc(o[1])+"</option>"; }).join("")
+      +"</select>"
+      +'<span>Decimals</span><select id="imp-decimal">'
+      +[[".","1,234.56"],[",","1.234,56"]].map(function(o){
+        return '<option value="'+esc(o[0])+'"'+(impState.decimal===o[0]?" selected":"")+">"+esc(o[1])+"</option>"; }).join("")
+      +"</select>"
+      +(impState.mapping.currency==null
+        ? '<span>Currency</span><select id="imp-defcur">'
+          +["","EUR","USD"].map(function(c){
+            return '<option value="'+c+'"'+(impState.defaultCurrency===c?" selected":"")+">"+(c||"— pick —")+"</option>"; }).join("")
+          +"</select>"
+        : "")
+      +(impState.dateOrder==="ambiguous"
+        ? '<span class="imp-flag">Every date in this file could be read either way — choose which.</span>' : "");
+
+    /* ---- securities ---- */
+    var secKeys=Object.keys(impState.securities||{});
+    impEl("imp-secs-wrap").hidden=!secKeys.length;
+    impEl("imp-secs").innerHTML=secKeys.map(function(key){
+      var s=impState.securities[key];
+      var sub=[s.isin,s.rawTicker&&s.rawTicker!==s.ticker?("file says "+s.rawTicker):"",
+               s.rows+" row"+(s.rows===1?"":"s"),
+               s.source==="remembered"?"remembered from an earlier import":
+               s.source==="suggested"?"suggested — confirm it":""].filter(Boolean).join(" · ");
+      var alts=(s.candidates||[]).length>1
+        ? '<div class="imp-alts">'+s.candidates.map(function(c){
+            return '<button type="button" class="imp-alt" data-imp-pick="'+esc(key)+'" data-imp-symbol="'+esc(c.symbol)+'"'
+              +' aria-pressed="'+(c.symbol===s.ticker)+'" title="'+esc((c.name||"")+(c.exchange?" · "+c.exchange:""))+'">'
+              +esc(c.symbol)+"</button>"; }).join("")+"</div>"
+        : "";
+      return '<div class="imp-sec"><div class="imp-sec-name">'+esc(s.name||s.rawTicker||s.isin||"Unnamed")
+        +'<span class="imp-sec-sub">'+esc(sub)+"</span></div>"
+        +'<input type="text" value="'+esc(s.ticker||"")+'" data-imp-ticker="'+esc(key)+'" placeholder="TICKER" aria-label="Ticker">'
+        +'<span class="imp-flag">'+(s.ticker?"":"needed")+"</span>"+alts+"</div>";
+    }).join("");
+
+    /* ---- preview ---- */
+    var threshold=impState.checkThreshold||20;
+    var warnings=0;
+    var body=resolved.map(function(row){
+      var check=impCheckFor(row.line);
+      var flags=[];
+      if(check&&check.status==="checked"&&Math.abs(check.deviationPct)>threshold){
+        flags.push("price is "+(check.deviationPct>0?"+":"")+check.deviationPct+"% against the "+check.closeDate+" close"
+          +(check.splitFactor!==1?" (split-adjusted)":""));
+      }
+      if(row.priceDerived) flags.push("price derived from the total, so any fee is still inside it");
+      if(impLooksExisting(row)) flags.push("you already have a transaction like this");
+      if(flags.length) warnings++;
+      // The note goes under the row rather than in a column of its own: this
+      // card is 380px wide, and a sixth column puts every warning off the edge
+      // where it has to be scrolled to and will not be.
+      return "<tr"+(flags.length?' class="warn"':"")+"><td>"+esc(row.date)+"</td><td>"+esc(row.type)+"</td>"
+        +"<td>"+esc(row.ticker)+"</td><td class=num>"+row.quantity+"</td>"
+        +"<td class=num>"+row.price.toFixed(2)+" "+esc(row.currency)+"</td></tr>"
+        +(flags.length?'<tr class="warn note"><td colspan="5" class="imp-flag">'+esc(flags.join(" · "))+"</td></tr>":"");
+    }).join("");
+    impEl("imp-preview").innerHTML=
+      "<thead><tr><th>Date</th><th>Type</th><th>Ticker</th><th>Qty</th><th>Price</th></tr></thead><tbody>"
+      +(body||'<tr><td colspan="5">Nothing to import yet — every security still needs a ticker.</td></tr>')+"</tbody>";
+    impEl("imp-prev-sum").textContent="— "+resolved.length+" row"+(resolved.length===1?"":"s")
+      +(warnings?", "+warnings+" worth a look":"")
+      +(unresolved.length?", "+unresolved.length+" security"+(unresolved.length===1?"":" securities")+" still unnamed":"");
+
+    /* ---- skipped ---- */
+    var skipped=impState.skipped||[];
+    impEl("imp-skipped-wrap").hidden=!skipped.length;
+    impEl("imp-skipped-sum").textContent="— "+skipped.length+" row"+(skipped.length===1?"":"s");
+    impEl("imp-skipped").innerHTML=skipped.map(function(s){
+      return "<div>Line "+s.line+" — "+esc(s.reason)+"</div>";
+    }).join("");
+
+    impEl("imp-go").disabled=!resolved.length;
+    impEl("imp-go").textContent=resolved.length?("Import "+resolved.length+" transaction"+(resolved.length===1?"":"s")):"Import";
+  }
+
+  function impRun(){
+    var rows=impResolvedRows();
+    if(!rows.length) return;
+    var note=impEl("imp-note");
+    note.className="frm-note"; note.textContent="Importing…";
+    impEl("imp-go").disabled=true;
+
+    apiFetch("./api/transactions/import",{
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({rows:rows})
+    })
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+      .then(function(res){
+        impEl("imp-go").disabled=false;
+        if(!res.ok){
+          note.className="frm-note err";
+          note.textContent=res.d.error||"That import was refused.";
+          return;
+        }
+        var d=res.d;
+        impState.batchId=d.batchId;
+        var parts=["<b>"+d.imported+" transaction"+(d.imported===1?"":"s")+" imported.</b>"];
+        if(d.duplicates&&d.duplicates.length) parts.push(d.duplicates.length+" were already imported from an earlier file and were left alone.");
+        if(d.skipped&&d.skipped.length) parts.push(d.skipped.length+" row"+(d.skipped.length===1?"":"s")+" the server refused: "
+          +esc(d.skipped.slice(0,3).map(function(s){ return "line "+s.line+", "+s.reason; }).join("; "))+".");
+        if(d.newTickers&&d.newTickers.length) parts.push("New here: "+esc(d.newTickers.join(", "))
+          +". Their price history is loading — the charts fill in as it arrives.");
+        impEl("imp-done-msg").innerHTML=parts.join(" ");
+        impEl("imp-undo").hidden=!d.batchId;
+        impShow("done");
+        showSuccess(d.imported+" imported");
+
+        loadTransactions();
+        if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
+        refreshPortfolio();
+        impBackfill(d.newTickers||[], rows);
+      })
+      .catch(function(e){
+        impEl("imp-go").disabled=false;
+        note.className="frm-note err"; note.textContent="Server error: "+e.message;
+      });
+  }
+
+  /**
+   * Price history for tickers the app has never seen, one at a time.
+   *
+   * Sequential rather than parallel on purpose: each call reaches Yahoo for up
+   * to ten years of bars, and firing six at once is how an IP gets throttled —
+   * which would break the daily fetch every other holding depends on.
+   */
+  function impBackfill(tickers, rows){
+    if(!tickers.length) return;
+    var i=0;
+    (function next(){
+      if(i>=tickers.length){ refreshPortfolio(); return; }
+      var ticker=tickers[i++];
+      // As far back as this holding's own oldest imported trade and no further.
+      // A file of last month's trades has no use for ten years of bars, and
+      // every year asked for is a year Yahoo has to send.
+      var oldest=rows.reduce(function(acc,r){
+        return r.ticker===ticker && (!acc || r.date<acc) ? r.date : acc; },null);
+      var years=oldest ? Math.min(10, Math.max(2, Math.ceil((Date.now()-Date.parse(oldest))/31557600000)+1)) : 2;
+      apiFetch("./api/backfill",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ticker:ticker, years:years})
+      })
+        .then(function(r){ return r.ok?r.json():null; })
+        .then(function(){ if(typeof loadAndRenderPrices==="function") loadAndRenderPrices(); })
+        .catch(function(){ /* the transactions are in; history can be loaded again later */ })
+        .then(next);
+    })();
+  }
+
+  function impUndo(){
+    if(!impState||!impState.batchId) return;
+    apiFetch("./api/transactions/import/"+encodeURIComponent(impState.batchId),{method:"DELETE"})
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+      .then(function(res){
+        if(!res.ok){ showError(res.d.error||"That import could not be undone."); return; }
+        impState.batchId=null;
+        impEl("imp-done-msg").innerHTML="<b>Import undone.</b> "+res.d.removed+" transaction"
+          +(res.d.removed===1?"":"s")+" removed. Any price history that was loaded is kept.";
+        impEl("imp-undo").hidden=true;
+        showSuccess(res.d.removed+" removed");
+        // Said before the refresh, not after: undoing an import that took the
+        // portfolio back to empty ends in refreshPortfolio() reloading the page
+        // to hand over to the empty state, and a message written after that call
+        // can be wiped before it is read.
+        loadTransactions(); refreshPortfolio();
+      })
+      .catch(function(e){ showError("Undo failed: "+e.message); });
+  }
+
+  function impReset(){
+    impState=null;
+    impEl("imp-file").value="";
+    impEl("imp-filename").textContent="";
+    impEl("imp-note").textContent="";
+    impShow("pick");
+  }
+
+  (function wireImport(){
+    var file=impEl("imp-file");
+    if(!file) return;
+    file.addEventListener("change",function(){
+      if(file.files&&file.files[0]) impReadFile(file.files[0]);
+    });
+    impEl("imp-go").addEventListener("click",impRun);
+    impEl("imp-cancel").addEventListener("click",impReset);
+    impEl("imp-another").addEventListener("click",impReset);
+    impEl("imp-undo").addEventListener("click",impUndo);
+
+    // One listener per card rather than per control: the mapping, the format
+    // pickers and the securities list are all redrawn on every change.
+    impEl("imp-card").addEventListener("change",function(e){
+      var t=e.target;
+      if(!impState) return;
+      if(t.dataset&&t.dataset.impField){
+        var mapping={};
+        Object.keys(impState.mapping).forEach(function(k){ mapping[k]=impState.mapping[k]; });
+        if(t.value==="") delete mapping[t.dataset.impField];
+        else mapping[t.dataset.impField]=parseInt(t.value,10);
+        impParse({mapping:mapping});
+      } else if(t.id==="imp-dateorder"){ impParse({dateOrder:t.value});
+      } else if(t.id==="imp-decimal"){ impParse({decimal:t.value});
+      } else if(t.id==="imp-defcur"){ impParse({defaultCurrency:t.value});
+      } else if(t.dataset&&t.dataset.impTicker){
+        var sec=impState.securities[t.dataset.impTicker];
+        if(sec){ sec.ticker=(t.value||"").toUpperCase().trim(); sec.source="typed"; impState.checks=null; impRender(); impCheckPrices(); }
+      }
+    });
+
+    impEl("imp-card").addEventListener("click",function(e){
+      var btn=e.target.closest?e.target.closest("[data-imp-pick]"):null;
+      if(!btn||!impState) return;
+      var sec=impState.securities[btn.dataset.impPick];
+      if(sec){ sec.ticker=btn.dataset.impSymbol; sec.source="typed"; impState.checks=null; impRender(); impCheckPrices(); }
+    });
+  })();
+
   /* ================= watchlist ================= */
   /*
    * Stocks followed without being owned. The only concept here that is not on

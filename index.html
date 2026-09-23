@@ -318,6 +318,51 @@
   .txgrid{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;align-items:start}
   .txgrid .addcard{margin-bottom:0}
   @media (max-width:860px){ .txgrid{grid-template-columns:1fr} }
+  /* Import is the second half of the Register card, under a rule. min-width:0
+     on the grid items because a grid item will not shrink below its content,
+     and this card now contains a nowrap table: without it the table's full
+     width becomes the column's minimum and the page scrolls sideways. */
+  .txgrid>.addcard{min-width:0}
+  #imp-card{margin-top:16px;padding-top:14px;border-top:1px solid var(--hair)}
+  .imp-title{font-size:13px;margin:0 0 4px;color:var(--ink);font-weight:600}
+  .imp-filename{font-size:11.5px;color:var(--faint);margin-left:10px}
+  .imp-read{font-size:11.5px;color:var(--muted);margin:10px 0;line-height:1.6}
+  .imp-h{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--faint);margin:14px 0 6px}
+  .imp-note{font-size:11.5px;color:var(--faint);margin:0 0 8px;line-height:1.5}
+  .imp-sum{font-weight:400;color:var(--faint);text-transform:none;letter-spacing:0}
+  .imp-details{border:1px solid var(--hair);border-radius:8px;padding:8px 10px;margin-top:10px;background:var(--surface-2)}
+  .imp-details>summary{font-size:11.5px;color:var(--muted);cursor:pointer;list-style:none}
+  .imp-details>summary::-webkit-details-marker{display:none}
+  .imp-details>summary::before{content:"▸ ";color:var(--faint)}
+  .imp-details[open]>summary::before{content:"▾ "}
+  .imp-map{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:10px}
+  .imp-map label{display:flex;flex-direction:column;font-size:10px;color:var(--faint);text-transform:uppercase;gap:4px}
+  .imp-map select{font-size:11.5px}
+  .imp-fmt{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--faint);align-items:center}
+  .imp-fmt select{font-size:11px;width:auto;flex:0 0 auto;max-width:200px}
+  .imp-secs{display:grid;gap:8px}
+  .imp-sec{display:grid;grid-template-columns:1fr 110px auto;gap:8px;align-items:center;
+           border:1px solid var(--hair);border-radius:8px;padding:8px 10px;background:var(--surface-2)}
+  .imp-sec-name{font-size:11.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+  .imp-sec-sub{display:block;font-size:10.5px;color:var(--faint)}
+  .imp-sec input{font-size:11.5px;text-transform:uppercase}
+  .imp-sec .imp-alts{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap}
+  .imp-alt{font-size:10.5px;padding:2px 7px;border-radius:999px;border:1px solid var(--hair);
+           background:var(--surface);color:var(--muted);cursor:pointer}
+  .imp-alt[aria-pressed="true"]{border-color:var(--accent);color:var(--ink)}
+  .imp-table-wrap{overflow-x:auto;border:1px solid var(--hair);border-radius:8px;max-height:320px;overflow-y:auto}
+  .imp-table{width:100%;border-collapse:collapse;font-size:11.5px;white-space:nowrap}
+  .imp-table th{position:sticky;top:0;background:var(--surface-2);text-align:left;font-weight:500;
+                color:var(--faint);font-size:10px;text-transform:uppercase;padding:6px 8px;z-index:1}
+  .imp-table td{padding:5px 8px;border-top:1px solid var(--hair);color:var(--muted)}
+  .imp-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .imp-table tr.warn td{background:color-mix(in srgb,var(--warn) 12%,transparent)}
+  /* the note under its row, wrapped rather than pushed off the right edge */
+  .imp-table tr.note td{white-space:normal;border-top:0;padding-top:0;line-height:1.5}
+  .imp-flag{font-size:10px;color:var(--warn)}
+  .imp-skips{font-size:11px;color:var(--faint);line-height:1.7;margin-top:8px;max-height:180px;overflow-y:auto}
+  .imp-done-msg{font-size:12.5px;color:var(--ink);line-height:1.6}
+  @media (max-width:520px){ .imp-sec{grid-template-columns:1fr 100px} .imp-sec>button{grid-column:2} }
   /* the same picture the alert list draws, at the size the panel has room for: six months
      of price, the level that fires, and the gap between them */
   .rule-spark{margin-top:12px;line-height:0}
@@ -1463,6 +1508,58 @@
           <button type="button" class="btn primary" id="tx-save" style="flex:1">Register</button>
         </div>
         <div class="frm-note" id="tx-note"></div>
+
+        <!-- The other way to register a transaction, in the same card as the
+             form: a broker's CSV, read here in the browser and never uploaded —
+             only the rows confirmed on the preview are sent. -->
+        <div id="imp-card">
+        <h4 class="imp-title">Or import from a file</h4>
+        <p class="hint">A CSV export from your broker or bank. It is read in your browser — the file itself never leaves this machine, only the rows you confirm.</p>
+
+        <div id="imp-pick">
+          <label class="btn" for="imp-file" style="display:inline-block;cursor:pointer">Choose a CSV file</label>
+          <input type="file" id="imp-file" accept=".csv,.txt,text/csv,text/plain" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
+          <span class="imp-filename" id="imp-filename"></span>
+        </div>
+
+        <div id="imp-work" hidden>
+          <div class="imp-read" id="imp-read"></div>
+
+          <details class="imp-details" id="imp-cols">
+            <summary>Columns <span class="imp-sum" id="imp-cols-sum"></span></summary>
+            <div class="imp-map" id="imp-map"></div>
+            <div class="imp-fmt" id="imp-fmt"></div>
+          </details>
+
+          <div id="imp-secs-wrap" hidden>
+            <h4 class="imp-h">Securities</h4>
+            <p class="imp-note">Your app names a holding by the ticker its prices come from. Confirm each one — the first suggestion is not always the listing you hold.</p>
+            <div class="imp-secs" id="imp-secs"></div>
+          </div>
+
+          <h4 class="imp-h">Preview <span class="imp-sum" id="imp-prev-sum"></span></h4>
+          <div class="imp-table-wrap"><table class="imp-table" id="imp-preview"></table></div>
+
+          <details class="imp-details" id="imp-skipped-wrap" hidden>
+            <summary>Not imported <span class="imp-sum" id="imp-skipped-sum"></span></summary>
+            <div class="imp-skips" id="imp-skipped"></div>
+          </details>
+
+          <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn primary" id="imp-go" style="flex:1">Import</button>
+            <button type="button" class="btn" id="imp-cancel">Cancel</button>
+          </div>
+          <div class="frm-note" id="imp-note"></div>
+        </div>
+
+        <div id="imp-done" hidden>
+          <div class="imp-done-msg" id="imp-done-msg"></div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn" id="imp-undo">Undo this import</button>
+            <button type="button" class="btn" id="imp-another">Import another file</button>
+          </div>
+        </div>
+      </div>
       </div>
 
       <div class="addcard">
@@ -1694,6 +1791,7 @@
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="./csv-import.js" defer></script>
 <script src="./app.js" defer></script>
 <script src="./contact.js" defer></script>
 <!-- The donate widget is shared across the SingleUseApps sites rather than copied
