@@ -181,6 +181,27 @@ function halfLabel(text, b, n) {
   return Math.round((text.length * 5.6 / 2) / (b.x1 - b.x0) * (n - 1));
 }
 
+/**
+ * The wrapper every figure wears.
+ *
+ * A casual scroller reads three things in this order: the headline, the source,
+ * and one line under the chart. So the headline carries the payoff in numbers
+ * rather than naming the mechanism, the source names the ticker and the dates
+ * where they can be seen instead of in small print, and the takeaway is one
+ * sentence. Everything else — provenance, caveats, the honest awkward detail —
+ * goes behind a toggle, which is there for the reader who wants it and out of
+ * the way of the one who does not.
+ */
+function figureHead(headline, source, dates) {
+  return `<h3 class="lp-fig-h">${headline}</h3>
+      <p class="lp-fig-src"><b>${source}</b> &middot; ${dates} <span class="real">real closes</span></p>`;
+}
+
+function figureFoot(takeaway, detail) {
+  return `<figcaption>${takeaway}</figcaption>
+      <details class="lp-fig-more"><summary>Where these numbers come from</summary><p>${detail}</p></details>`;
+}
+
 /* -------------------------------------------------------------- figures */
 
 /**
@@ -239,14 +260,19 @@ function dipFigure(spy) {
       </g>
     </svg>`;
 
+  const head = figureHead(`Down ${Math.round(100 - second)}%, and still in profit`,
+                          'SPY &mdash; the S&amp;P 500', 'Jan &ndash; Jun 2020');
+
   const key = `<p class="lp-fig-key">
       <span><i style="background:var(--s-total)"></i>Price</span>
       <span><i class="dash"></i>Average cost <b>${money(first)} &rarr; ${money(avg)}</b></span>
     </p>`;
 
-  const caption = `<figcaption>Real prices: <b>SPY</b>, the S&amp;P 500 tracker, 2 January to 30 June 2020 &mdash; ${spy.length} daily closes, rebased so the first one is ${money(first)}. The two purchases are the illustration, and the second one is placed at the very bottom, which nobody manages on purpose; the point survives a worse entry, it just moves the shaded band. That band is where the second buy is the difference between a profit and a loss.</figcaption>`;
+  const foot = figureFoot(
+    `Ten shares at ${money(first)}, ten more at the bottom. Break-even falls to <b>${money(avg)}</b> &mdash; so ${money1(last)} is a profit, where against ${money(first)} it is still a loss.`,
+    `${spy.length} daily closes, rebased so the first is ${money(first)}. The two purchases are the illustration and the second sits at the very bottom, which nobody manages on purpose &mdash; a worse entry still works, it just moves the shaded band, which is the range where that second buy decides between a profit and a loss.`);
 
-  return { key, svg, caption, facts: { first, second, avg, last, n: spy.length } };
+  return { head, key, svg, foot, facts: { first, second, avg, last, n: spy.length } };
 }
 
 /**
@@ -329,6 +355,12 @@ function rulesFigure(amd) {
       </g>
     </svg>`;
 
+  const runPct = Math.round(values[peakIdx] - 100);
+  const givePct = Math.round(100 - 100 * last / values[peakIdx]);
+
+  const head = figureHead(`It ran ${runPct}%, then gave ${givePct}% back. You heard about both.`,
+                          'AMD', 'Jul 2023 &ndash; Sep 2024');
+
   const key = `<p class="lp-fig-key">
       <span><i style="background:var(--s-total)"></i>Price</span>
       <span><i class="dash"></i>Your average cost <b>${money(avgCost)}</b></span>
@@ -336,9 +368,11 @@ function rulesFigure(amd) {
       <span><i style="background:var(--neg)"></i>Trailing &minus;20% <b>${money(trail[breakIdx])}</b></span>
     </p>`;
 
-  const caption = `<figcaption>Real prices: <b>AMD</b>, 13 July 2023 to 18 September 2024 &mdash; ${amd.length} daily closes, rebased so the first one is ${money(100)}. Your average cost only moves when you trade, so a target tied to it stays meaningful. The red line is the trailing rule &mdash; 20% under the highest close so far, which is why it climbs in steps on the way up and then holds still while the price falls back through it. Note what actually happened here: the target fired at ${money(target)} and the stock carried on to ${money(values[peakIdx])} before giving ${Math.round(100 - 100 * last / values[peakIdx])}% of it back. One rule fires on the way up, the other on the way down, and neither decides anything for you.</figcaption>`;
+  const foot = figureFoot(
+    `Your target emailed you at <b>${money(target)}</b> on the way up. When the run broke, the trailing rule emailed again at <b>${money(trail[breakIdx])}</b> &mdash; no dashboard, no watching.`,
+    `${amd.length} daily closes, rebased so the first is ${money(100)}. Your average cost only moves when you trade, so a target tied to it keeps meaning something; the red line is 20% under the highest close so far, which is why it climbs in steps and then holds still while the price falls back through it. Note the unflattering part: the target fired at ${money(target)} and the stock carried on to ${money(values[peakIdx])} before turning. One rule fires on the way up and one on the way down; neither decides anything for you.`);
 
-  return { key, svg, caption, facts: { target, peak: values[peakIdx], breakAt: trail[breakIdx], last, n: amd.length } };
+  return { head, key, svg, foot, facts: { target, peak: values[peakIdx], breakAt: trail[breakIdx], last, n: amd.length } };
 }
 
 /**
@@ -433,15 +467,22 @@ function folioFigure(sim) {
       </g>
     </svg>`;
 
+  const under = sim.filter(p => p.value < p.invested);
+  const lastUnder = new Date(under[under.length - 1].d).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+  const head = figureHead(`${money(last.invested)} in. ${money(last.value)} today.`,
+                          'TSLA &middot; MSFT &middot; AMD', 'Jan 2022 &ndash; today');
+
   const key = `<p class="lp-fig-key">
       <span><i style="background:var(--s-total)"></i>Market value <b>${money(last.value)}</b></span>
       <span><i class="dash"></i>Invested <b>${money(last.invested)}</b></span>
     </p>`;
 
-  const under = sim.filter(p => p.value < p.invested);
-  const caption = `<figcaption>Real prices: <b>TSLA, MSFT and AMD</b> from January 2022 to today, converted to euros at each day's own rate. The buyer is the illustration &mdash; ${money(sim[0].invested)} into one of the three every quarter, in rotation, whatever the price was that morning. The shaded band is gain over what went in; the ${buyIdx.length} rings are the purchases. It was not a straight line: on ${under.length} of these ${sim.length} days the holding was worth less than the money put into it, the last of them in ${new Date(under[under.length - 1].d).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}.</figcaption>`;
+  const foot = figureFoot(
+    `${money(sim[0].invested)} every quarter, whatever the price was that morning &mdash; and <b>${under.length} days</b> along the way when it was worth less than the money put in.`,
+    `Prices are real and converted to euros at each day's own rate; the buyer is the illustration &mdash; ${money(sim[0].invested)} into one of the three holdings every quarter, in rotation. The shaded band is gain over what went in and the ${buyIdx.length} rings are the purchases. Those ${under.length} losing days out of ${sim.length} ran as late as ${lastUnder}, which is the part a chart of somebody else's good idea usually leaves out.`);
 
-  return { key, svg, caption, facts: { value: last.value, invested: last.invested } };
+  return { head, key, svg, foot, facts: { value: last.value, invested: last.invested } };
 }
 
 /** The averaging-down window, as it actually happened to one holding. */
@@ -590,9 +631,10 @@ async function main() {
 
   let html = fs.readFileSync(INDEX, 'utf-8');
   const before = html;
-  html = replaceBlock(html, 'dip', `${dip.key}\n      ${dip.svg}\n      ${dip.caption}`);
-  html = replaceBlock(html, 'rules', `${rules.key}\n      ${rules.svg}\n      ${rules.caption}`);
-  html = replaceBlock(html, 'folio', `${folio.key}\n      ${folio.svg}\n      ${folio.caption}`);
+  const assemble = f => `${f.head}\n      ${f.key}\n      ${f.svg}\n      ${f.foot}`;
+  html = replaceBlock(html, 'dip', assemble(dip));
+  html = replaceBlock(html, 'rules', assemble(rules));
+  html = replaceBlock(html, 'folio', assemble(folio));
   html = replaceBlock(html, 'mini-averaging', miniAveraging(spy).svg);
   html = replaceBlock(html, 'mini-folio', miniFolio(sim).svg);
   html = replaceBlock(html, 'mini-holdings', miniHoldings(sim).svg);

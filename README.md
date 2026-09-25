@@ -947,12 +947,39 @@ in a different place — sampling a series and then measuring the sample:
   centre with daylight above it is no use when the end of the sentence runs into the line. One
   annotation had nowhere to sit at all and moved into the caption.
 
+**Then it was made readable at a glance — 2026-09-26, issue #14.** Real data was not enough: the
+figures still read as documentation. Each one now has the same three-part structure, in the order
+a scroller takes it.
+
+1. **A headline carrying the payoff in numbers**, set in the same serif as the section headings at
+   21&ndash;27px — *"Down 31%, and still in profit"*, *"It ran 82%, then gave 30% back. You heard
+   about both."*, *"&euro;11,400 in. &euro;27,409 today."* The old titles named the mechanism
+   (`WHAT ONE BUY ON THE DIP DOES`, 11.5px uppercase, `var(--muted)`) and vanished while scrolling.
+   **Every number in them is computed from the series**, so changing a window changes the headline.
+2. **A source line naming the ticker and the window** — `SPY — the S&P 500 · Jan – Jun 2020` with a
+   *real closes* pill, in the mono face, right under the headline. A reader can now name the data
+   without opening anything, which is what the previous version buried in the last sentence of a
+   caption.
+3. **One sentence under the chart**, at 15px in `var(--ink)` instead of 11.5px in `var(--faint)`,
+   with the number bolded. Everything else — provenance, method, caveats — moved behind a
+   *Where these numbers come from* toggle.
+
+**The unflattering half stays in the visible line, not the toggle.** The portfolio figure's takeaway
+is "&euro;600 every quarter … and **350 days** along the way when it was worth less than the money
+put in"; the rules figure says the target emailed at &euro;154 while the stock ran to &euro;182. A
+page arguing for discipline cannot show only the good half, and the collapsed detail is exactly
+where nobody would read it.
+
+**On a phone the two 900-unit figures now crop both label gutters** (`.crop-both`, &le;640px). They
+reserve 70 units left and 110 right for axis text that this breakpoint hides, so the plot had been
+drawing at about three quarters of the width available to it.
+
 **Regenerating.** `node landing-figures.js` rewrites everything between the `figure:<id>:start`
 and `figure:<id>:end` markers in `index.html`; `--check` reports whether the file is up to date
 without writing. Historical closes do not change, so there is no cache and no fixture. The script
 is not in `PUBLIC_FILES`, so it is not served.
 
-**Cost:** `index.html` went from 124 KB to 147 KB, which is **32 KB to 40 KB gzipped** — about
+**Cost:** `index.html` went from 124 KB to 146 KB, which is **32 KB to 40 KB gzipped** — about
 1,600 real data points for 7.6 KB on the wire. The figures are still static SVG: they draw before
 any script runs, and a visitor with JavaScript off still sees them.
 

@@ -472,7 +472,24 @@
 
   .lp-figure{background:var(--surface);border:1px solid var(--hair);border-radius:14px;box-shadow:var(--shadow);padding:18px 18px 14px;margin:34px 0 0}
   .lp-fig-title{font-size:11.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 2px 14px}
-  .lp-figure figcaption{margin:12px 2px 0;font-size:11.5px;color:var(--faint)}
+  /* The figure's headline is the thing a scroller reads, so it is a headline:
+     same serif as the section headings, full contrast, with the source of the
+     data stated beside it rather than buried in small print underneath. */
+  .lp-fig-h{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:clamp(21px,2.6vw,27px);
+            line-height:1.15;letter-spacing:-.015em;color:var(--ink);margin:0 2px 8px;text-wrap:balance}
+  .lp-fig-src{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 2px 14px;
+              font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted)}
+  .lp-fig-src b{color:var(--ink);font-weight:600;letter-spacing:.01em}
+  .lp-fig-src .real{border:1px solid var(--hair);border-radius:999px;padding:2px 8px;background:var(--surface-2);
+                    color:var(--accent);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase}
+  .lp-figure figcaption{margin:14px 2px 0;font-size:15px;line-height:1.5;color:var(--ink);max-width:62ch}
+  .lp-figure figcaption b{font-weight:600}
+  .lp-fig-more{margin:10px 2px 0;font-size:11.5px;color:var(--faint)}
+  .lp-fig-more>summary{cursor:pointer;color:var(--muted);list-style:none}
+  .lp-fig-more>summary::-webkit-details-marker{display:none}
+  .lp-fig-more>summary::before{content:"\203A";display:inline-block;width:12px;color:var(--faint)}
+  .lp-fig-more[open]>summary::before{content:"\2039"}
+  .lp-fig-more p{margin:8px 0 0;line-height:1.6;max-width:70ch}
   /* The hero chart's 720-unit viewBox scales to under half size on a phone,
      which shrinks its in-chart labels to ~5px. Below 640px we drop the SVG
      text entirely and carry the two numbers that matter in real HTML instead,
@@ -485,6 +502,11 @@
        figures whose gutter is actually that wide — hence the opt-in class. */
     .lp-figure.crop-gutter{overflow:hidden}
     .lp-figure.crop-gutter svg{width:116%}
+    /* The two 900-unit figures reserve a gutter each side for axis labels that
+       this breakpoint hides, so on a phone the plot was drawing at three
+       quarters of the width it had. Crop both gutters instead of one. */
+    .lp-figure.crop-both{overflow:hidden}
+    .lp-figure.crop-both svg{width:122%;margin-left:-8%}
     .lp-fig-key{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 2px 12px;font-size:12px;color:var(--muted)}
     .lp-fig-key span{display:inline-flex;align-items:center;gap:6px}
     .lp-fig-key i{width:11px;height:3px;border-radius:2px;flex:none}
@@ -788,9 +810,10 @@
     </div>
   </section>
 
-  <figure class="lp-figure">
-    <p class="lp-fig-title">What one buy on the dip does</p>
-      <!-- figure:dip:start -->
+  <figure class="lp-figure crop-both">
+    <!-- figure:dip:start -->
+      <h3 class="lp-fig-h">Down 31%, and still in profit</h3>
+      <p class="lp-fig-src"><b>SPY &mdash; the S&amp;P 500</b> &middot; Jan &ndash; Jun 2020 <span class="real">real closes</span></p>
       <p class="lp-fig-key">
       <span><i style="background:var(--s-total)"></i>Price</span>
       <span><i class="dash"></i>Average cost <b>&euro;100 &rarr; &euro;84</b></span>
@@ -836,13 +859,15 @@
         <text x="798" y="168.6" fill="var(--faint)">your average</text>
       </g>
     </svg>
-      <figcaption>Real prices: <b>SPY</b>, the S&amp;P 500 tracker, 2 January to 30 June 2020 &mdash; 125 daily closes, rebased so the first one is &euro;100. The two purchases are the illustration, and the second one is placed at the very bottom, which nobody manages on purpose; the point survives a worse entry, it just moves the shaded band. That band is where the second buy is the difference between a profit and a loss.</figcaption>
+      <figcaption>Ten shares at &euro;100, ten more at the bottom. Break-even falls to <b>&euro;84</b> &mdash; so &euro;94.9 is a profit, where against &euro;100 it is still a loss.</figcaption>
+      <details class="lp-fig-more"><summary>Where these numbers come from</summary><p>125 daily closes, rebased so the first is &euro;100. The two purchases are the illustration and the second sits at the very bottom, which nobody manages on purpose &mdash; a worse entry still works, it just moves the shaded band, which is the range where that second buy decides between a profit and a loss.</p></details>
     <!-- figure:dip:end -->
     </figure>
 
-  <figure class="lp-figure">
-    <p class="lp-fig-title">What a rule near the top does</p>
-      <!-- figure:rules:start -->
+  <figure class="lp-figure crop-both">
+    <!-- figure:rules:start -->
+      <h3 class="lp-fig-h">It ran 82%, then gave 30% back. You heard about both.</h3>
+      <p class="lp-fig-src"><b>AMD</b> &middot; Jul 2023 &ndash; Sep 2024 <span class="real">real closes</span></p>
       <p class="lp-fig-key">
       <span><i style="background:var(--s-total)"></i>Price</span>
       <span><i class="dash"></i>Your average cost <b>&euro;88</b></span>
@@ -901,13 +926,15 @@
         <text x="798" y="235.7" fill="var(--faint)">your average</text>
       </g>
     </svg>
-      <figcaption>Real prices: <b>AMD</b>, 13 July 2023 to 18 September 2024 &mdash; 299 daily closes, rebased so the first one is &euro;100. Your average cost only moves when you trade, so a target tied to it stays meaningful. The red line is the trailing rule &mdash; 20% under the highest close so far, which is why it climbs in steps on the way up and then holds still while the price falls back through it. Note what actually happened here: the target fired at &euro;154 and the stock carried on to &euro;182 before giving 30% of it back. One rule fires on the way up, the other on the way down, and neither decides anything for you.</figcaption>
+      <figcaption>Your target emailed you at <b>&euro;154</b> on the way up. When the run broke, the trailing rule emailed again at <b>&euro;146</b> &mdash; no dashboard, no watching.</figcaption>
+      <details class="lp-fig-more"><summary>Where these numbers come from</summary><p>299 daily closes, rebased so the first is &euro;100. Your average cost only moves when you trade, so a target tied to it keeps meaning something; the red line is 20% under the highest close so far, which is why it climbs in steps and then holds still while the price falls back through it. Note the unflattering part: the target fired at &euro;154 and the stock carried on to &euro;182 before turning. One rule fires on the way up and one on the way down; neither decides anything for you.</p></details>
     <!-- figure:rules:end -->
     </figure>
 
   <figure class="lp-figure crop-gutter">
-    <p class="lp-fig-title">Portfolio over time</p>
-      <!-- figure:folio:start -->
+    <!-- figure:folio:start -->
+      <h3 class="lp-fig-h">&euro;11,400 in. &euro;27,409 today.</h3>
+      <p class="lp-fig-src"><b>TSLA &middot; MSFT &middot; AMD</b> &middot; Jan 2022 &ndash; today <span class="real">real closes</span></p>
       <p class="lp-fig-key">
       <span><i style="background:var(--s-total)"></i>Market value <b>&euro;27,409</b></span>
       <span><i class="dash"></i>Invested <b>&euro;11,400</b></span>
@@ -964,7 +991,8 @@
         <text x="630" y="138.8" fill="var(--faint)">Invested</text>
       </g>
     </svg>
-      <figcaption>Real prices: <b>TSLA, MSFT and AMD</b> from January 2022 to today, converted to euros at each day's own rate. The buyer is the illustration &mdash; &euro;600 into one of the three every quarter, in rotation, whatever the price was that morning. The shaded band is gain over what went in; the 19 rings are the purchases. It was not a straight line: on 350 of these 1186 days the holding was worth less than the money put into it, the last of them in April 2025.</figcaption>
+      <figcaption>&euro;600 every quarter, whatever the price was that morning &mdash; and <b>350 days</b> along the way when it was worth less than the money put in.</figcaption>
+      <details class="lp-fig-more"><summary>Where these numbers come from</summary><p>Prices are real and converted to euros at each day's own rate; the buyer is the illustration &mdash; &euro;600 into one of the three holdings every quarter, in rotation. The shaded band is gain over what went in and the 19 rings are the purchases. Those 350 losing days out of 1186 ran as late as April 2025, which is the part a chart of somebody else's good idea usually leaves out.</p></details>
     <!-- figure:folio:end -->
     </figure>
 
