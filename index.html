@@ -790,174 +790,183 @@
 
   <figure class="lp-figure">
     <p class="lp-fig-title">What one buy on the dip does</p>
-    <p class="lp-fig-key">
+      <!-- figure:dip:start -->
+      <p class="lp-fig-key">
       <span><i style="background:var(--s-total)"></i>Price</span>
-      <span><i class="dash"></i>Average cost <b>&euro;100 &rarr; &euro;85</b></span>
+      <span><i class="dash"></i>Average cost <b>&euro;100 &rarr; &euro;84</b></span>
     </p>
-    <svg viewBox="0 0 900 300" role="img" aria-label="Example chart: a share bought at 100 euros falls to 70, where a second purchase of the same size drops the average cost to 85 euros. The price recovers to 95, which is a profit against the 85 euro average but would still have been a loss against 100.">
+      <svg viewBox="0 0 900 300" role="img" aria-label="Real chart: SPY, the S&amp;P 500 tracker, from January to June 2020, rebased to 100 euros. The price falls 31 percent to 69, where a second purchase of the same size drops the average cost to 84 euros. It ends at 95, a profit against that average and still a loss against the original 100.">
       <g>
-        <line class="gridline" x1="70" y1="40" x2="790" y2="40"></line>
-        <line class="gridline" x1="70" y1="82" x2="790" y2="82"></line>
-        <line class="gridline" x1="70" y1="124" x2="790" y2="124"></line>
-        <line class="gridline" x1="70" y1="166" x2="790" y2="166"></line>
-        <line class="gridline" x1="70" y1="208" x2="790" y2="208"></line>
-        <line class="gridline" x1="70" y1="250" x2="790" y2="250"></line>
+        <line class="gridline" x1="70" y1="228.5" x2="790" y2="228.5"></line>
+        <line class="gridline" x1="70" y1="177.6" x2="790" y2="177.6"></line>
+        <line class="gridline" x1="70" y1="126.6" x2="790" y2="126.6"></line>
+        <line class="gridline" x1="70" y1="75.6" x2="790" y2="75.6"></line>
       </g>
       <!-- the price range made profitable by the second buy: bounded above by the
-           old EUR 100 break-even gridline, below by the new EUR 85 average cost -->
-      <rect x="397" y="82" width="393" height="63" fill="var(--accent-soft)"></rect>
+           old break-even at EUR 100, below by the new average cost -->
+      <rect x="389.4" y="75.6" width="400.6" height="80" fill="var(--accent-soft)"></rect>
       <g class="axislbl" text-anchor="end" dominant-baseline="middle">
-        <text x="60" y="40">&euro;110</text>
-        <text x="60" y="82">&euro;100</text>
-        <text x="60" y="124">&euro;90</text>
-        <text x="60" y="166">&euro;80</text>
-        <text x="60" y="208">&euro;70</text>
-        <text x="60" y="250">&euro;60</text>
+        <text x="60" y="228.5">&euro;70</text>
+        <text x="60" y="177.6">&euro;80</text>
+        <text x="60" y="126.6">&euro;90</text>
+        <text x="60" y="75.6">&euro;100</text>
       </g>
       <g class="xlbl">
-        <text x="70" y="272">first buy</text>
-        <text x="397" y="272">the dip</text>
-        <text x="790" y="272">today</text>
+        <text x="70" y="272">Jan 2020 &middot; first buy</text>
+        <text x="389.4" y="272">23 Mar &middot; the dip</text>
+        <text x="790" y="272">30 Jun</text>
       </g>
-      <path d="M70,82 H397 V145 H790" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
-      <path class="serieline" d="M70,82 L135,98.8 L201,132.4 L266,170.2 L332,199.6 L397,208 L463,191.2 L528,203.8 L594,174.4 L659,149.2 L725,124 L790,103" stroke="var(--s-total)"></path>
+      <path d="M70,75.6 H389.4 V155.6 H790" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+      <path class="serieline" d="M70,75.6 L75.8,79.5 L81.6,77.5 L87.4,79 L93.2,76.3 L99,72.8 L104.8,74.3 L110.6,70.8 L116.5,71.6 L122.3,70.4 L128.1,66.1 L133.9,64.5 L139.7,65.5 L145.5,65.5 L151.3,64.9 L157.1,69.5 L162.9,77.8 L168.7,72.4 L174.5,72.9 L180.3,71.2 L186.1,80.5 L191.9,76.8 L197.7,69 L203.5,63.1 L209.4,61.3 L215.2,64.1 L221,60.2 L226.8,59.3 L232.6,55.9 L238.4,56.5 L244.2,55.6 L250,57 L255.8,54.5 L261.6,56.7 L267.4,62.1 L273.2,79.5 L279,94.8 L284.8,96.6 L290.6,118.5 L296.5,120.5 L302.3,100.4 L308.1,114.3 L313.9,94.5 L319.7,110.8 L325.5,118.6 L331.3,155.1 L337.1,132.8 L342.9,154.9 L348.7,196 L354.5,162.8 L360.3,209 L366.1,188.7 L371.9,208.8 L377.7,208 L383.5,226.3 L389.4,235.5 L395.2,203.8 L401,198.1 L406.8,175.5 L412.6,187.7 L418.4,174.8 L424.2,180.9 L430,199.1 L435.8,190.2 L441.6,195.9 L447.4,169.8 L453.2,169.3 L459,155.4 L464.8,148.8 L470.6,152.8 L476.5,140.1 L482.3,149.5 L488.1,147.4 L493.9,135.6 L499.7,143.5 L505.5,156.9 L511.3,147.4 L517.1,147.5 L522.9,141.4 L528.7,135 L534.5,137 L540.3,125.3 L546.1,129.6 L551.9,141.6 L557.7,140.4 L563.5,136.3 L569.4,139.3 L575.2,134 L581,126.5 L586.8,126.4 L592.6,135.5 L598.4,143.5 L604.2,138.2 L610,136.2 L615.8,122.5 L621.6,127.2 L627.4,119.5 L633.2,122.7 L639,121.8 L644.8,116.1 L650.6,109.1 L656.5,110 L662.3,107.9 L668.1,105.9 L673.9,102 L679.7,95.5 L685.5,96.8 L691.3,84.3 L697.1,78.2 L702.9,82 L708.7,84.8 L714.5,113.7 L720.3,108 L726.1,103.6 L731.9,94.3 L737.7,96.3 L743.5,96.2 L749.4,101.1 L755.2,98 L761,95.7 L766.8,108.2 L772.6,103.1 L778.4,114.6 L784.2,107.6 L790,101.5" stroke="var(--s-total)"></path>
       <g class="buyring" stroke="var(--s-total)">
-        <circle cx="70" cy="82" r="4.5"></circle>
-        <circle cx="397" cy="208" r="4.5"></circle>
+        <circle cx="70" cy="75.6" r="4.5"></circle>
+        <circle cx="389.4" cy="235.5" r="4.5"></circle>
       </g>
       <g style="font-size:11.5px;font-family:'IBM Plex Sans',system-ui,sans-serif" fill="var(--muted)">
-        <text x="80" y="72">Bought 10 @ &euro;100</text>
-        <text x="407" y="228">Bought 10 more @ &euro;70</text>
-        <text x="412" y="101" fill="var(--accent)">Profit at &euro;85. At &euro;100 this was still a loss.</text>
+        <text x="84" y="61.6">Bought 10 @ &euro;100</text>
+        <text x="399.4" y="255.5">Bought 10 more @ &euro;68.6</text>
+        <text x="404.4" y="94.6" fill="var(--accent)">Profit at &euro;84. At &euro;100 this was still a loss.</text>
       </g>
       <g class="endlbl">
-        <text x="798" y="103" fill="var(--s-total)">&euro;95</text>
-        <text x="798" y="145" fill="var(--faint)">&euro;85</text>
+        <text x="798" y="101.5" fill="var(--s-total)">&euro;94.9</text>
+        <text x="798" y="155.6" fill="var(--faint)">&euro;84</text>
       </g>
       <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
-        <text x="798" y="116" fill="var(--muted)">price today</text>
-        <text x="798" y="158" fill="var(--faint)">your average</text>
+        <text x="798" y="114.5" fill="var(--muted)">price at the end</text>
+        <text x="798" y="168.6" fill="var(--faint)">your average</text>
       </g>
     </svg>
-    <figcaption>Example data. The shaded band is the price range where that second buy is the difference between a profit and a loss.</figcaption>
-  </figure>
+      <figcaption>Real prices: <b>SPY</b>, the S&amp;P 500 tracker, 2 January to 30 June 2020 &mdash; 125 daily closes, rebased so the first one is &euro;100. The two purchases are the illustration, and the second one is placed at the very bottom, which nobody manages on purpose; the point survives a worse entry, it just moves the shaded band. That band is where the second buy is the difference between a profit and a loss.</figcaption>
+    <!-- figure:dip:end -->
+    </figure>
 
   <figure class="lp-figure">
     <p class="lp-fig-title">What a rule near the top does</p>
-    <p class="lp-fig-key">
+      <!-- figure:rules:start -->
+      <p class="lp-fig-key">
       <span><i style="background:var(--s-total)"></i>Price</span>
-      <span><i class="dash"></i>Your average cost <b>&euro;85</b></span>
-      <span><i style="background:var(--s-tsla)"></i>Target <b>&euro;149</b></span>
-      <span><i style="background:var(--neg)"></i>Trailing <b>&euro;128</b></span>
+      <span><i class="dash"></i>Your average cost <b>&euro;88</b></span>
+      <span><i style="background:var(--s-tsla)"></i>Target <b>&euro;154</b></span>
+      <span><i style="background:var(--neg)"></i>Trailing &minus;20% <b>&euro;146</b></span>
     </p>
-    <svg viewBox="0 0 900 300" role="img" aria-label="Example chart: the same holding, averaged in at 85 euros, runs up to 160. A take-profit rule set 75 percent above cost fires at 149 on the way up. A trailing rule set 20 percent below the stock's own high steps up behind the price and fires at 128 when the run breaks.">
+      <svg viewBox="0 0 900 300" role="img" aria-label="Real chart: AMD from July 2023 to September 2024, rebased to 100 euros. Averaged in at 88 euros, it runs 82 percent above the starting point to a peak of 182. A take-profit rule 75 percent above cost fires at 154 on the way up. A trailing rule 20 percent below the stock's own high climbs behind the price and fires at 146 when the run breaks.">
       <g>
-        <line class="gridline" x1="70" y1="40" x2="790" y2="40"></line>
-        <line class="gridline" x1="70" y1="82" x2="790" y2="82"></line>
-        <line class="gridline" x1="70" y1="124" x2="790" y2="124"></line>
-        <line class="gridline" x1="70" y1="166" x2="790" y2="166"></line>
-        <line class="gridline" x1="70" y1="208" x2="790" y2="208"></line>
-        <line class="gridline" x1="70" y1="250" x2="790" y2="250"></line>
+        <line class="gridline" x1="70" y1="245.9" x2="790" y2="245.9"></line>
+        <line class="gridline" x1="70" y1="201.3" x2="790" y2="201.3"></line>
+        <line class="gridline" x1="70" y1="156.7" x2="790" y2="156.7"></line>
+        <line class="gridline" x1="70" y1="112.2" x2="790" y2="112.2"></line>
+        <line class="gridline" x1="70" y1="67.6" x2="790" y2="67.6"></line>
       </g>
       <!-- what the stock is allowed to give back from its peak before the trailing
-           rule says the run has broken: EUR 160 down to EUR 128 -->
-      <rect x="594" y="61" width="196" height="67.2" fill="rgba(192,71,62,.10)"></rect>
+           rule says the run has broken -->
+      <rect x="466.2" y="54.5" width="323.8" height="65" fill="rgba(192,71,62,.10)"></rect>
       <g class="axislbl" text-anchor="end" dominant-baseline="middle">
-        <text x="60" y="40">&euro;170</text>
-        <text x="60" y="82">&euro;150</text>
-        <text x="60" y="124">&euro;130</text>
-        <text x="60" y="166">&euro;110</text>
-        <text x="60" y="208">&euro;90</text>
-        <text x="60" y="250">&euro;70</text>
+        <text x="60" y="245.9">&euro;75</text>
+        <text x="60" y="201.3">&euro;100</text>
+        <text x="60" y="156.7">&euro;125</text>
+        <text x="60" y="112.2">&euro;150</text>
+        <text x="60" y="67.6">&euro;175</text>
       </g>
       <g class="xlbl">
-        <text x="70" y="272">averaged in</text>
-        <text x="397" y="272">the run</text>
-        <text x="790" y="272">today</text>
+        <text x="70" y="272">Jul 2023</text>
+        <text x="466.2" y="272">7 Mar 2024 &middot; the peak</text>
+        <text x="790" y="272">Sep 2024</text>
       </g>
       <!-- your average cost: flat, because it only moves when you trade -->
-      <path d="M70,218.5 H790" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+      <path d="M70,222.7 H790" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
       <!-- take-profit level: +75% on that average -->
-      <path d="M70,84.1 H790" fill="none" stroke="var(--s-tsla)" stroke-width="1.5" stroke-dasharray="7 4"></path>
+      <path d="M70,105 H790" fill="none" stroke="var(--s-tsla)" stroke-width="1.5" stroke-dasharray="7 4"></path>
       <!-- trailing level: 20% under the highest price so far, so it climbs in steps -->
-      <path d="M70,237.4 H135 V227.3 H266 V208.8 H332 V188.7 H397 V166.8 H463 V146.7 H528 V131.6 H594 V128.2 H790" fill="none" stroke="var(--neg)" stroke-width="1.5"></path>
-      <path class="serieline" d="M70,197.5 L135,184.9 L201,189.1 L266,161.8 L332,136.6 L397,109.3 L463,84.1 L528,65.2 L594,61 L659,92.5 L725,136.6 L790,149.2" stroke="var(--s-total)"></path>
+      <path d="M70,237 H72.4 V236.9 H74.8 V234 H275.4 V233.7 H280.2 V232.1 H287.4 V231.2 H289.9 V230.1 H294.7 V228.8 H299.5 V228.7 H304.4 V227.2 H318.9 V221.6 H321.3 V221 H323.7 V214.2 H326.1 V210.3 H328.5 V209.6 H333.4 V208.4 H338.2 V207.1 H347.9 V203.1 H350.3 V199.9 H352.7 V196.5 H369.6 V195.9 H379.3 V184.3 H381.7 V182.5 H384.1 V179.4 H386.5 V165.2 H393.8 V160.2 H396.2 V157.7 H442.1 V155.8 H454.2 V142.7 H456.6 V130.3 H459 V126.9 H463.8 V120.4 H466.2 V119.5 H790" fill="none" stroke="var(--neg)" stroke-width="1.5"></path>
+      <path class="serieline" d="M70,201.3 L72.4,201.3 L74.8,197.6 L77.2,198.2 L79.7,200.5 L82.1,210 L84.5,208.9 L86.9,209.5 L89.3,205.8 L91.7,210.3 L94.2,208.7 L96.6,205.8 L99,203.6 L101.4,198.7 L103.8,211.4 L106.2,205.6 L108.7,201.5 L111.1,199.9 L113.5,205.4 L115.9,209.7 L118.3,210 L120.7,214.1 L123.2,207.4 L125.6,208.3 L128,214.7 L130.4,219 L132.8,217.4 L135.2,213.1 L137.7,217.1 L140.1,211.3 L142.5,223 L144.9,222.3 L147.3,221.8 L149.7,216.7 L152.1,215.6 L154.6,217 L157,211.2 L159.4,209.2 L161.8,211.5 L164.2,215.6 L166.6,216.4 L169.1,217.6 L171.5,217.6 L173.9,213.9 L176.3,215.6 L178.7,223.5 L181.1,222.1 L183.6,223.3 L186,225.3 L188.4,231.8 L190.8,231.6 L193.2,229.8 L195.6,232 L198.1,228.8 L200.5,221.5 L202.9,221.4 L205.3,220.8 L207.7,225.7 L210.1,219.5 L212.6,221.3 L215,214.6 L217.4,215.1 L219.8,211.9 L222.2,213 L224.6,212.3 L227,218 L229.5,215.8 L231.9,217.9 L234.3,222.4 L236.7,222.1 L239.1,223 L241.5,225.8 L244,223.2 L246.4,231.8 L248.8,235.5 L251.2,231.3 L253.6,231.7 L256,228.1 L258.5,213.4 L260.9,213.7 L263.3,206.9 L265.7,207.7 L268.1,205.1 L270.5,204.9 L273,205 L275.4,197.2 L277.8,200 L280.2,195.2 L282.6,198.1 L285,195.3 L287.4,194.1 L289.9,192.7 L292.3,196.3 L294.7,191.2 L297.1,191.5 L299.5,190.9 L301.9,191.9 L304.4,189.1 L306.8,193.2 L309.2,192.9 L311.6,197.2 L314,197.5 L316.4,199.9 L318.9,182.1 L321.3,181.3 L323.7,172.9 L326.1,167.9 L328.5,167 L330.9,167.3 L333.4,165.6 L335.8,166 L338.2,164 L340.6,171.2 L343,164.4 L345.4,164.9 L347.9,159 L350.3,154.9 L352.7,150.8 L355.1,152.9 L357.5,166.4 L359.9,171.5 L362.3,170.4 L364.8,166.4 L367.2,154.8 L369.6,150 L372,151.1 L374.4,151.9 L376.8,154.2 L379.3,135.4 L381.7,133.2 L384.1,129.4 L386.5,111.6 L388.9,120.9 L391.3,120.6 L393.8,105.4 L396.2,102.2 L398.6,107 L401,106.1 L403.4,115 L405.8,121.7 L408.3,117.4 L410.7,106.3 L413.1,111.6 L415.5,121.4 L417.9,116.7 L420.3,119.1 L422.8,114.3 L425.2,115.2 L427.6,115.8 L430,104.7 L432.4,107.7 L434.8,112.2 L437.2,124.8 L439.7,126.9 L442.1,99.9 L444.5,108.1 L446.9,108.9 L449.3,105.8 L451.7,108.1 L454.2,83.5 L456.6,67.9 L459,63.7 L461.4,64.1 L463.8,55.6 L466.2,54.5 L468.7,60.6 L471.1,74.5 L473.5,67.7 L475.9,80 L478.3,91.9 L480.7,85.7 L483.2,86.4 L485.6,100.6 L488,103.2 L490.4,104.8 L492.8,103.3 L495.2,104.9 L497.7,106 L500.1,103.4 L502.5,102 L504.9,97.6 L507.3,104.7 L509.7,101.6 L512.1,124.5 L514.6,117.5 L517,118.3 L519.4,116.9 L521.8,122.5 L524.2,117.4 L526.6,128.5 L529.1,133 L531.5,128.2 L533.9,142.7 L536.3,141.1 L538.7,154.1 L541.1,151 L543.6,145.4 L546,146.2 L548.4,143.1 L550.8,137.5 L553.2,133.2 L555.6,136 L558.1,157.7 L560.5,154.8 L562.9,148 L565.3,140 L567.7,142.1 L570.1,143.3 L572.6,145.2 L575,145.9 L577.4,148 L579.8,144 L582.2,134 L584.6,129.5 L587,126.6 L589.5,123.8 L591.9,126.3 L594.3,125 L596.7,132.8 L599.1,123.7 L601.5,115.6 L604,125.6 L606.4,123.1 L608.8,122.9 L611.2,128 L613.6,133.5 L616,124 L618.5,123.1 L620.9,121.4 L623.3,133 L625.7,135.1 L628.1,133.1 L630.5,133.7 L633,134.1 L635.4,136 L637.8,141.8 L640.2,130.8 L642.6,131.6 L645,133.1 L647.4,133.1 L649.9,137.3 L652.3,134.3 L654.7,130.1 L657.1,137.1 L659.5,126.9 L661.9,127.5 L664.4,115.2 L666.8,104.8 L669.2,107.2 L671.6,96.7 L674,99.8 L676.4,100.3 L678.9,103 L681.3,106.5 L683.7,134.4 L686.1,140 L688.5,146.5 L690.9,139.9 L693.4,142.7 L695.8,157.1 L698.2,166.8 L700.6,164.3 L703,164.6 L705.4,166.7 L707.9,157.4 L710.3,175.7 L712.7,175.8 L715.1,172.2 L717.5,179.4 L719.9,181.7 L722.3,169.9 L724.8,173.1 L727.2,169.2 L729.6,162.5 L732,163.1 L734.4,152.9 L736.8,151.1 L739.3,140.8 L741.7,139 L744.1,136.9 L746.5,146.3 L748.9,141.2 L751.3,148.9 L753.8,148.1 L756.2,154.5 L758.6,155.8 L761,151.1 L763.4,169 L765.8,162.9 L768.3,165.1 L770.7,173 L773.1,167.1 L775.5,159.9 L777.9,149.1 L780.3,147.7 L782.8,145.3 L785.2,145.7 L787.6,147.6 L790,151.5" stroke="var(--s-total)"></path>
       <g class="buyring" stroke="var(--s-tsla)">
-        <circle cx="463" cy="84.1" r="4.5"></circle>
+        <circle cx="396.2" cy="102.2" r="4.5"></circle>
       </g>
       <g class="buyring" stroke="var(--neg)">
-        <circle cx="725" cy="136.6" r="4.5"></circle>
+        <circle cx="512.1" cy="124.5" r="4.5"></circle>
       </g>
       <g style="font-size:11.5px;font-family:'IBM Plex Sans',system-ui,sans-serif" fill="var(--muted)">
-        <text x="80" y="210">Your average cost &euro;85</text>
-        <text x="240" y="76" fill="var(--s-tsla)">+75% on your cost &mdash; emailed here</text>
-        <text x="604" y="52" fill="var(--muted)">peak &euro;160</text>
-        <text x="452" y="176" fill="var(--neg)">&minus;20% off its high &mdash; climbs with the price</text>
-        <text x="700" y="160" text-anchor="middle" fill="var(--neg)">the run breaks &mdash; emailed here</text>
+        <text x="146.2" y="97" fill="var(--s-tsla)">+75% on your cost &mdash; emailed here</text>
+        <text x="474.2" y="45.5" fill="var(--muted)">peak &euro;182</text>
+        <text x="567.7" y="91" text-anchor="middle" fill="var(--neg)">the run breaks &mdash; emailed here</text>
       </g>
       <g class="endlbl">
-        <text x="798" y="84.1" fill="var(--s-tsla)">&euro;149</text>
-        <text x="798" y="128.2" fill="var(--neg)">&euro;128</text>
-        <text x="798" y="153" fill="var(--s-total)">&euro;118</text>
-        <text x="798" y="218.5" fill="var(--faint)">&euro;85</text>
+        <text x="798" y="105" fill="var(--s-tsla)">&euro;154</text>
+        <text x="798" y="151.5" fill="var(--s-total)">&euro;128</text>
+        <text x="798" y="222.7" fill="var(--faint)">&euro;88</text>
       </g>
       <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
-        <text x="798" y="97" fill="var(--muted)">your target</text>
-        <text x="798" y="141" fill="var(--muted)">trailing</text>
-        <text x="798" y="166" fill="var(--muted)">price today</text>
-        <text x="798" y="231" fill="var(--faint)">your average</text>
+        <text x="798" y="118" fill="var(--muted)">your target</text>
+        <text x="798" y="164.5" fill="var(--muted)">price at the end</text>
+        <text x="798" y="235.7" fill="var(--faint)">your average</text>
       </g>
     </svg>
-    <figcaption>Example data, the same holding as above once it ran. Your average cost only moves when you trade, so a target tied to it stays meaningful; the trailing level climbs on its own behind the price. The shaded band is what the stock is allowed to give back from its peak before you hear about it. One rule fires on the way up, the other on the way down &mdash; neither decides anything for you.</figcaption>
-  </figure>
+      <figcaption>Real prices: <b>AMD</b>, 13 July 2023 to 18 September 2024 &mdash; 299 daily closes, rebased so the first one is &euro;100. Your average cost only moves when you trade, so a target tied to it stays meaningful. The red line is the trailing rule &mdash; 20% under the highest close so far, which is why it climbs in steps on the way up and then holds still while the price falls back through it. Note what actually happened here: the target fired at &euro;154 and the stock carried on to &euro;182 before giving 30% of it back. One rule fires on the way up, the other on the way down, and neither decides anything for you.</figcaption>
+    <!-- figure:rules:end -->
+    </figure>
 
   <figure class="lp-figure crop-gutter">
     <p class="lp-fig-title">Portfolio over time</p>
-    <p class="lp-fig-key">
-      <span><i style="background:var(--s-total)"></i>Market value <b>&euro;11,200</b></span>
-      <span><i class="dash"></i>Invested <b>&euro;9,000</b></span>
+      <!-- figure:folio:start -->
+      <p class="lp-fig-key">
+      <span><i style="background:var(--s-total)"></i>Market value <b>&euro;27,409</b></span>
+      <span><i class="dash"></i>Invested <b>&euro;11,400</b></span>
     </p>
-    <svg viewBox="0 0 720 250" role="img" aria-label="Example line chart: portfolio market value rising from about 2,000 to 11,200 euros, staying above the total amount invested, which steps up to 9,000 euros.">
+      <svg viewBox="0 0 720 250" role="img" aria-label="Real chart: a portfolio of TSLA, MSFT and AMD bought every quarter from January 2022, priced in euros. Market value ends at 27409 euros against 11400 euros invested.">
       <g>
-        <line class="gridline" x1="56" y1="20" x2="620" y2="20"></line>
-        <line class="gridline" x1="56" y1="67.5" x2="620" y2="67.5"></line>
-        <line class="gridline" x1="56" y1="115" x2="620" y2="115"></line>
-        <line class="gridline" x1="56" y1="162.5" x2="620" y2="162.5"></line>
-        <line class="gridline" x1="56" y1="210" x2="620" y2="210"></line>
+        <line class="gridline" x1="56" y1="196.9" x2="620" y2="196.9"></line>
+        <line class="gridline" x1="56" y1="137.1" x2="620" y2="137.1"></line>
+        <line class="gridline" x1="56" y1="77.4" x2="620" y2="77.4"></line>
       </g>
       <g class="axislbl" text-anchor="end" dominant-baseline="middle">
-        <text x="48" y="20">&euro;12k</text>
-        <text x="48" y="67.5">&euro;9k</text>
-        <text x="48" y="115">&euro;6k</text>
-        <text x="48" y="162.5">&euro;3k</text>
-        <text x="48" y="210">&euro;0</text>
+        <text x="48" y="196.9">&euro;0k</text>
+        <text x="48" y="137.1">&euro;10k</text>
+        <text x="48" y="77.4">&euro;20k</text>
       </g>
       <g class="xlbl">
-        <text x="56" y="228">2023</text>
-        <text x="230" y="228">2024</text>
-        <text x="403" y="228">2025</text>
-        <text x="620" y="228">2026</text>
+        <text x="56" y="228">2022</text>
+        <text x="176.4" y="228">2023</text>
+        <text x="294.3" y="228">2024</text>
+        <text x="414.7" y="228">2025</text>
+        <text x="535" y="228">2026</text>
       </g>
       <!-- gain band: market value above invested -->
-      <path class="iv-band" d="M56,177.5 L99,175.5 L143,159.7 L186,156.2 L230,145.1 L273,125.3 L316,128.9 L360,111 L403,109.5 L446,95.2 L490,73.8 L533,81 L577,54.8 L620,32.7 L620,67.5 H577 V83.3 H490 V99.2 H446 V115 H360 V130.8 H273 V146.7 H230 V162.5 H143 V178.3 H56 Z"></path>
-      <path d="M56,178.3 H143 V162.5 H230 V146.7 H273 V130.8 H360 V115 H446 V99.2 H490 V83.3 H577 V67.5 H620" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
-      <path class="serieline" d="M56,177.5 L99,175.5 L143,159.7 L186,156.2 L230,145.1 L273,125.3 L316,128.9 L360,111 L403,109.5 L446,95.2 L490,73.8 L533,81 L577,54.8 L620,32.7" stroke="var(--s-total)"></path>
+      <path class="iv-band" d="M56,193.3 L58.4,193.7 L60.7,193.8 L63.1,194.1 L65.4,194.1 L67.8,194.2 L70.2,194.1 L72.5,194.6 L74.9,194.2 L77.2,194.2 L79.6,194.3 L82,193.8 L84.3,193.5 L86.7,189.9 L89,190.5 L91.4,190.5 L93.8,190.7 L96.1,190.4 L98.5,191.4 L100.8,191.6 L103.2,191.7 L105.6,191.3 L107.9,191.5 L110.3,191.9 L112.6,191.3 L115,191.6 L117.4,187.5 L119.7,187.5 L122.1,186.9 L124.4,186 L126.8,185.8 L129.2,185.4 L131.5,185.9 L133.9,186.4 L136.2,187 L138.6,187 L141,187 L143.3,187.5 L145.7,188.1 L148,185.4 L150.4,185.6 L152.8,185.6 L155.1,185.4 L157.5,186.1 L159.8,186 L162.2,186.6 L164.6,186.3 L166.9,186.5 L169.3,186.8 L171.6,187.9 L174,188.7 L176.4,185.4 L178.7,184.5 L181.1,184.3 L183.4,182.9 L185.8,181.9 L188.2,181.6 L190.5,181.5 L192.9,181.6 L195.2,181.7 L197.6,182.3 L199.9,180.6 L202.3,180.7 L204.7,180.2 L207,177 L209.4,177.6 L211.7,178.7 L214.1,177.8 L216.5,177.1 L218.8,176.8 L221.2,174.9 L223.5,172.8 L225.9,172.2 L228.3,171.6 L230.6,173.1 L233,173.1 L235.3,172.1 L237.7,169.1 L240.1,169.7 L242.4,169.9 L244.8,169.7 L247.1,170.6 L249.5,171.9 L251.9,171.5 L254.2,170.2 L256.6,169.8 L258.9,168.5 L261.3,170.7 L263.7,170.4 L266,166.1 L268.4,165.2 L270.7,167.3 L273.1,168.6 L275.5,166.2 L277.8,165.9 L280.2,164.4 L282.5,164.2 L284.9,164.2 L287.3,163.1 L289.6,162.7 L292,162.6 L294.3,163.1 L296.7,158.3 L299.1,157.1 L301.4,154.8 L303.8,156.8 L306.1,155.5 L308.5,154.6 L310.9,156.6 L313.2,154.9 L315.6,152.4 L317.9,154.1 L320.3,154.9 L322.7,154.8 L325,156.8 L327.4,151.7 L329.7,155.4 L332.1,154.9 L334.5,155.3 L336.8,154.7 L339.2,153.4 L341.5,153.3 L343.9,152.8 L346.3,152.7 L348.6,152.2 L351,151.7 L353.3,150.1 L355.7,141.6 L358.1,142.8 L360.4,145.9 L362.8,149.8 L365.1,153.4 L367.5,152.6 L369.9,149.2 L372.2,150.9 L374.6,152.2 L376.9,150.4 L379.3,148.9 L381.7,147.2 L384,146.7 L386.4,142.3 L388.7,145.1 L391.1,144.7 L393.5,140.7 L395.8,145.6 L398.2,139.3 L400.5,138.8 L402.9,138.1 L405.3,136.1 L407.6,133.6 L410,134.2 L412.3,132.3 L414.7,134.7 L417.1,132.7 L419.4,131.2 L421.8,133.3 L424.1,134.8 L426.5,137.9 L428.9,138.3 L431.2,143.6 L433.6,146.6 L435.9,151.9 L438.3,151.5 L440.7,144.9 L443,148.3 L445.4,156.6 L447.7,148.7 L450.1,150.3 L452.5,146.4 L454.8,144.3 L457.2,135.9 L459.5,138.3 L461.9,136.6 L464.3,140.7 L466.6,138.4 L469,136.5 L471.3,134.7 L473.7,137.7 L476.1,130.7 L478.4,128.2 L480.8,127.8 L483.1,125.3 L485.5,125.1 L487.8,124.3 L490.2,125.6 L492.6,127.2 L494.9,129 L497.3,122.9 L499.6,121.9 L502,120.7 L504.4,113 L506.7,108.3 L509.1,104.5 L511.4,100.5 L513.8,99.2 L516.2,103.9 L518.5,107.4 L520.9,111.4 L523.2,110.5 L525.6,108.6 L528,109 L530.3,108 L532.7,110.6 L535,112.7 L537.4,107 L539.8,102.6 L542.1,108.4 L544.5,119.3 L546.8,116.1 L549.2,116.8 L551.6,117.9 L553.9,117.2 L556.3,117.6 L558.6,119.3 L561,120.8 L563.4,117.8 L565.7,111.2 L568.1,102.2 L570.4,92.7 L572.8,91 L575.2,69.6 L577.5,76.1 L579.9,61.3 L582.2,57.5 L584.6,68.1 L587,63.8 L589.3,62.5 L591.7,54.6 L594,61.3 L596.4,55.6 L598.8,53 L601.1,79.8 L603.5,64.7 L605.8,63.4 L608.2,66.4 L610.6,63.5 L612.9,65.7 L615.3,58.2 L617.6,49.3 L620,33.1 L620,128.8 L617.6,128.8 L615.3,128.8 L612.9,128.8 L610.6,128.8 L608.2,128.8 L605.8,128.8 L603.5,128.8 L601.1,128.8 L598.8,128.8 L596.4,128.8 L594,132.4 L591.7,132.4 L589.3,132.4 L587,132.4 L584.6,132.4 L582.2,132.4 L579.9,132.4 L577.5,132.4 L575.2,132.4 L572.8,132.4 L570.4,132.4 L568.1,132.4 L565.7,132.4 L563.4,135.9 L561,135.9 L558.6,135.9 L556.3,135.9 L553.9,135.9 L551.6,135.9 L549.2,135.9 L546.8,135.9 L544.5,135.9 L542.1,135.9 L539.8,135.9 L537.4,135.9 L535,139.5 L532.7,139.5 L530.3,139.5 L528,139.5 L525.6,139.5 L523.2,139.5 L520.9,139.5 L518.5,139.5 L516.2,139.5 L513.8,139.5 L511.4,139.5 L509.1,139.5 L506.7,139.5 L504.4,143.1 L502,143.1 L499.6,143.1 L497.3,143.1 L494.9,143.1 L492.6,143.1 L490.2,143.1 L487.8,143.1 L485.5,143.1 L483.1,143.1 L480.8,143.1 L478.4,143.1 L476.1,143.1 L473.7,146.7 L471.3,146.7 L469,146.7 L466.6,146.7 L464.3,146.7 L461.9,146.7 L459.5,146.7 L457.2,146.7 L454.8,146.7 L452.5,146.7 L450.1,146.7 L447.7,146.7 L445.4,150.3 L443,150.3 L440.7,150.3 L438.3,150.3 L435.9,150.3 L433.6,150.3 L431.2,150.3 L428.9,150.3 L426.5,150.3 L424.1,150.3 L421.8,150.3 L419.4,150.3 L417.1,150.3 L414.7,153.9 L412.3,153.9 L410,153.9 L407.6,153.9 L405.3,153.9 L402.9,153.9 L400.5,153.9 L398.2,153.9 L395.8,153.9 L393.5,153.9 L391.1,153.9 L388.7,153.9 L386.4,153.9 L384,157.5 L381.7,157.5 L379.3,157.5 L376.9,157.5 L374.6,157.5 L372.2,157.5 L369.9,157.5 L367.5,157.5 L365.1,157.5 L362.8,157.5 L360.4,157.5 L358.1,157.5 L355.7,157.5 L353.3,161 L351,161 L348.6,161 L346.3,161 L343.9,161 L341.5,161 L339.2,161 L336.8,161 L334.5,161 L332.1,161 L329.7,161 L327.4,161 L325,164.6 L322.7,164.6 L320.3,164.6 L317.9,164.6 L315.6,164.6 L313.2,164.6 L310.9,164.6 L308.5,164.6 L306.1,164.6 L303.8,164.6 L301.4,164.6 L299.1,164.6 L296.7,164.6 L294.3,168.2 L292,168.2 L289.6,168.2 L287.3,168.2 L284.9,168.2 L282.5,168.2 L280.2,168.2 L277.8,168.2 L275.5,168.2 L273.1,168.2 L270.7,168.2 L268.4,168.2 L266,168.2 L263.7,171.8 L261.3,171.8 L258.9,171.8 L256.6,171.8 L254.2,171.8 L251.9,171.8 L249.5,171.8 L247.1,171.8 L244.8,171.8 L242.4,171.8 L240.1,171.8 L237.7,171.8 L235.3,175.4 L233,175.4 L230.6,175.4 L228.3,175.4 L225.9,175.4 L223.5,175.4 L221.2,175.4 L218.8,175.4 L216.5,175.4 L214.1,175.4 L211.7,175.4 L209.4,175.4 L207,175.4 L204.7,179 L202.3,179 L199.9,179 L197.6,179 L195.2,179 L192.9,179 L190.5,179 L188.2,179 L185.8,179 L183.4,179 L181.1,179 L178.7,179 L176.4,179 L174,182.6 L171.6,182.6 L169.3,182.6 L166.9,182.6 L164.6,182.6 L162.2,182.6 L159.8,182.6 L157.5,182.6 L155.1,182.6 L152.8,182.6 L150.4,182.6 L148,182.6 L145.7,186.1 L143.3,186.1 L141,186.1 L138.6,186.1 L136.2,186.1 L133.9,186.1 L131.5,186.1 L129.2,186.1 L126.8,186.1 L124.4,186.1 L122.1,186.1 L119.7,186.1 L117.4,186.1 L115,189.7 L112.6,189.7 L110.3,189.7 L107.9,189.7 L105.6,189.7 L103.2,189.7 L100.8,189.7 L98.5,189.7 L96.1,189.7 L93.8,189.7 L91.4,189.7 L89,189.7 L86.7,189.7 L84.3,193.3 L82,193.3 L79.6,193.3 L77.2,193.3 L74.9,193.3 L72.5,193.3 L70.2,193.3 L67.8,193.3 L65.4,193.3 L63.1,193.3 L60.7,193.3 L58.4,193.3 L56,193.3 Z"></path>
+      <path d="M56,193.3 H86.7 V189.7 H117.4 V186.1 H148 V182.6 H176.4 V179 H207 V175.4 H237.7 V171.8 H266 V168.2 H296.7 V164.6 H327.4 V161 H355.7 V157.5 H386.4 V153.9 H417.1 V150.3 H447.7 V146.7 H476.1 V143.1 H506.7 V139.5 H537.4 V135.9 H565.7 V132.4 H596.4 V128.8 H620" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+      <path class="serieline" d="M56,193.3 L58.4,193.7 L60.7,193.8 L63.1,194.1 L65.4,194.1 L67.8,194.2 L70.2,194.1 L72.5,194.6 L74.9,194.2 L77.2,194.2 L79.6,194.3 L82,193.8 L84.3,193.5 L86.7,189.9 L89,190.5 L91.4,190.5 L93.8,190.7 L96.1,190.4 L98.5,191.4 L100.8,191.6 L103.2,191.7 L105.6,191.3 L107.9,191.5 L110.3,191.9 L112.6,191.3 L115,191.6 L117.4,187.5 L119.7,187.5 L122.1,186.9 L124.4,186 L126.8,185.8 L129.2,185.4 L131.5,185.9 L133.9,186.4 L136.2,187 L138.6,187 L141,187 L143.3,187.5 L145.7,188.1 L148,185.4 L150.4,185.6 L152.8,185.6 L155.1,185.4 L157.5,186.1 L159.8,186 L162.2,186.6 L164.6,186.3 L166.9,186.5 L169.3,186.8 L171.6,187.9 L174,188.7 L176.4,185.4 L178.7,184.5 L181.1,184.3 L183.4,182.9 L185.8,181.9 L188.2,181.6 L190.5,181.5 L192.9,181.6 L195.2,181.7 L197.6,182.3 L199.9,180.6 L202.3,180.7 L204.7,180.2 L207,177 L209.4,177.6 L211.7,178.7 L214.1,177.8 L216.5,177.1 L218.8,176.8 L221.2,174.9 L223.5,172.8 L225.9,172.2 L228.3,171.6 L230.6,173.1 L233,173.1 L235.3,172.1 L237.7,169.1 L240.1,169.7 L242.4,169.9 L244.8,169.7 L247.1,170.6 L249.5,171.9 L251.9,171.5 L254.2,170.2 L256.6,169.8 L258.9,168.5 L261.3,170.7 L263.7,170.4 L266,166.1 L268.4,165.2 L270.7,167.3 L273.1,168.6 L275.5,166.2 L277.8,165.9 L280.2,164.4 L282.5,164.2 L284.9,164.2 L287.3,163.1 L289.6,162.7 L292,162.6 L294.3,163.1 L296.7,158.3 L299.1,157.1 L301.4,154.8 L303.8,156.8 L306.1,155.5 L308.5,154.6 L310.9,156.6 L313.2,154.9 L315.6,152.4 L317.9,154.1 L320.3,154.9 L322.7,154.8 L325,156.8 L327.4,151.7 L329.7,155.4 L332.1,154.9 L334.5,155.3 L336.8,154.7 L339.2,153.4 L341.5,153.3 L343.9,152.8 L346.3,152.7 L348.6,152.2 L351,151.7 L353.3,150.1 L355.7,141.6 L358.1,142.8 L360.4,145.9 L362.8,149.8 L365.1,153.4 L367.5,152.6 L369.9,149.2 L372.2,150.9 L374.6,152.2 L376.9,150.4 L379.3,148.9 L381.7,147.2 L384,146.7 L386.4,142.3 L388.7,145.1 L391.1,144.7 L393.5,140.7 L395.8,145.6 L398.2,139.3 L400.5,138.8 L402.9,138.1 L405.3,136.1 L407.6,133.6 L410,134.2 L412.3,132.3 L414.7,134.7 L417.1,132.7 L419.4,131.2 L421.8,133.3 L424.1,134.8 L426.5,137.9 L428.9,138.3 L431.2,143.6 L433.6,146.6 L435.9,151.9 L438.3,151.5 L440.7,144.9 L443,148.3 L445.4,156.6 L447.7,148.7 L450.1,150.3 L452.5,146.4 L454.8,144.3 L457.2,135.9 L459.5,138.3 L461.9,136.6 L464.3,140.7 L466.6,138.4 L469,136.5 L471.3,134.7 L473.7,137.7 L476.1,130.7 L478.4,128.2 L480.8,127.8 L483.1,125.3 L485.5,125.1 L487.8,124.3 L490.2,125.6 L492.6,127.2 L494.9,129 L497.3,122.9 L499.6,121.9 L502,120.7 L504.4,113 L506.7,108.3 L509.1,104.5 L511.4,100.5 L513.8,99.2 L516.2,103.9 L518.5,107.4 L520.9,111.4 L523.2,110.5 L525.6,108.6 L528,109 L530.3,108 L532.7,110.6 L535,112.7 L537.4,107 L539.8,102.6 L542.1,108.4 L544.5,119.3 L546.8,116.1 L549.2,116.8 L551.6,117.9 L553.9,117.2 L556.3,117.6 L558.6,119.3 L561,120.8 L563.4,117.8 L565.7,111.2 L568.1,102.2 L570.4,92.7 L572.8,91 L575.2,69.6 L577.5,76.1 L579.9,61.3 L582.2,57.5 L584.6,68.1 L587,63.8 L589.3,62.5 L591.7,54.6 L594,61.3 L596.4,55.6 L598.8,53 L601.1,79.8 L603.5,64.7 L605.8,63.4 L608.2,66.4 L610.6,63.5 L612.9,65.7 L615.3,58.2 L617.6,49.3 L620,33.1" stroke="var(--s-total)"></path>
       <g class="buyring" stroke="var(--s-total)">
-        <circle cx="143" cy="159.7" r="3.5"></circle>
-        <circle cx="360" cy="111" r="3.5"></circle>
-        <circle cx="577" cy="54.8" r="3.5"></circle>
+        <circle cx="56" cy="193.3" r="3"></circle>
+        <circle cx="86.7" cy="189.9" r="3"></circle>
+        <circle cx="115" cy="191.6" r="3"></circle>
+        <circle cx="145.7" cy="188.1" r="3"></circle>
+        <circle cx="176.4" cy="185.4" r="3"></circle>
+        <circle cx="207" cy="177" r="3"></circle>
+        <circle cx="235.3" cy="172.1" r="3"></circle>
+        <circle cx="266" cy="166.1" r="3"></circle>
+        <circle cx="296.7" cy="158.3" r="3"></circle>
+        <circle cx="325" cy="156.8" r="3"></circle>
+        <circle cx="355.7" cy="141.6" r="3"></circle>
+        <circle cx="386.4" cy="142.3" r="3"></circle>
+        <circle cx="414.7" cy="134.7" r="3"></circle>
+        <circle cx="445.4" cy="156.6" r="3"></circle>
+        <circle cx="476.1" cy="130.7" r="3"></circle>
+        <circle cx="506.7" cy="108.3" r="3"></circle>
+        <circle cx="535" cy="112.7" r="3"></circle>
+        <circle cx="565.7" cy="111.2" r="3"></circle>
+        <circle cx="596.4" cy="55.6" r="3"></circle>
       </g>
       <g class="endlbl">
-        <text x="630" y="29" fill="var(--s-total)">&euro;11,200</text>
-        <text x="630" y="64" fill="var(--faint)">&euro;9,000</text>
+        <text x="630" y="30.1" fill="var(--s-total)">&euro;27,409</text>
+        <text x="630" y="125.8" fill="var(--faint)">&euro;11,400</text>
       </g>
       <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
-        <text x="630" y="42" fill="var(--muted)">Market value</text>
-        <text x="630" y="77" fill="var(--faint)">Invested</text>
+        <text x="630" y="43.1" fill="var(--muted)">Market value</text>
+        <text x="630" y="138.8" fill="var(--faint)">Invested</text>
       </g>
     </svg>
-    <figcaption>Example data. The shaded band is gain over what you put in; rings mark purchases.</figcaption>
-  </figure>
+      <figcaption>Real prices: <b>TSLA, MSFT and AMD</b> from January 2022 to today, converted to euros at each day's own rate. The buyer is the illustration &mdash; &euro;600 into one of the three every quarter, in rotation, whatever the price was that morning. The shaded band is gain over what went in; the 19 rings are the purchases. It was not a straight line: on 350 of these 1186 days the holding was worth less than the money put into it, the last of them in April 2025.</figcaption>
+    <!-- figure:folio:end -->
+    </figure>
 
   <h2 class="lp-h2" id="features">What it does</h2>
   <p class="lp-lede">Six things, each built around the same transaction history you enter once.</p>
@@ -972,21 +981,22 @@
         <span><i class="dash"></i>Your average cost</span>
       </div>
       <div class="lp-mini">
-        <svg viewBox="0 0 300 100" role="img" aria-label="Example chart: a share price falling below the investor's average cost and recovering, with four purchases made inside that window, pulling the average cost down from 100 to 76 euros.">
-          <!-- the stretch where the price line sits under the dashed average-cost
-               line: from the first buy through the crossing at about x=211 -->
-          <rect x="8" y="10" width="203" height="80" fill="var(--accent-soft)"></rect>
-          <path d="M8,24.5 H62 V36.2 H116 V46.4 H142 V55.1 H196 V59.5 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
-          <path class="serieline" d="M8,24.5 L35,36.2 L62,56.5 L89,47.8 L116,68.2 L142,76.9 L169,65.3 L196,71.1 L223,50.7 L250,31.8" stroke="var(--s-total)"></path>
+        <!-- figure:mini-averaging:start -->
+      <svg viewBox="0 0 300 100" role="img" aria-label="Real chart: SPY through the 2020 crash, with four purchases made while the price sat under the average cost, pulling that average from 100 down to 90 euros.">
+          <!-- the stretch where the price line sits under the average-cost line -->
+          <rect x="8" y="10" width="158.1" height="80" fill="var(--accent-soft)"></rect>
+          <path d="M8,23.6 H66.5 V19.8 H115.3 V41.3 H144.6 V43 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+          <path class="serieline" d="M8,23.6 L10,25 L11.9,24.3 L13.9,24.8 L15.8,23.8 L17.8,22.5 L19.7,23.1 L21.7,21.7 L23.6,22 L25.6,21.6 L27.5,20 L29.5,19.3 L31.4,19.7 L33.4,19.7 L35.3,19.5 L37.3,21.2 L39.2,24.4 L41.2,22.4 L43.1,22.5 L45.1,21.9 L47,25.4 L49,24 L50.9,21.1 L52.9,18.8 L54.8,18.1 L56.8,19.2 L58.7,17.7 L60.7,17.4 L62.6,16.1 L64.6,16.3 L66.5,16 L68.5,16.5 L70.5,15.5 L72.4,16.3 L74.4,18.4 L76.3,25 L78.3,30.9 L80.2,31.6 L82.2,39.9 L84.1,40.7 L86.1,33 L88,38.3 L90,30.7 L91.9,37 L93.9,40 L95.8,53.8 L97.8,45.4 L99.7,53.8 L101.7,69.4 L103.6,56.8 L105.6,74.4 L107.5,66.6 L109.5,74.3 L111.4,74 L113.4,81 L115.3,84.5 L117.3,72.4 L119.2,70.2 L121.2,61.6 L123.1,66.3 L125.1,61.4 L127,63.7 L129,70.6 L131,67.2 L132.9,69.4 L134.9,59.4 L136.8,59.3 L138.8,54 L140.7,51.5 L142.7,53 L144.6,48.1 L146.6,51.7 L148.5,50.9 L150.5,46.4 L152.4,49.4 L154.4,54.5 L156.3,50.9 L158.3,50.9 L160.2,48.6 L162.2,46.2 L164.1,47 L166.1,42.5 L168,44.1 L170,48.7 L171.9,48.3 L173.9,46.7 L175.8,47.8 L177.8,45.8 L179.7,43 L181.7,42.9 L183.6,46.4 L185.6,49.4 L187.5,47.4 L189.5,46.6 L191.5,41.4 L193.4,43.2 L195.4,40.3 L197.3,41.5 L199.3,41.2 L201.2,39 L203.2,36.3 L205.1,36.7 L207.1,35.9 L209,35.1 L211,33.6 L212.9,31.2 L214.9,31.6 L216.8,26.9 L218.8,24.6 L220.7,26 L222.7,27.1 L224.6,38.1 L226.6,35.9 L228.5,34.2 L230.5,30.7 L232.4,31.5 L234.4,31.4 L236.3,33.3 L238.3,32.1 L240.2,31.2 L242.2,36 L244.1,34 L246.1,38.4 L248,35.8 L250,33.4" stroke="var(--s-total)"></path>
           <g class="buyring" stroke="var(--s-total)">
-            <circle cx="62" cy="56.5" r="3.2"></circle>
-            <circle cx="116" cy="68.2" r="3.2"></circle>
-            <circle cx="142" cy="76.9" r="3.2"></circle>
-            <circle cx="196" cy="71.1" r="3.2"></circle>
+            <circle cx="8" cy="23.6" r="3.2"></circle>
+            <circle cx="66.5" cy="16" r="3.2"></circle>
+            <circle cx="115.3" cy="84.5" r="3.2"></circle>
+            <circle cx="144.6" cy="48.1" r="3.2"></circle>
           </g>
-          <text class="endlbl" x="256" y="35" fill="var(--s-total)">&euro;95</text>
-          <text class="endlbl" x="256" y="63" fill="var(--faint)">&euro;76</text>
+          <text class="endlbl" x="256" y="32.2" fill="var(--s-total)">&euro;94.9</text>
+          <text class="endlbl" x="256" y="44.2" fill="var(--faint)">&euro;90</text>
         </svg>
+    <!-- figure:mini-averaging:end -->
       </div>
     </div>
 
@@ -1018,13 +1028,15 @@
       <h3>Portfolio over time</h3>
       <p>Market value against the total you have put in, from your first buy to today &mdash; so you read gain, not just balance.</p>
       <div class="lp-mini">
-        <svg viewBox="0 0 300 100" role="img" aria-label="Example chart: portfolio market value rising above the total invested, which steps up with each purchase.">
-          <path class="iv-band" d="M8,76.3 L26.5,75.5 L45.3,68.8 L63.8,67.4 L82.7,62.7 L101.1,54.3 L119.6,55.9 L138.5,48.3 L156.9,47.7 L175.4,41.7 L194.3,32.6 L212.7,35.7 L231.6,24.7 L250,15.3 L250,30 H231.6 V36.7 H194.3 V43.4 H175.4 V50 H138.5 V56.7 H101.1 V63.3 H82.7 V70 H45.3 V76.7 H8 Z"></path>
-          <path d="M8,76.7 H45.3 V70 H82.7 V63.3 H101.1 V56.7 H138.5 V50 H175.4 V43.4 H194.3 V36.7 H231.6 V30 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
-          <path class="serieline" d="M8,76.3 L26.5,75.5 L45.3,68.8 L63.8,67.4 L82.7,62.7 L101.1,54.3 L119.6,55.9 L138.5,48.3 L156.9,47.7 L175.4,41.7 L194.3,32.6 L212.7,35.7 L231.6,24.7 L250,15.3" stroke="var(--s-total)"></path>
-          <text class="endlbl" x="256" y="19" fill="var(--s-total)">&euro;11.2k</text>
-          <text class="endlbl" x="256" y="34" fill="var(--faint)">&euro;9k</text>
+        <!-- figure:mini-folio:start -->
+      <svg viewBox="0 0 300 100" role="img" aria-label="Real chart: portfolio market value against the total invested, which steps up with each purchase.">
+          <path class="iv-band" d="M8,81.3 L10.7,81.6 L13.4,81.7 L16.2,81.7 L18.9,81.6 L21.6,80.1 L24.3,80.2 L27,80.5 L29.8,80.6 L32.5,80.6 L35.2,78.9 L37.9,78.3 L40.6,78.4 L43.3,78.6 L46.1,79.2 L48.8,78.2 L51.5,78.4 L54.2,78.4 L56.9,78.9 L59.7,78.2 L62.4,77.6 L65.1,76.3 L67.8,76.7 L70.5,76.3 L73.3,75 L76,75.1 L78.7,74.1 L81.4,73 L84.1,73.1 L86.9,71.3 L89.6,71.9 L92.3,72.4 L95,71.4 L97.7,72.2 L100.4,71.2 L103.2,70.4 L105.9,69.6 L108.6,68.9 L111.3,67.3 L114,66 L116.8,66.1 L119.5,64.8 L122.2,66 L124.9,65.4 L127.6,65.7 L130.4,64.9 L133.1,65.2 L135.8,63.2 L138.5,62.3 L141.2,65.1 L144,64.7 L146.7,63.6 L149.4,62.4 L152.1,61.1 L154.8,59.7 L157.6,58.7 L160.3,58 L163,57.1 L165.7,57.5 L168.4,60 L171.1,64.2 L173.9,63.7 L176.6,65.5 L179.3,61.2 L182,58.4 L184.7,58.6 L187.5,58.8 L190.2,55.1 L192.9,53.3 L195.6,54.9 L198.3,52.8 L201.1,46.2 L203.8,43.5 L206.5,46.9 L209.2,47.6 L211.9,47.5 L214.7,46.6 L217.4,50.6 L220.1,49.9 L222.8,50.4 L225.5,51.1 L228.2,42.6 L231,32.7 L233.7,27.6 L236.4,27.3 L239.1,25.5 L241.8,35.9 L244.6,28 L247.3,29.2 L250,17.2 L250,55.5 L247.3,55.5 L244.6,55.5 L241.8,55.5 L239.1,56.9 L236.4,56.9 L233.7,56.9 L231,56.9 L228.2,56.9 L225.5,58.4 L222.8,58.4 L220.1,58.4 L217.4,58.4 L214.7,58.4 L211.9,59.8 L209.2,59.8 L206.5,59.8 L203.8,59.8 L201.1,59.8 L198.3,61.2 L195.6,61.2 L192.9,61.2 L190.2,61.2 L187.5,62.7 L184.7,62.7 L182,62.7 L179.3,62.7 L176.6,62.7 L173.9,64.1 L171.1,64.1 L168.4,64.1 L165.7,64.1 L163,64.1 L160.3,65.5 L157.6,65.5 L154.8,65.5 L152.1,65.5 L149.4,67 L146.7,67 L144,67 L141.2,67 L138.5,67 L135.8,68.4 L133.1,68.4 L130.4,68.4 L127.6,68.4 L124.9,68.4 L122.2,69.9 L119.5,69.9 L116.8,69.9 L114,69.9 L111.3,69.9 L108.6,71.3 L105.9,71.3 L103.2,71.3 L100.4,71.3 L97.7,72.7 L95,72.7 L92.3,72.7 L89.6,72.7 L86.9,72.7 L84.1,74.2 L81.4,74.2 L78.7,74.2 L76,74.2 L73.3,74.2 L70.5,75.6 L67.8,75.6 L65.1,75.6 L62.4,75.6 L59.7,75.6 L56.9,77 L54.2,77 L51.5,77 L48.8,77 L46.1,78.5 L43.3,78.5 L40.6,78.5 L37.9,78.5 L35.2,78.5 L32.5,79.9 L29.8,79.9 L27,79.9 L24.3,79.9 L21.6,79.9 L18.9,81.3 L16.2,81.3 L13.4,81.3 L10.7,81.3 L8,81.3 Z"></path>
+          <path d="M8,81.3 H21.6 V79.9 H35.2 V78.5 H48.8 V77 H59.7 V75.6 H73.3 V74.2 H86.9 V72.7 H100.4 V71.3 H111.3 V69.9 H124.9 V68.4 H138.5 V67 H152.1 V65.5 H163 V64.1 H176.6 V62.7 H190.2 V61.2 H201.1 V59.8 H214.7 V58.4 H228.2 V56.9 H241.8 V55.5 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+          <path class="serieline" d="M8,81.3 L10.7,81.6 L13.4,81.7 L16.2,81.7 L18.9,81.6 L21.6,80.1 L24.3,80.2 L27,80.5 L29.8,80.6 L32.5,80.6 L35.2,78.9 L37.9,78.3 L40.6,78.4 L43.3,78.6 L46.1,79.2 L48.8,78.2 L51.5,78.4 L54.2,78.4 L56.9,78.9 L59.7,78.2 L62.4,77.6 L65.1,76.3 L67.8,76.7 L70.5,76.3 L73.3,75 L76,75.1 L78.7,74.1 L81.4,73 L84.1,73.1 L86.9,71.3 L89.6,71.9 L92.3,72.4 L95,71.4 L97.7,72.2 L100.4,71.2 L103.2,70.4 L105.9,69.6 L108.6,68.9 L111.3,67.3 L114,66 L116.8,66.1 L119.5,64.8 L122.2,66 L124.9,65.4 L127.6,65.7 L130.4,64.9 L133.1,65.2 L135.8,63.2 L138.5,62.3 L141.2,65.1 L144,64.7 L146.7,63.6 L149.4,62.4 L152.1,61.1 L154.8,59.7 L157.6,58.7 L160.3,58 L163,57.1 L165.7,57.5 L168.4,60 L171.1,64.2 L173.9,63.7 L176.6,65.5 L179.3,61.2 L182,58.4 L184.7,58.6 L187.5,58.8 L190.2,55.1 L192.9,53.3 L195.6,54.9 L198.3,52.8 L201.1,46.2 L203.8,43.5 L206.5,46.9 L209.2,47.6 L211.9,47.5 L214.7,46.6 L217.4,50.6 L220.1,49.9 L222.8,50.4 L225.5,51.1 L228.2,42.6 L231,32.7 L233.7,27.6 L236.4,27.3 L239.1,25.5 L241.8,35.9 L244.6,28 L247.3,29.2 L250,17.2" stroke="var(--s-total)"></path>
+          <text class="endlbl" x="256" y="17.2" fill="var(--s-total)">&euro;27.4k</text>
+          <text class="endlbl" x="256" y="55.5" fill="var(--faint)">&euro;11.4k</text>
         </svg>
+    <!-- figure:mini-folio:end -->
       </div>
     </div>
 
@@ -1032,23 +1044,25 @@
       <h3>Portfolio in detail</h3>
       <p>Every holding broken out by quantity, cost, market value and its share of the whole portfolio.</p>
       <div class="lp-mini">
-        <svg viewBox="0 0 300 100" role="img" aria-label="Example bar chart of holdings by market value: TSLA 4,820 euros, MSFT 3,150 euros, AMD 2,100 euros.">
+        <!-- figure:mini-holdings:start -->
+      <svg viewBox="0 0 300 100" role="img" aria-label="Real bar chart of holdings by market value: AMD 17386 euros, TSLA 5037 euros, MSFT 4985 euros.">
           <g class="axislbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--ink)">
-            <text x="40" y="19">TSLA</text>
-            <text x="40" y="49">MSFT</text>
-            <text x="40" y="79">AMD</text>
+            <text x="40" y="19">AMD</text>
+            <text x="40" y="49">TSLA</text>
+            <text x="40" y="79">MSFT</text>
           </g>
           <g fill="var(--accent)">
             <path d="M46,10 H196 Q200,10 200,14 V24 Q200,28 196,28 H46 Z"></path>
-            <path d="M46,40 H143 Q147,40 147,44 V54 Q147,58 143,58 H46 Z"></path>
-            <path d="M46,70 H109 Q113,70 113,74 V84 Q113,88 109,88 H46 Z"></path>
+            <path d="M46,40 H86.6 Q90.6,40 90.6,44 V54 Q90.6,58 86.6,58 H46 Z"></path>
+            <path d="M46,70 H86.2 Q90.2,70 90.2,74 V84 Q90.2,88 86.2,88 H46 Z"></path>
           </g>
           <g class="endlbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--muted)">
-            <text x="292" y="19">&euro;4,820</text>
-            <text x="292" y="49">&euro;3,150</text>
-            <text x="292" y="79">&euro;2,100</text>
+            <text x="292" y="19">&euro;17,386</text>
+            <text x="292" y="49">&euro;5,037</text>
+            <text x="292" y="79">&euro;4,985</text>
           </g>
         </svg>
+    <!-- figure:mini-holdings:end -->
       </div>
     </div>
 
@@ -1056,14 +1070,16 @@
       <h3>Peaks and drawdowns</h3>
       <p>How far below its high water mark the portfolio has been, and how long it took to climb back. The same measure per holding is what a trailing rule fires on.</p>
       <div class="lp-mini">
-        <svg viewBox="0 0 300 100" role="img" aria-label="Example chart: portfolio drawdown from its peak, dipping to 35 percent down before recovering to zero.">
-          <line class="gridline" x1="8" y1="14" x2="250" y2="14"></line>
-          <path class="uw-area" d="M8,14 L35,14 L62,28.8 L89,19.6 L116,54.7 L142,78.8 L169,47.3 L196,65.8 L223,25.1 L250,14 Z"></path>
-          <path class="uw-line" d="M8,14 L35,14 L62,28.8 L89,19.6 L116,54.7 L142,78.8 L169,47.3 L196,65.8 L223,25.1 L250,14"></path>
-          <circle cx="142" cy="78.8" r="3.2" fill="var(--neg)"></circle>
-          <text class="endlbl" x="256" y="18" fill="var(--faint)">0%</text>
-          <text class="endlbl" x="148" y="92" fill="var(--neg)">&minus;35%</text>
+        <!-- figure:mini-drawdown:start -->
+      <svg viewBox="0 0 300 100" role="img" aria-label="Real chart: this portfolio's drawdown from its own peak, reaching 39 percent down before recovering.">
+          <line class="gridline" x1="8" y1="19.1" x2="250" y2="19.1"></line>
+          <path class="uw-area" d="M8,19.1 L10.2,46.1 L12.4,60 L14.7,65.3 L16.9,67.4 L19.1,42.5 L21.3,29 L23.5,37.7 L25.8,52.5 L28,67.3 L30.2,58 L32.4,56.4 L34.6,25.3 L36.9,19.1 L39.1,26.5 L41.3,30.2 L43.5,42.3 L45.7,47.1 L48,32.4 L50.2,31.3 L52.4,36.6 L54.6,43.8 L56.8,54.6 L59.1,70.1 L61.3,21.5 L63.5,19.1 L65.7,25.6 L67.9,30.2 L70.2,19.1 L72.4,19.1 L74.6,29.7 L76.8,19.4 L79,20.1 L81.3,21.6 L83.5,34.5 L85.7,22.6 L87.9,29.3 L90.1,33.9 L92.4,36.5 L94.6,27.3 L96.8,35.7 L99,19.1 L101.2,34.9 L103.5,19.1 L105.7,19.1 L107.9,19.1 L110.1,20.7 L112.3,19.1 L114.6,24 L116.8,21.4 L119,23.4 L121.2,31.6 L123.4,37.7 L125.7,37.4 L127.9,25.8 L130.1,21.1 L132.3,23.2 L134.6,20.3 L136.8,19.1 L139,44.2 L141.2,53.9 L143.4,45.3 L145.7,47.2 L147.9,35.5 L150.1,27.3 L152.3,22.2 L154.5,19.1 L156.8,20.2 L159,19.1 L161.2,27.3 L163.4,19.1 L165.6,27.7 L167.9,38.4 L170.1,57.5 L172.3,67.8 L174.5,82.9 L176.7,76.3 L179,54 L181.2,38.4 L183.4,42.3 L185.6,28.4 L187.8,31 L190.1,22.6 L192.3,22.3 L194.5,25.4 L196.7,28.1 L198.9,20.7 L201.2,27.6 L203.4,19.1 L205.6,29.5 L207.8,41.7 L210,36.6 L212.3,37.1 L214.5,32.5 L216.7,37.1 L218.9,49.1 L221.1,46.4 L223.4,48.4 L225.6,50.1 L227.8,24.6 L230,20.6 L232.2,21.1 L234.5,36.5 L236.7,27.1 L238.9,25.9 L241.1,33.9 L243.3,33.7 L245.6,39.3 L247.8,25.6 L250,19.1 L250,19.1 L8,19.1 Z"></path>
+          <path class="uw-line" d="M8,19.1 L10.2,46.1 L12.4,60 L14.7,65.3 L16.9,67.4 L19.1,42.5 L21.3,29 L23.5,37.7 L25.8,52.5 L28,67.3 L30.2,58 L32.4,56.4 L34.6,25.3 L36.9,19.1 L39.1,26.5 L41.3,30.2 L43.5,42.3 L45.7,47.1 L48,32.4 L50.2,31.3 L52.4,36.6 L54.6,43.8 L56.8,54.6 L59.1,70.1 L61.3,21.5 L63.5,19.1 L65.7,25.6 L67.9,30.2 L70.2,19.1 L72.4,19.1 L74.6,29.7 L76.8,19.4 L79,20.1 L81.3,21.6 L83.5,34.5 L85.7,22.6 L87.9,29.3 L90.1,33.9 L92.4,36.5 L94.6,27.3 L96.8,35.7 L99,19.1 L101.2,34.9 L103.5,19.1 L105.7,19.1 L107.9,19.1 L110.1,20.7 L112.3,19.1 L114.6,24 L116.8,21.4 L119,23.4 L121.2,31.6 L123.4,37.7 L125.7,37.4 L127.9,25.8 L130.1,21.1 L132.3,23.2 L134.6,20.3 L136.8,19.1 L139,44.2 L141.2,53.9 L143.4,45.3 L145.7,47.2 L147.9,35.5 L150.1,27.3 L152.3,22.2 L154.5,19.1 L156.8,20.2 L159,19.1 L161.2,27.3 L163.4,19.1 L165.6,27.7 L167.9,38.4 L170.1,57.5 L172.3,67.8 L174.5,82.9 L176.7,76.3 L179,54 L181.2,38.4 L183.4,42.3 L185.6,28.4 L187.8,31 L190.1,22.6 L192.3,22.3 L194.5,25.4 L196.7,28.1 L198.9,20.7 L201.2,27.6 L203.4,19.1 L205.6,29.5 L207.8,41.7 L210,36.6 L212.3,37.1 L214.5,32.5 L216.7,37.1 L218.9,49.1 L221.1,46.4 L223.4,48.4 L225.6,50.1 L227.8,24.6 L230,20.6 L232.2,21.1 L234.5,36.5 L236.7,27.1 L238.9,25.9 L241.1,33.9 L243.3,33.7 L245.6,39.3 L247.8,25.6 L250,19.1"></path>
+          <circle cx="174.5" cy="82.9" r="3.2" fill="var(--neg)"></circle>
+          <text class="endlbl" x="256" y="19.1" fill="var(--faint)">0%</text>
+          <text class="endlbl" x="180.5" y="93.9" fill="var(--neg)">&minus;39%</text>
         </svg>
+    <!-- figure:mini-drawdown:end -->
       </div>
     </div>
 

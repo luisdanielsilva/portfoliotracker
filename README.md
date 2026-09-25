@@ -904,6 +904,58 @@ throttled and the daily job everything depends on breaks.
 broker also exports as CSV), currencies beyond EUR and USD, fees, and corporate actions. A split
 row in a file is flagged and skipped, not applied; `stock_splits` is still maintained by hand.
 
+### 📈 The landing page's charts are real prices now — 2026-09-26
+
+Every figure a logged-out visitor saw was a hand-drawn polyline: twelve points across four years,
+each landing on a tidy number. Nothing moves like that. The page asks a stranger to trust the tool
+with their transaction history, and the first thing it showed them was a picture of a market that
+does not exist. `landing-figures.js` now draws all seven from real closes, fetched from the same
+source the app itself uses. Closes issue #13.
+
+**The windows were chosen for the shape each figure has to teach, and verified before use:**
+
+| Figure | Series | What the data actually does |
+|---|---|---|
+| What one buy on the dip does | **SPY**, 2 Jan – 30 Jun 2020 | −31.4% into the 23 March trough, back to −5.1% |
+| What a rule near the top does | **AMD**, 13 Jul 2023 – 18 Sep 2024 | +82% into the 7 March peak, then −30% off it |
+| Portfolio over time, and the four cards | **TSLA, MSFT, AMD** from Jan 2022 | a 39% drawdown and a recovery |
+
+**The prices are real and the buyer is invented, and the captions say which is which.** Each one
+names the ticker, the dates and the rebasing. That matters more here than anywhere else on the
+site: "example data" on a page whose whole argument is about being straight with numbers was the
+weakest sentence on it.
+
+**The figures now say the unflattering thing too**, because the real series does. The target rule
+fires at €154 and the stock carries on to €182 — so the caption says the target sold early and
+that this is what the trailing rule is for. The portfolio figure reports that on **350 of its
+1,186 days the holding was worth less than the money put into it**, the last of them in April
+2025. The dip figure admits its second purchase is placed at the very bottom, which nobody manages
+on purpose.
+
+**Three measurement bugs, found by looking rather than by reading.** Each one is the same mistake
+in a different place — sampling a series and then measuring the sample:
+
+- **Rings for four purchases out of nineteen.** A buy happens on one day in sixty-odd; sampling
+  240 points out of 1,186 dropped three quarters of them. Purchases are now placed by date and
+  mapped onto the nearest sampled point.
+- **A drawdown labelled −35% when it was −39%.** The low fell between two sampled days. Drawdown
+  is computed on every day and only then sampled, with the sampled point nearest the true low moved
+  onto it, so the line reaches the number the label claims.
+- **Labels sitting on the lines they describe.** A hand-drawn figure leaves room for its own
+  annotations; a real series does not. Placement is now measured — `widestGap()` scores candidate
+  positions by the *minimum* clearance across the label's own width, not at its midpoint, because a
+  centre with daylight above it is no use when the end of the sentence runs into the line. One
+  annotation had nowhere to sit at all and moved into the caption.
+
+**Regenerating.** `node landing-figures.js` rewrites everything between the `figure:<id>:start`
+and `figure:<id>:end` markers in `index.html`; `--check` reports whether the file is up to date
+without writing. Historical closes do not change, so there is no cache and no fixture. The script
+is not in `PUBLIC_FILES`, so it is not served.
+
+**Cost:** `index.html` went from 124 KB to 147 KB, which is **32 KB to 40 KB gzipped** — about
+1,600 real data points for 7.6 KB on the wire. The figures are still static SVG: they draw before
+any script runs, and a visitor with JavaScript off still sees them.
+
 ### ⏳ Open Items / Backlog
 
 **Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**
