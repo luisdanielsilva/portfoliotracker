@@ -122,7 +122,8 @@ const gridlines = (b, ticks) =>
   ticks.map(t => `<line class="gridline" x1="${b.x0}" y1="${r1(b.y(t))}" x2="${b.x1}" y2="${r1(b.y(t))}"></line>`).join('\n        ');
 
 const money = n => '&euro;' + Math.round(n).toLocaleString('en-US');
-const money1 = n => '&euro;' + n.toFixed(n < 100 ? 1 : 0).replace(/\.0$/, '');
+// Prices under 100 keep both decimals: "EUR 68.6" reads as a measurement, "EUR 68.60" as money.
+const money1 = n => '&euro;' + (n < 100 ? n.toFixed(2) : Math.round(n).toLocaleString('en-US'));
 
 /**
  * Evenly spaced indices into a series of `len` points, always including the last.
@@ -599,6 +600,44 @@ function miniDrawdown(sim) {
   };
 }
 
+/**
+ * The hero's worked example, and the panel beside it.
+ *
+ * These numbers sit directly above the first chart and used to be invented:
+ * ten at EUR 100 and ten more at EUR 70 for an average of EUR 85, while the
+ * figure underneath drew a real fall to EUR 68.60 and an average of EUR 84.
+ * Close enough that nobody would notice, which is the problem — the page's
+ * argument is that numbers should be kept honest and current, so the first
+ * numbers on it cannot be approximations of the ones below.
+ *
+ * Every figure here is now computed from the same series the charts draw, and
+ * each row of the panel carries what the rule actually did rather than only
+ * what it is.
+ */
+function heroBlocks(dip, rules) {
+  const d = dip.facts, r = rules.facts;
+
+  const lede = `<p class="lp-lede">
+          Ten shares at ${money(d.first)}, then ten more after it fell to ${money1(d.second)} &mdash; your
+          average cost is ${money(d.avg)}, so the stock only has to climb back to ${money(d.avg)} to put you
+          in profit, not ${money(d.first)}. That is the S&amp;P 500 through 2020, and every chart below it is
+          real prices too. Portfolio Tracker keeps that number current for every holding and works from it
+          in both directions: it emails you when a stock falls under your cost, when you are up 75% on what
+          you actually paid, and when a holding is 20% off its own 12-month high &mdash; so you act on your
+          own plan instead of noticing three weeks late.
+        </p>`;
+
+  const stats = `<div class="lp-stats">
+          <div><b class="hi">${money(d.first)} &rarr; ${money(d.avg)}</b><span>One buy near the 2020 bottom cut this break-even by ${Math.round(100 - 100 * d.avg / d.first)}% &mdash; the price ended the window at ${money1(d.last)}, a profit against ${money(d.avg)} and a loss against ${money(d.first)}</span></div>
+          <div><b>+75% on cost</b><span>A take-profit level that follows what you actually paid. On AMD it emailed at ${money(r.target)}; the stock ran on to ${money(r.peak)} before it turned</span></div>
+          <div><b>&minus;20% off its high</b><span>The trailing level that says a run has broken, measured against the stock's own peak. It caught that break at ${money(r.breakAt)}, with the window ending at ${money(r.last)}</span></div>
+          <div><b>Every close</b><span>Prices refreshed and every rule re-checked each weekday morning, before the US market opens</span></div>
+        </div>
+        <p class="lp-statnote">Real closes: SPY ${d.n} days, Jan&ndash;Jun 2020, and AMD ${r.n} days, Jul 2023&ndash;Sep 2024, each rebased to ${money(d.first)} at the left edge. The purchases are the illustration.</p>`;
+
+  return { lede, stats };
+}
+
 /* ---------------------------------------------------------------- output */
 
 function replaceBlock(html, id, content) {
@@ -635,6 +674,11 @@ async function main() {
   html = replaceBlock(html, 'dip', assemble(dip));
   html = replaceBlock(html, 'rules', assemble(rules));
   html = replaceBlock(html, 'folio', assemble(folio));
+
+  // the hero's worked example comes from the same numbers as the figure below it
+  const hero = heroBlocks(dip, rules);
+  html = replaceBlock(html, 'hero-lede', hero.lede);
+  html = replaceBlock(html, 'hero-stats', hero.stats);
   html = replaceBlock(html, 'mini-averaging', miniAveraging(spy).svg);
   html = replaceBlock(html, 'mini-folio', miniFolio(sim).svg);
   html = replaceBlock(html, 'mini-holdings', miniHoldings(sim).svg);

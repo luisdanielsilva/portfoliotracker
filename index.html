@@ -783,14 +783,17 @@
 
     <div class="lp-herogrid">
       <div>
-        <p class="lp-lede">
-          Ten shares at &euro;100, then ten more at &euro;70, and your average cost is &euro;85 &mdash; the
-          stock only has to climb back to &euro;85 to put you in profit, not &euro;100. Portfolio Tracker
-          keeps that number current for every holding and works from it in both directions: it emails
-          you when a stock falls under your cost, when you are up 75% on what you actually paid, and
-          when a holding is 20% off its own 12-month high &mdash; so you act on your own plan instead of
-          noticing three weeks late.
+        <!-- figure:hero-lede:start -->
+      <p class="lp-lede">
+          Ten shares at &euro;100, then ten more after it fell to &euro;68.63 &mdash; your
+          average cost is &euro;84, so the stock only has to climb back to &euro;84 to put you
+          in profit, not &euro;100. That is the S&amp;P 500 through 2020, and every chart below it is
+          real prices too. Portfolio Tracker keeps that number current for every holding and works from it
+          in both directions: it emails you when a stock falls under your cost, when you are up 75% on what
+          you actually paid, and when a holding is 20% off its own 12-month high &mdash; so you act on your
+          own plan instead of noticing three weeks late.
         </p>
+    <!-- figure:hero-lede:end -->
         <p class="lp-caveat">It won't call the bottom or the top. It makes sure you don't miss your own signal.</p>
         <div class="lp-cta">
           <a class="lp-btn primary" href="#signin">Get started &mdash; it's free</a>
@@ -799,13 +802,15 @@
       </div>
 
       <div>
-        <div class="lp-stats">
-          <div><b class="hi">&euro;100 &rarr; &euro;85</b><span>Buying the dip once cuts your average cost &mdash; and your break-even with it</span></div>
-          <div><b>+75% on cost</b><span>A take-profit level that follows what you actually paid, instead of a price that goes stale</span></div>
-          <div><b>&minus;20% off its high</b><span>The trailing level that says a run has broken, measured against the stock's own peak</span></div>
-          <div><b>Every close</b><span>Prices refreshed and every rule re-checked, daily</span></div>
+        <!-- figure:hero-stats:start -->
+      <div class="lp-stats">
+          <div><b class="hi">&euro;100 &rarr; &euro;84</b><span>One buy near the 2020 bottom cut this break-even by 16% &mdash; the price ended the window at &euro;94.92, a profit against &euro;84 and a loss against &euro;100</span></div>
+          <div><b>+75% on cost</b><span>A take-profit level that follows what you actually paid. On AMD it emailed at &euro;154; the stock ran on to &euro;182 before it turned</span></div>
+          <div><b>&minus;20% off its high</b><span>The trailing level that says a run has broken, measured against the stock's own peak. It caught that break at &euro;146, with the window ending at &euro;128</span></div>
+          <div><b>Every close</b><span>Prices refreshed and every rule re-checked each weekday morning, before the US market opens</span></div>
         </div>
-        <p class="lp-statnote">Example: ten shares at &euro;100, then ten more at &euro;70.</p>
+        <p class="lp-statnote">Real closes: SPY 125 days, Jan&ndash;Jun 2020, and AMD 299 days, Jul 2023&ndash;Sep 2024, each rebased to &euro;100 at the left edge. The purchases are the illustration.</p>
+    <!-- figure:hero-stats:end -->
       </div>
     </div>
   </section>
@@ -847,11 +852,11 @@
       </g>
       <g style="font-size:11.5px;font-family:'IBM Plex Sans',system-ui,sans-serif" fill="var(--muted)">
         <text x="84" y="61.6">Bought 10 @ &euro;100</text>
-        <text x="399.4" y="255.5">Bought 10 more @ &euro;68.6</text>
+        <text x="399.4" y="255.5">Bought 10 more @ &euro;68.63</text>
         <text x="404.4" y="94.6" fill="var(--accent)">Profit at &euro;84. At &euro;100 this was still a loss.</text>
       </g>
       <g class="endlbl">
-        <text x="798" y="101.5" fill="var(--s-total)">&euro;94.9</text>
+        <text x="798" y="101.5" fill="var(--s-total)">&euro;94.92</text>
         <text x="798" y="155.6" fill="var(--faint)">&euro;84</text>
       </g>
       <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
@@ -859,7 +864,7 @@
         <text x="798" y="168.6" fill="var(--faint)">your average</text>
       </g>
     </svg>
-      <figcaption>Ten shares at &euro;100, ten more at the bottom. Break-even falls to <b>&euro;84</b> &mdash; so &euro;94.9 is a profit, where against &euro;100 it is still a loss.</figcaption>
+      <figcaption>Ten shares at &euro;100, ten more at the bottom. Break-even falls to <b>&euro;84</b> &mdash; so &euro;94.92 is a profit, where against &euro;100 it is still a loss.</figcaption>
       <details class="lp-fig-more"><summary>Where these numbers come from</summary><p>125 daily closes, rebased so the first is &euro;100. The two purchases are the illustration and the second sits at the very bottom, which nobody manages on purpose &mdash; a worse entry still works, it just moves the shaded band, which is the range where that second buy decides between a profit and a loss.</p></details>
     <!-- figure:dip:end -->
     </figure>
@@ -1021,7 +1026,7 @@
             <circle cx="115.3" cy="84.5" r="3.2"></circle>
             <circle cx="144.6" cy="48.1" r="3.2"></circle>
           </g>
-          <text class="endlbl" x="256" y="32.2" fill="var(--s-total)">&euro;94.9</text>
+          <text class="endlbl" x="256" y="32.2" fill="var(--s-total)">&euro;94.92</text>
           <text class="endlbl" x="256" y="44.2" fill="var(--faint)">&euro;90</text>
         </svg>
     <!-- figure:mini-averaging:end -->
