@@ -997,6 +997,56 @@ is not in `PUBLIC_FILES`, so it is not served.
 1,600 real data points for 7.6 KB on the wire. The figures are still static SVG: they draw before
 any script runs, and a visitor with JavaScript off still sees them.
 
+### ⏱️ The cache was retired after the answer went out — 2026-09-26
+
+A write bumped the counter the computed-view cache is keyed by from inside `res.on('finish')`,
+which fires *after* the response bytes are gone. So between a client reading `200 OK` for its write
+and that handler running, a read still hashed to the old `${userId}:${dataVersion()}` key and was
+served the portfolio from **before** the write. Register a transaction, reload straight away, and
+the holding could be missing. Closes issue #6.
+
+**The window widens exactly when it matters.** A busy server is the one most likely to be handling
+a read and a write at the same time, and the gap between "bytes out" and "handler runs" grows with
+load. That is also why `a write retires the cached portfolio` failed on a loaded CI runner and
+passed on an idle laptop for days — and why it turned `main` red on 2026-09-25 during unrelated
+work.
+
+**The fix is to bump before the response is written**, by wrapping the response methods instead of
+hooking an event:
+
+```js
+const json = res.json.bind(res);
+const send = res.send.bind(res);
+res.json = body => { bumpOnce(); return json(body); };
+res.send = body => { bumpOnce(); return send(body); };
+res.on('finish', bumpOnce);          // for a path that ends without either
+```
+
+`statusCode` is already set by the time `res.json()` writes, so **a 400 or a 409 still does not
+retire the cache** — the property the old hook had, and the one thing the fix had to keep.
+`bumpOnce` guards against counting twice, since Express implements `res.json()` in terms of
+`res.send()`; a doubled version would be harmless, because only the change matters, and confusing
+in a log. `bumped` is set only after a successful bump, so a throw is retried by `finish` rather
+than leaving every cached view keyed to a stale number.
+
+**Three hand-written `bumpDataVersion()` calls came out of the watchlist endpoints.** The middleware
+is the one that cannot be forgotten; with it bumping before the send, those three were bumping the
+counter twice per write.
+
+**Measured, not assumed.** The suite was run four times with the machine deliberately busy (four
+spinning processes on two cores), against the fixed code and against the pre-fix code:
+
+| Test | pre-fix, under load | fixed, under load |
+|---|---|---|
+| `the version has already moved by the time the response can be read` (new) | **failed 4 of 4** | passed 4 of 4 |
+| `a write retires the cached portfolio` (the CI flake) | **failed 2 of 4** | passed 4 of 4 |
+
+The new test is the one worth having: it fails *every* time against the bug rather than sometimes,
+because it asks about the guarantee — by the time the response can be read, has the version moved —
+instead of about the timing. Two more came with it: a refused write must leave the counter alone,
+and a holding registered now must appear in the very next read of the portfolio, which is the
+user-visible shape of the bug.
+
 ### ⏳ Open Items / Backlog
 
 **Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**

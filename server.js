@@ -746,16 +746,48 @@ function authMiddleware(req, res, next) {
 app.use('/api', apiLimiter);
 app.use('/api', authMiddleware);
 
-// Any successful write can change a computed view. Bumping centrally means a new
-// write endpoint cannot forget to do it — the failure mode of per-endpoint
-// invalidation is silently serving stale data, which is worse than recomputing.
+/*
+ * Any successful write can change a computed view. Bumping centrally means a new
+ * write endpoint cannot forget to do it — the failure mode of per-endpoint
+ * invalidation is silently serving stale data, which is worse than recomputing.
+ *
+ * The bump happens *before* the response is written, which is the whole point of
+ * the shape below. It used to hang off `res.on('finish')`, which fires after the
+ * bytes are out: between a client reading `200 OK` for its write and that handler
+ * running, a read still hashed to the old `${userId}:${dataVersion()}` key and was
+ * served the portfolio from before the write. In practice that is registering a
+ * transaction, reloading, and not finding it — and the window widens exactly when
+ * the server is busiest, which is when it is most likely to be doing both at once.
+ * It also made `a write retires the cached portfolio` fail on a loaded CI runner
+ * while passing on an idle one.
+ *
+ * Wrapping the response methods rather than hooking an event keeps the property
+ * that made `finish` attractive: `statusCode` is already set by the time
+ * `res.json()` writes anything, so a 400 or a 409 still must not retire the cache.
+ * `finish` stays as a fallback for a path that ends without either method, and
+ * `bumped` keeps `res.json()` — which is implemented in terms of `res.send()` —
+ * from counting twice. A doubled version would be harmless, since only the change
+ * matters, and confusing to read in a log.
+ */
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') return next();
-  res.on('finish', () => {
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      try { bumpDataVersion(); } catch (err) { console.error('Cache version bump failed:', err.message); }
-    }
-  });
+
+  let bumped = false;
+  const bumpOnce = () => {
+    if (bumped) return;
+    if (res.statusCode < 200 || res.statusCode >= 300) return;
+    // `bumped` is set only on success, so a throw here is retried by `finish`
+    // rather than silently leaving every cached view keyed to a stale number.
+    try { bumpDataVersion(); bumped = true; }
+    catch (err) { console.error('Cache version bump failed:', err.message); }
+  };
+
+  const json = res.json.bind(res);
+  const send = res.send.bind(res);
+  res.json = body => { bumpOnce(); return json(body); };
+  res.send = body => { bumpOnce(); return send(body); };
+  res.on('finish', bumpOnce);
+
   next();
 });
 
@@ -2294,7 +2326,6 @@ app.post('/api/watchlist', backfillLimiter, async (req, res) => {
            (latest && latest.currency) || filled.currency || 'USD',
            source, str(req.body.note, 200) || null);
 
-    bumpDataVersion();
     res.json({ success: true, ticker, referenceEur, referenceNative, referenceSource: source,
                history: { added: filled.added, from: filled.from,
                           alreadyDeepEnough: historyIsDeepEnough } });
@@ -2335,7 +2366,6 @@ app.patch('/api/watchlist/:ticker', (req, res) => {
            req.body.note !== undefined ? str(req.body.note, 200) : null,
            req.userId, ticker);
 
-    bumpDataVersion();
     res.json({ success: true, ticker, referenceEur, referenceNative, referenceSource: source });
   } catch (err) {
     console.error('PATCH /api/watchlist error:', err.message);
@@ -2364,7 +2394,6 @@ app.delete('/api/watchlist/:ticker', (req, res) => {
     }
     db.prepare('DELETE FROM watchlist WHERE user_id = ? AND ticker = ?').run(req.userId, ticker);
 
-    bumpDataVersion();
     res.json({ success: true, ticker, removedAlerts });
   } catch (err) {
     console.error('DELETE /api/watchlist error:', err.message);

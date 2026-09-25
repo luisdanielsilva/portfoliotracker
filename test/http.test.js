@@ -211,6 +211,72 @@ test('a write retires the cached portfolio', async () => {
 });
 
 /**
+ * The same question asked without any timing in it.
+ *
+ * The test above reads the version at the moment the client is free to issue its
+ * next request, which is the moment a browser would — and that is exactly what
+ * used to be racy, because the bump hung off `res.on('finish')` and fired after
+ * the bytes were out. It failed on a busy machine and passed on an idle one.
+ *
+ * These pin the guarantee instead of the timing: by the time the response can be
+ * read, the version has already moved, and a write the server refused has not
+ * moved it. Neither depends on how loaded the box is.
+ */
+test('the version has already moved by the time the response can be read', async () => {
+  const s = signIn('bump-order@example.com');
+  const version = () => s.pdb.prepare('SELECT version FROM data_version WHERE id = 1').get().version;
+
+  // ten writes, each checked in the same tick its response resolves
+  for (let i = 0; i < 10; i++) {
+    const before = version();
+    const res = await fetch(base + '/api/transactions', {
+      method: 'POST', headers: s.headers,
+      body: JSON.stringify({ ticker: 'CCC', quantity: 1, amountEUR: 10 + i, type: 'buy', ts: Date.UTC(2026, 2, 1 + i) })
+    });
+    assert.strictEqual(res.status, 200);
+    assert.ok(version() > before, `write ${i + 1} had not bumped the version when its response arrived`);
+  }
+  s.idb.close(); s.pdb.close();
+});
+
+test('a refused write does not retire the cache', async () => {
+  // The property the old `finish` hook had and the fix has to keep: a 400 or a
+  // 409 changed nothing, so it must not make every cached view recompute.
+  const s = signIn('bump-refused@example.com');
+  const version = () => s.pdb.prepare('SELECT version FROM data_version WHERE id = 1').get().version;
+  const before = version();
+
+  const bad = [
+    { ticker: '', quantity: 1, amountEUR: 10, type: 'buy', ts: Date.UTC(2026, 2, 1) },
+    { ticker: 'DDD', quantity: -1, amountEUR: 10, type: 'buy', ts: Date.UTC(2026, 2, 1) },
+    { ticker: 'DDD', quantity: 1, amountEUR: 10, type: 'sideways', ts: Date.UTC(2026, 2, 1) },
+    { ticker: 'DDD', quantity: 1, amountEUR: 10, type: 'buy', ts: Date.UTC(1889, 2, 1) }
+  ];
+  for (const body of bad) {
+    const res = await fetch(base + '/api/transactions', { method: 'POST', headers: s.headers, body: JSON.stringify(body) });
+    assert.strictEqual(res.status, 400, `${JSON.stringify(body)} should be refused`);
+  }
+  assert.strictEqual(version(), before, 'a refused write must leave the cache key alone');
+  s.idb.close(); s.pdb.close();
+});
+
+test('a holding registered now is in the very next read of the portfolio', async () => {
+  // The user-visible form of the same bug: register a transaction, reload, and
+  // the holding is missing. No retry, no delay — the next request must have it.
+  const s = signIn('bump-visible@example.com');
+  for (const [ticker, ts] of [['EEE', Date.UTC(2026, 3, 1)], ['FFF', Date.UTC(2026, 3, 2)], ['GGG', Date.UTC(2026, 3, 3)]]) {
+    const res = await fetch(base + '/api/transactions', {
+      method: 'POST', headers: s.headers,
+      body: JSON.stringify({ ticker, quantity: 2, amountEUR: 200, type: 'buy', ts })
+    });
+    assert.strictEqual(res.status, 200);
+    const body = await fetch(base + '/api/snapshots', { headers: s.headers }).then(r => r.text());
+    assert.ok(body.includes(ticker), `${ticker} was missing from the read straight after its write`);
+  }
+  s.idb.close(); s.pdb.close();
+});
+
+/**
  * What the Portfolio tab puts beside the market value.
  *
  * Two defects met here on 2026-09-18, on a portfolio with eleven years of history:
