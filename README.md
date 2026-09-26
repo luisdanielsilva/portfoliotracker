@@ -1050,6 +1050,37 @@ caveat. And the drawdown note first read "back to where it started by June 2023"
 the euro value and false as a recovery: **€10,200 of fresh monthly buys** went in between the peak
 and that date. Both now say the number they mean.
 
+### 🧮 The In-detail grid lost half its tiles — 2026-09-26
+
+The *In detail* panel on the Portfolio tab carried 19 KPI tiles. On request it is down to **9**:
+market value, invested, total gain, capital added, peak value, now vs peak, best/worst gap,
+estimated unrealised return, deepest drawdown.
+
+Removed: *Return on picks* and *Return on picks / yr*, *Snapshot-to-snapshot swing*,
+*Concentration*, *Biggest lift / drag*, *At this pace*, *Lowest value*, *Since &lt;date&gt;*,
+*Breadth*, and *Max drawdown*. The calculations that existed only to feed them went with them —
+the chain-linked time-weighted return on `GROWTH` (`twr`, `twrAnn`, `years`), the HHI
+concentration maths, the lift/drag sorts, the pace annualisation and the standard deviation of
+snapshot-to-snapshot gaps. The microcopy under the per-stock table still explained what "Return on
+picks" meant, so that sentence went too; the table itself never had such a column.
+
+**Max drawdown was deleted because it was the same number twice.** It and *Deepest drawdown* are
+the same statistic by construction — both take the lowest `value / running peak − 1` over the same
+full-history array — computed in two places, differing only in their sub-line (peak→trough dates
+against the current drawdown). Lifted out and run over 20,000 random series they agree on every
+one of the 17,500 that has no empty snapshot; the rest need a `null` in `TOTAL`, where the older
+one reads a bogus −100%. That case cannot reach the screen because `app.js` drops snapshots with
+no holdings at ingest. `Max drawdown` still appears once, in the KPI strip above the tabs, which
+is also where *Lowest value* and *Since &lt;date&gt;* still live.
+
+**Two things worth knowing about the tiles that remain.** *Best / worst gap* is a single step
+between consecutive snapshots, not a peak-to-trough measure — and because empty snapshots are
+dropped, the real portfolio's two fully-closed stretches (434 days from 18 Apr 2016, 115 days from
+23 Dec 2019) are not data points, so one "gap" spans 434 days. And **none of these tiles respond
+to the 1M/3M/1Y period buttons**: those only move the chart's x-range, while every tile is
+computed over the whole history. Verified by clicking through them and watching the values not
+move.
+
 ### ⏱️ The cache was retired after the answer went out — 2026-09-26
 
 A write bumped the counter the computed-view cache is keyed by from inside `res.on('finish')`,

@@ -314,21 +314,11 @@
 
     /* ---- return figures ---- */
     var invEnd=INVESTED[n-1], valEnd=TOTAL[n-1], gain=valEnd-invEnd;
-    var twr=1;
-    for(var i=1;i<n;i++){
-      if(TOTAL[i]==null||TOTAL[i-1]==null||INVESTED[i]==null||INVESTED[i-1]==null) continue;
-      var contrib=INVESTED[i]-INVESTED[i-1]; if(contrib<0) contrib=0;
-      var pr=(TOTAL[i]-contrib)/TOTAL[i-1]-1;
-      twr*=(1+pr);
-    }
-    twr-=1;
-    var yrs=Math.max((T1-T0)/(365*864e5),1/365);
     GROWTH={
       invStart:INVESTED[0], invEnd:invEnd, valEnd:valEnd, gain:gain,
       gainPct:gain/invEnd, added:invEnd-INVESTED[0],
-      twr:twr, twrAnn:Math.pow(1+twr,1/yrs)-1,
       ddMin:Math.min.apply(null,DD.filter(function(x){return x!=null;})),
-      ddNow:DD[n-1], years:yrs
+      ddNow:DD[n-1]
     };
 
     var fr=document.getElementById("firstrun"); if(fr) fr.hidden=!!n;
@@ -845,8 +835,6 @@
       if(v>rp){rp=v;rpi=i;} var dd=v/rp-1; if(dd<mdd){mdd=dd;mp=rpi;mt=i;}
     });
     var mv=[]; for(var q=1;q<n;q++) mv.push(TOTAL[q]/TOTAL[q-1]-1);
-    var mean=mv.reduce(function(a,b){return a+b;},0)/mv.length;
-    var sd=Math.sqrt(mv.reduce(function(a,b){return a+(b-mean)*(b-mean);},0)/mv.length);
     var bi=0,wi=0; mv.forEach(function(m,i){ if(m>mv[bi])bi=i; if(m<mv[wi])wi=i; });
 
     var per=UNI.map(function(s){
@@ -860,13 +848,6 @@
     var withRent=per.filter(function(p){return p.cost!=null;});
     var costSum=withRent.reduce(function(a,p){return a+p.cost;},0);
     var rentVal=withRent.reduce(function(a,p){return a+p.val;},0);
-    var hhi=per.reduce(function(a,p){return a+p.w*p.w;},0);
-    var upN=per.filter(function(p){return p.dPx>0;}).length;
-    var top=per.slice().sort(function(a,b){return b.w-a.w;});
-    var top3=(top[0]?top[0].val:0)+(top[1]?top[1].val:0)+(top[2]?top[2].val:0);
-    var lift=per.slice().sort(function(a,b){return b.dVal-a.dVal;})[0];
-    var drag=per.slice().sort(function(a,b){return a.dVal-b.dVal;})[0];
-    var days=(T1-T0)/864e5, ann=Math.pow(1+winRet,365/Math.max(days,1))-1;
 
     function dd2(i){ return SNAP[i].label.replace(/,.*$/,""); }
     // one day of history means there is no "next" snapshot to name
@@ -886,21 +867,14 @@
       {l:"Market value", v:eur(nowTot), s:fmtDayY.format(new Date(T1))},
       {l:"Invested (cost basis)", v:"\u20ac "+nfEur0.format(g.invEnd), s:"estimated, from the return % column"},
       {l:"Total gain", v:d0(g.gain), s:dp(g.gainPct)+" on cost", c:g.gain>=0?"pos":"neg"},
-      strip[1],
-      {l:"Return on picks", v:dp(g.twr), s:"time-weighted, deposits removed", c:g.twr>=0?"pos":"neg"},
-      {l:"Return on picks / yr", v:dp(g.twrAnn)+"/yr", s:"annualised over "+g.years.toFixed(1)+" yrs", c:g.twrAnn>=0?"pos":"neg"},
       {l:"Capital added", v:d0(g.added), s:"since "+shortDate(T0)},
-      strip[2],strip[3],strip[4],
+      strip[2],   // Peak value; max drawdown is the strip's job, and the same
+                 // number again as "Deepest drawdown" two tiles down
       {l:"Now vs peak", v:dp(nowTot/peak-1), c:nowTot>=peak?"pos":"neg", s:"clawed back "+d0(nowTot-trough)+" off the low"},
-      {l:"Snapshot-to-snapshot swing", v:"\u00b1"+comma((sd*100).toFixed(1))+"%", s:"std dev of the "+mv.length+" gaps"},
       {l:"Best / worst gap", v:mv.length?dp(mv[bi])+" / "+dp(mv[wi]):"\u2014",
        s:mv.length?gap(bi)+"  \u00b7  "+gap(wi):"needs more than one day of history"},
-      {l:"Concentration", v:(top[0]?Math.round(top[0].w*100):0)+"% "+(top[0]?top[0].short:""), s:"top 3 = "+Math.round(top3/nowTot*100)+"%  \u00b7  effective "+comma((1/hhi).toFixed(1))+" of "+per.length},
-      {l:"Breadth", v:upN+" up \u00b7 "+(per.length-upN)+" down", s:"per-share price over the window"},
-      {l:"Biggest lift / drag", v:(lift?lift.short:"")+" / "+(drag?drag.short:""), s:(lift?d0(lift.dVal):"")+"  \u00b7  "+(drag?d0(drag.dVal):"")+" in value"},
       withRent.length?{l:"Est. unrealised return", v:dp(rentVal/costSum-1), c:"pos", s:"all-time \u00b7 ~"+d0(rentVal-costSum)+" on ~\u20ac"+nfEur0.format(costSum)+" cost"+(withRent.length<per.length?" ("+withRent.length+"/"+per.length+" names)":"")}
         :{l:"Est. unrealised return", v:"\u2014", s:"add a Ret.% on a snapshot to enable"},
-      {l:"At this pace", v:dp(ann)+"/yr", c:ann>=0?"pos":"neg", s:"annualised "+Math.round(days)+"-day window \u00b7 distorted by deposits"},
       {l:"Deepest drawdown", v:dp(g.ddMin), s:"now "+dp(g.ddNow), c:"neg"}
     ].map(kpi).join("");
 
