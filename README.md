@@ -1088,6 +1088,41 @@ to the 1M/3M/1Y period buttons**: those only move the chart's x-range, while eve
 computed over the whole history. Verified by clicking through them and watching the values not
 move.
 
+### ✉️ The email mock is generated from the email — 2026-09-26
+
+The landing page shows a picture of the alert digest. It was hand-built markup in `index.html`, a
+second copy of a design that already existed in `renderAlertDigest()` — and it drifted twice. On
+2026-09-10 the digest had four sections while the page showed two, and quoted euros where the email
+quotes dollars. By 2026-09-26 the page advertised **four kinds of alert for a tool that sends
+five**, missing the algorithm's own section, and left out the weekly standings table altogether.
+Closes #22.
+
+**One source for the content, two renderers for the markup.** `digestModel(items, standings, now)`
+in `price-fetch.js` returns the digest as data — section order and headings from `DIGEST_SECTIONS`,
+and per row a ticker, a figure with a tone, and detail lines built from segments, where a `mono`
+segment is the number the line turns on. The email renders that into its inline-styled tables; the
+landing page renders the same model into `.lp-mail-*` markup, so the card answers to the site's
+stylesheet and its dark mode instead of carrying an email's light-only colours into the page.
+
+**The email's output did not change.** The refactor was checked against a byte snapshot of the
+rendered digest for one item of every kind plus standings: identical HTML, identical plain text,
+identical subject. The only difference anywhere is in the no-alerts digest, which loses four lines
+of whitespace that the empty sections used to leave behind.
+
+**`node landing-figures.js --mail` rewrites the block, and needs no network** — the mock is the one
+generated thing on the page that has nothing to do with prices. That is what makes
+`test/landing-mail-mock.test.js` cheap enough to run in CI. It asserts three things: the block in
+`index.html` is exactly what the generator produces, every section in `DIGEST_SECTIONS` appears on
+the page, and every money figure the email quotes appears there too. **Both failure directions were
+verified by breaking them on purpose** — adding a sixth section fails the coverage test, rewording
+a row fails the equality test, and the message names the command that fixes it.
+
+**The date is pinned** to a fixed Wednesday. `digestModel` stamps `new Date()` for the real email,
+so without that the page would want regenerating every morning and the check would fail daily.
+
+The figure's caption was hand-written and described four kinds; it now mentions the algorithm's
+section and the standings table as well.
+
 ### ⏱️ The cache was retired after the answer went out — 2026-09-26
 
 A write bumped the counter the computed-view cache is keyed by from inside `res.on('finish')`,

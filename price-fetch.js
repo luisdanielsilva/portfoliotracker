@@ -133,44 +133,127 @@ function ordinal(n) {
   return v + (['th', 'st', 'nd', 'rd'][v % 10] || 'th');
 }
 
-function digestRow(item, isLast) {
-  const border = isLast ? '' : `border-bottom:1px solid ${MAIL.hair};`;
-  let headline, detail;
-
+/*
+ * The digest as data, before anything decides how it looks.
+ *
+ * There are two renderers of this content: the email below, and the mock of the
+ * email on the landing page. They used to be two hand-maintained copies of one
+ * design and they drifted twice — most recently the page advertised four kinds
+ * of alert for a tool that sends five, and omitted the weekly standings table
+ * entirely. So the wording, the grouping and the figures live here, and the two
+ * renderers differ only in markup. Adding a kind means adding it once, and the
+ * landing page picks it up when `landing-figures.js --mail` is run (a test fails
+ * if it has not been).
+ *
+ * A row's `detail` is a list of lines, each a list of segments. A segment with
+ * `mono` is the figure the line turns on: the email sets it in the mono face in
+ * ink, the page gives it a <b>, which its stylesheet does the same way.
+ */
+function digestRowModel(item) {
   if (item.kind === 'dip') {
     // Measured against what you paid, which is tracked in euros.
-    headline = `<span style="color:${MAIL.neg}">−${item.dropPct.toFixed(1)}%</span>`;
-    detail = `${eur(item.price)} now · your average cost ${eur(item.avgCost)}<br>`
-      + `Back to break-even at <span style="color:${MAIL.ink};font-family:${MAIL.mono}">${eur(item.avgCost)}</span>`;
-  } else if (item.kind === 'high') {
-    headline = `<span style="color:${MAIL.neg}">−${item.dropPct.toFixed(1)}%</span>`;
-    detail = `${fmtNative(item.price, item.currency)} now · 52-week high ${fmtNative(item.peak, item.currency)}<br>`
-      + `Past your <span style="color:${MAIL.ink};font-family:${MAIL.mono}">−${item.threshold}%</span> trailing level`;
-  } else if (item.kind === 'algo') {
+    return {
+      ticker: item.ticker,
+      figure: { text: `\u2212${item.dropPct.toFixed(1)}%`, tone: 'neg' },
+      detail: [
+        [{ t: `${eur(item.price)} now \u00b7 your average cost ${eur(item.avgCost)}` }],
+        [{ t: 'Back to break-even at ' }, { t: eur(item.avgCost), mono: true }]
+      ]
+    };
+  }
+  if (item.kind === 'high') {
+    return {
+      ticker: item.ticker,
+      figure: { text: `\u2212${item.dropPct.toFixed(1)}%`, tone: 'neg' },
+      detail: [
+        [{ t: `${fmtNative(item.price, item.currency)} now \u00b7 52-week high ${fmtNative(item.peak, item.currency)}` }],
+        [{ t: 'Past your ' }, { t: `\u2212${item.threshold}%`, mono: true }, { t: ' trailing level' }]
+      ]
+    };
+  }
+  if (item.kind === 'algo') {
     // The one thing the algorithm emails about. No threshold to quote, because
     // the user did not set one — so the detail line says what the windows saw.
     const pr = item.percentiles || {};
-    const at = k => (pr[k] === undefined ? '—' : ordinal(pr[k]));
-    headline = `<span style="color:${MAIL.pos}">very strong buy</span>`;
-    detail = `${fmtNative(item.price, item.currency)} now · held ${item.holdDays} day${item.holdDays === 1 ? '' : 's'} running<br>`
-      + `Ranks ${at('6M')} / ${at('1Y')} / ${at('2Y')} percentile against its own 6-month, 1-year and 2-year history`
-      + (item.gainPct === null ? '' : `<br>You are ${item.gainPct >= 0 ? 'up' : 'down'} ${Math.abs(item.gainPct).toFixed(1)}% on this holding`);
-  } else if (item.kind === 'gain') {
-    headline = `<span style="color:${MAIL.pos}">+${item.gainPct.toFixed(1)}%</span>`;
-    detail = `${eur(item.price)} now · your average cost ${eur(item.avgCost)}<br>`
-      + `Past your <span style="color:${MAIL.ink};font-family:${MAIL.mono}">+${item.threshold}%</span> target`;
-  } else {
-    // A price level, shown in the currency its market quotes.
-    const above = item.kind === 'price_above';
-    const away = Math.abs((item.price - item.threshold) / item.threshold) * 100;
-    const cur = item.currency || 'USD';
-    headline = `<span style="color:${above ? MAIL.pos : MAIL.accent}">${above ? 'above' : 'below'} ${fmtNative(item.threshold, cur)}</span>`;
-    detail = `${fmtNative(item.price, cur)} now · ${away.toFixed(1)}% ${above ? 'over' : 'under'} the level you set`;
+    const at = k => (pr[k] === undefined ? '\u2014' : ordinal(pr[k]));
+    const detail = [
+      [{ t: `${fmtNative(item.price, item.currency)} now \u00b7 held ${item.holdDays} day${item.holdDays === 1 ? '' : 's'} running` }],
+      [{ t: `Ranks ${at('6M')} / ${at('1Y')} / ${at('2Y')} percentile against its own 6-month, 1-year and 2-year history` }]
+    ];
+    if (item.gainPct !== null && item.gainPct !== undefined) {
+      detail.push([{ t: `You are ${item.gainPct >= 0 ? 'up' : 'down'} ${Math.abs(item.gainPct).toFixed(1)}% on this holding` }]);
+    }
+    return { ticker: item.ticker, figure: { text: 'very strong buy', tone: 'pos' }, detail };
   }
+  if (item.kind === 'gain') {
+    return {
+      ticker: item.ticker,
+      figure: { text: `+${item.gainPct.toFixed(1)}%`, tone: 'pos' },
+      detail: [
+        [{ t: `${eur(item.price)} now \u00b7 your average cost ${eur(item.avgCost)}` }],
+        [{ t: 'Past your ' }, { t: `+${item.threshold}%`, mono: true }, { t: ' target' }]
+      ]
+    };
+  }
+  // A price level, shown in the currency its market quotes.
+  const above = item.kind === 'price_above';
+  const away = Math.abs((item.price - item.threshold) / item.threshold) * 100;
+  const cur = item.currency || 'USD';
+  return {
+    ticker: item.ticker,
+    figure: { text: `${above ? 'above' : 'below'} ${fmtNative(item.threshold, cur)}`, tone: above ? 'pos' : 'accent' },
+    detail: [[{ t: `${fmtNative(item.price, cur)} now \u00b7 ${away.toFixed(1)}% ${above ? 'over' : 'under'} the level you set` }]]
+  };
+}
+
+/** Section order and headings — the one place either renderer learns them. */
+const DIGEST_SECTIONS = [
+  { key: 'algo',   title: 'The algorithm sees an unusually cheap moment', match: i => i.kind === 'algo' },
+  { key: 'dip',    title: 'Dips below your average cost',                 match: i => i.kind === 'dip' },
+  { key: 'gain',   title: 'Up on what you paid',                          match: i => i.kind === 'gain' },
+  { key: 'high',   title: 'Down from their recent high',                  match: i => i.kind === 'high' },
+  { key: 'level',  title: 'Price levels you set',                         match: i => !['dip','gain','high','algo'].includes(i.kind) }
+];
+
+/**
+ * @param {Date} now  the clock, so a generated page can pin a date and not
+ *                    rewrite itself every morning.
+ */
+function digestModel(items, standings = [], now = new Date()) {
+  return {
+    heading: items.length === 0 ? 'Where things stand'
+      : items.length === 1 ? 'One alert triggered' : `${items.length} alerts triggered`,
+    when: now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }),
+    sections: DIGEST_SECTIONS
+      .map(sec => ({ key: sec.key, title: sec.title, rows: items.filter(sec.match).map(digestRowModel) }))
+      .filter(sec => sec.rows.length),
+    standings: standings.length ? {
+      title: 'Where things stand this week',
+      note: 'Everything the algorithm is not silent about. Nothing here needs doing.',
+      rows: standings.map(s => ({
+        ticker: s.ticker,
+        verdict: `${s.direction.toLowerCase()} \u00b7 ${s.tier === 'VeryStrong' ? 'very strong' : s.tier.toLowerCase()}`,
+        tone: s.direction === 'Buy' ? 'pos' : 'neg',
+        confidence: `${Math.round(s.confidence)}%`
+      }))
+    } : null
+  };
+}
+
+// One row: ticker and headline figure on top, the context underneath.
+function digestRow(row, isLast) {
+  const border = isLast ? '' : `border-bottom:1px solid ${MAIL.hair};`;
+  const tone = { neg: MAIL.neg, pos: MAIL.pos, accent: MAIL.accent };
+  const headline = `<span style="color:${tone[row.figure.tone]}">${row.figure.text}</span>`;
+  const detail = row.detail
+    .map(line => line.map(seg => (seg.mono
+      ? `<span style="color:${MAIL.ink};font-family:${MAIL.mono}">${seg.t}</span>`
+      : seg.t)).join(''))
+    .join('<br>');
 
   return `<tr><td style="padding:14px 0;${border}">
     <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td style="font:600 15px/1.3 ${MAIL.sans};color:${MAIL.ink}">${item.ticker}</td>
+      <td style="font:600 15px/1.3 ${MAIL.sans};color:${MAIL.ink}">${row.ticker}</td>
       <td align="right" style="font:600 14px/1.3 ${MAIL.mono}">${headline}</td>
     </tr><tr>
       <td colspan="2" style="padding-top:5px;font:400 13px/1.6 ${MAIL.sans};color:${MAIL.muted}">${detail}</td>
@@ -178,11 +261,10 @@ function digestRow(item, isLast) {
   </td></tr>`;
 }
 
-function digestSection(title, items) {
-  if (!items.length) return '';
-  return `<tr><td style="padding:24px 0 0;font:600 11px/1 ${MAIL.sans};letter-spacing:.09em;text-transform:uppercase;color:${MAIL.faint}">${title}</td></tr>`
+function digestSection(section) {
+  return `<tr><td style="padding:24px 0 0;font:600 11px/1 ${MAIL.sans};letter-spacing:.09em;text-transform:uppercase;color:${MAIL.faint}">${section.title}</td></tr>`
     + `<tr><td><table width="100%" cellpadding="0" cellspacing="0" border="0">`
-    + items.map((it, i) => digestRow(it, i === items.length - 1)).join('')
+    + section.rows.map((r, i) => digestRow(r, i === section.rows.length - 1)).join('')
     + `</table></td></tr>`;
 }
 
@@ -193,29 +275,21 @@ function digestSection(title, items) {
  * This is the only place the sell side appears, and it appears as a table. A
  * summary cannot train you to ignore it, because it never asks for anything.
  */
-function renderStandings(standings) {
-  if (!standings.length) return '';
-  const tone = s => (s.direction === 'Buy' ? MAIL.pos : MAIL.neg);
-  const word = s => (s.tier === 'VeryStrong' ? 'very strong' : s.tier.toLowerCase());
-  const rows = standings.map(s => `<tr>
-      <td style="padding:7px 0;font:600 13px/1.3 ${MAIL.sans};color:${MAIL.ink}">${s.ticker}</td>
-      <td align="right" style="padding:7px 0;font:400 13px/1.3 ${MAIL.sans};color:${tone(s)}">${s.direction.toLowerCase()} · ${word(s)}</td>
-      <td align="right" style="padding:7px 0 7px 14px;font:400 13px/1.3 ${MAIL.mono};color:${MAIL.faint}">${Math.round(s.confidence)}%</td>
+function renderStandings(model) {
+  if (!model) return '';
+  const tone = { pos: MAIL.pos, neg: MAIL.neg };
+  const rows = model.rows.map(r => `<tr>
+      <td style="padding:7px 0;font:600 13px/1.3 ${MAIL.sans};color:${MAIL.ink}">${r.ticker}</td>
+      <td align="right" style="padding:7px 0;font:400 13px/1.3 ${MAIL.sans};color:${tone[r.tone]}">${r.verdict}</td>
+      <td align="right" style="padding:7px 0 7px 14px;font:400 13px/1.3 ${MAIL.mono};color:${MAIL.faint}">${r.confidence}</td>
     </tr>`).join('');
-  return `<tr><td style="padding:24px 0 0;font:600 11px/1 ${MAIL.sans};letter-spacing:.09em;text-transform:uppercase;color:${MAIL.faint}">Where things stand this week</td></tr>`
-    + `<tr><td style="padding-top:4px;font:400 12px/1.6 ${MAIL.sans};color:${MAIL.faint}">Everything the algorithm is not silent about. Nothing here needs doing.</td></tr>`
+  return `<tr><td style="padding:24px 0 0;font:600 11px/1 ${MAIL.sans};letter-spacing:.09em;text-transform:uppercase;color:${MAIL.faint}">${model.title}</td></tr>`
+    + `<tr><td style="padding-top:4px;font:400 12px/1.6 ${MAIL.sans};color:${MAIL.faint}">${model.note}</td></tr>`
     + `<tr><td><table width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table></td></tr>`;
 }
 
 function renderAlertDigest(items, standings = []) {
-  const dips = items.filter(i => i.kind === 'dip');
-  const gains = items.filter(i => i.kind === 'gain');
-  const highs = items.filter(i => i.kind === 'high');
-  const algo = items.filter(i => i.kind === 'algo');
-  const levels = items.filter(i => !['dip','gain','high','algo'].includes(i.kind));
-  const when = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-  const heading = items.length === 0 ? 'Where things stand'
-    : items.length === 1 ? 'One alert triggered' : `${items.length} alerts triggered`;
+  const { heading, when, sections, standings: standingsModel } = digestModel(items, standings);
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -230,12 +304,8 @@ function renderAlertDigest(items, standings = []) {
     </td></tr>
     <tr><td style="padding:0 26px">
       <table width="100%" cellpadding="0" cellspacing="0" border="0">
-        ${digestSection('The algorithm sees an unusually cheap moment', algo)}
-        ${digestSection('Dips below your average cost', dips)}
-        ${digestSection('Up on what you paid', gains)}
-        ${digestSection('Down from their recent high', highs)}
-        ${digestSection('Price levels you set', levels)}
-        ${renderStandings(standings)}
+        ${sections.map(digestSection).join('\n        ')}
+        ${renderStandings(standingsModel)}
       </table>
     </td></tr>
     <tr><td style="padding:24px 26px 26px">
@@ -1158,6 +1228,7 @@ if (require.main === module) {
 }
 
 module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts, ordinal,
+  digestModel, DIGEST_SECTIONS,
   RATE_UPSERT_SQL, fetchExchangeRates,
   identityFor, emailsByKey, resolveDbPath, failureRecentlyReported,
   tickerTier, priceGapDays, fetchUniverse, HOT_SEEN_DAYS, COLD_INTERVAL_DAYS,

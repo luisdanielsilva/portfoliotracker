@@ -760,6 +760,83 @@ function heroBlocks(dip, rules) {
   return { lede, stats };
 }
 
+/* ------------------------------------------------------------- the email */
+
+/*
+ * The mock of the alert email, drawn from the renderer that sends the real one.
+ *
+ * It was hand-built markup, a second copy of a design that already existed in
+ * `price-fetch.js`, and it drifted twice: by the time this was written the page
+ * advertised four kinds of alert for a tool that sends five, and left out the
+ * weekly standings table altogether. Now `digestModel()` supplies the sections,
+ * the wording and the figures, and this only chooses markup — the page's own
+ * classes rather than the email's inline styles, so the card still answers to
+ * the site's stylesheet and its dark mode.
+ *
+ * The alerts below are the illustration, and they are the same holdings and the
+ * same figures the feature card above quotes, so the two cannot disagree. The
+ * date is pinned: `digestModel` would otherwise stamp today's, and index.html
+ * would want regenerating every morning.
+ */
+const MAIL_ITEMS = [
+  { kind: 'algo', ticker: 'ORCL', price: 142.5, currency: 'USD', holdDays: 3,
+    percentiles: { '6M': 4, '1Y': 7, '2Y': 12 }, gainPct: -8.3 },
+  { kind: 'dip', ticker: 'TSLA', price: 338.71, avgCost: 386.65, dropPct: 12.4 },
+  { kind: 'gain', ticker: 'NVDA', price: 253.9, avgCost: 140.15, gainPct: 81.2, threshold: 75 },
+  { kind: 'high', ticker: 'AMD', price: 128.4, peak: 182.1, dropPct: 29.5, threshold: 20, currency: 'USD' },
+  { kind: 'price_below', ticker: 'GOOGL', price: 290.6, threshold: 300, currency: 'USD' }
+];
+const MAIL_STANDINGS = [
+  { ticker: 'ORCL', direction: 'Buy', tier: 'VeryStrong', confidence: 88 },
+  { ticker: 'MSFT', direction: 'Buy', tier: 'Moderate', confidence: 54 },
+  { ticker: 'NVDA', direction: 'Sell', tier: 'Strong', confidence: 71 }
+];
+const MAIL_DATE = new Date(Date.UTC(2026, 8, 9));   // a Wednesday, as the copy says
+
+/** The few characters the rest of index.html spells as entities. */
+const ent = str => str
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/€/g, '&euro;').replace(/·/g, '&middot;')
+  .replace(/−/g, '&minus;').replace(/—/g, '&mdash;');
+
+function mailFigure() {
+  const { digestModel, alertSubject } = require('./price-fetch.js');
+  const m = digestModel(MAIL_ITEMS, MAIL_STANDINGS, MAIL_DATE);
+  const tone = { neg: 'neg', pos: 'pos', accent: 'acc' };
+
+  const line = segs => segs.map(sg => (sg.mono ? `<b>${ent(sg.t)}</b>` : ent(sg.t))).join('');
+  const row = (r, isLast) => `        <div class="lp-mail-row${isLast ? ' lp-last' : ''}">
+          <span class="lp-mail-top"><b>${ent(r.ticker)}</b><i class="${tone[r.figure.tone]}">${ent(r.figure.text)}</i></span>
+          <span class="lp-mail-det">${r.detail.map(line).join('<br>')}</span>
+        </div>`;
+
+  const sections = m.sections.map(sec =>
+    `        <div class="lp-mail-sec">${ent(sec.title)}</div>\n`
+    + sec.rows.map((r, i) => row(r, i === sec.rows.length - 1)).join('\n')).join('\n\n');
+
+  const standings = !m.standings ? '' : `\n\n        <div class="lp-mail-sec">${ent(m.standings.title)}</div>
+        <p class="lp-mail-note">${ent(m.standings.note)}</p>
+        <table class="lp-mail-stand">
+${m.standings.rows.map(r => `          <tr><td>${ent(r.ticker)}</td><td class="${tone[r.tone]}">${ent(r.verdict)}</td><td>${ent(r.confidence)}</td></tr>`).join('\n')}
+        </table>`;
+
+  return `<div class="lp-mail">
+      <div class="lp-mail-hdr">
+        <span class="lp-mail-from">Portfolio Tracker</span>
+        <span class="lp-mail-subj">${ent(alertSubject(MAIL_ITEMS))}</span>
+      </div>
+      <div class="lp-mail-body">
+        <div class="lp-mail-eyebrow">Portfolio Tracker</div>
+        <div class="lp-mail-h">${ent(m.heading)}</div>
+        <div class="lp-mail-when">${ent(m.when)}, after the close</div>
+
+${sections}${standings}
+
+        <span class="lp-mail-btn">Open Portfolio Tracker</span>
+      </div>
+    </div>`;
+}
+
 /* ---------------------------------------------------------------- output */
 
 function replaceBlock(html, id, content) {
@@ -773,6 +850,23 @@ function replaceBlock(html, id, content) {
 
 async function main() {
   const check = process.argv.includes('--check');
+
+  /*
+   * The email mock needs no prices, so it can be rewritten without the network
+   * — which is what makes the test that guards it cheap to run in CI.
+   */
+  if (process.argv.includes('--mail')) {
+    const html = fs.readFileSync(INDEX, 'utf-8');
+    const out = replaceBlock(html, 'mail', mailFigure());
+    if (check) {
+      console.log(out === html ? 'mail mock is up to date' : 'mail mock is OUT OF DATE — run: node landing-figures.js --mail');
+      process.exit(out === html ? 0 : 1);
+    }
+    fs.writeFileSync(INDEX, out);
+    console.log('mail mock updated');
+    return;
+  }
+
   const yf = yahoo();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -821,6 +915,7 @@ async function main() {
   html = replaceBlock(html, 'mini-averaging', miniAveraging(spy).svg);
   html = replaceBlock(html, 'mini-folio', miniFolio(sim).svg);
   html = replaceBlock(html, 'mini-drawdown', miniDrawdown(sim).svg);
+  html = replaceBlock(html, 'mail', mailFigure());
 
   const last = sim[sim.length - 1];
   console.log(`dip    SPY ${spy.length} closes: ${dip.facts.first.toFixed(0)} -> ${dip.facts.second.toFixed(1)} -> ${dip.facts.last.toFixed(1)}, average ${dip.facts.avg.toFixed(1)}`);
@@ -844,4 +939,5 @@ if (require.main === module) {
   main().catch(err => { console.error('landing-figures failed:', err.message); process.exit(1); });
 }
 
-module.exports = { niceTicks, box, line, steps, band, thin, thinIndices, nearestSampled, widestGap, halfLabel, simulate };
+module.exports = { niceTicks, box, line, steps, band, thin, thinIndices, nearestSampled, widestGap, halfLabel, simulate,
+  mailFigure, MAIL_ITEMS, MAIL_STANDINGS, MAIL_DATE };

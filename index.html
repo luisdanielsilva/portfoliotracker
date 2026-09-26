@@ -592,6 +592,13 @@
   .lp-mail-top i.neg{color:var(--neg)} .lp-mail-top i.pos{color:var(--pos)} .lp-mail-top i.acc{color:var(--accent)}
   .lp-mail-det{display:block;margin-top:5px;font-size:12.5px;color:var(--muted);line-height:1.6}
   .lp-mail-det b{color:var(--ink);font-family:"IBM Plex Mono",monospace;font-weight:600}
+  .lp-mail-note{margin:4px 0 0;font-size:12px;color:var(--faint);line-height:1.6}
+  .lp-mail-stand{width:100%;border-collapse:collapse;margin-top:6px}
+  .lp-mail-stand td{padding:7px 0;font-size:13px}
+  .lp-mail-stand td:nth-child(2){text-align:right}
+  .lp-mail-stand td:nth-child(2).pos{color:var(--pos)} .lp-mail-stand td:nth-child(2).neg{color:var(--neg)}
+  .lp-mail-stand td:first-child{font-weight:600}
+  .lp-mail-stand td:last-child{text-align:right;padding-left:14px;font-family:"IBM Plex Mono",monospace;color:var(--faint)}
   .lp-mail-btn{display:inline-block;margin-top:20px;background:var(--accent);color:#fff;font-size:13.5px;font-weight:500;padding:10px 18px;border-radius:8px}
 
   /* rule chips in the alerts card */
@@ -1144,15 +1151,22 @@
 
   <figure class="lp-figure lp-mailfig">
     <p class="lp-fig-title">The email you actually get</p>
-    <div class="lp-mail">
+    <!-- figure:mail:start -->
+      <div class="lp-mail">
       <div class="lp-mail-hdr">
         <span class="lp-mail-from">Portfolio Tracker</span>
-        <span class="lp-mail-subj">4 alerts: TSLA, NVDA, ORCL, AMD</span>
+        <span class="lp-mail-subj">5 alerts: ORCL, TSLA, NVDA, AMD, GOOGL</span>
       </div>
       <div class="lp-mail-body">
         <div class="lp-mail-eyebrow">Portfolio Tracker</div>
-        <div class="lp-mail-h">4 alerts triggered</div>
+        <div class="lp-mail-h">5 alerts triggered</div>
         <div class="lp-mail-when">Wednesday 9 September, after the close</div>
+
+        <div class="lp-mail-sec">The algorithm sees an unusually cheap moment</div>
+        <div class="lp-mail-row lp-last">
+          <span class="lp-mail-top"><b>ORCL</b><i class="pos">very strong buy</i></span>
+          <span class="lp-mail-det">$142.50 now &middot; held 3 days running<br>Ranks 4th / 7th / 12th percentile against its own 6-month, 1-year and 2-year history<br>You are down 8.3% on this holding</span>
+        </div>
 
         <div class="lp-mail-sec">Dips below your average cost</div>
         <div class="lp-mail-row lp-last">
@@ -1168,20 +1182,30 @@
 
         <div class="lp-mail-sec">Down from their recent high</div>
         <div class="lp-mail-row lp-last">
-          <span class="lp-mail-top"><b>ORCL</b><i class="neg">&minus;34.1%</i></span>
-          <span class="lp-mail-det">$216.40 now &middot; 52-week high $328.33<br>Past your <b>&minus;30%</b> trailing level</span>
+          <span class="lp-mail-top"><b>AMD</b><i class="neg">&minus;29.5%</i></span>
+          <span class="lp-mail-det">$128.40 now &middot; 52-week high $182.10<br>Past your <b>&minus;20%</b> trailing level</span>
         </div>
 
         <div class="lp-mail-sec">Price levels you set</div>
         <div class="lp-mail-row lp-last">
-          <span class="lp-mail-top"><b>AMD</b><i class="acc">below $480.00</i></span>
-          <span class="lp-mail-det">$465.28 now &middot; 3.1% under the level you set</span>
+          <span class="lp-mail-top"><b>GOOGL</b><i class="acc">below $300.00</i></span>
+          <span class="lp-mail-det">$290.60 now &middot; 3.1% under the level you set</span>
         </div>
+
+        <div class="lp-mail-sec">Where things stand this week</div>
+        <p class="lp-mail-note">Everything the algorithm is not silent about. Nothing here needs doing.</p>
+        <table class="lp-mail-stand">
+          <tr><td>ORCL</td><td class="pos">buy &middot; very strong</td><td>88%</td></tr>
+          <tr><td>MSFT</td><td class="pos">buy &middot; moderate</td><td>54%</td></tr>
+          <tr><td>NVDA</td><td class="neg">sell &middot; strong</td><td>71%</td></tr>
+        </table>
 
         <span class="lp-mail-btn">Open Portfolio Tracker</span>
       </div>
     </div>
-    <figcaption>Everything that fired arrives in one message, grouped by what it means: below your own average cost, above it, off a holding’s own 12-month high, or through a price level you set. Prices are shown in the currency their market quotes. Never more than one email per rule per day.</figcaption>
+    <!-- figure:mail:end -->
+    </div>
+    <figcaption>Everything that fired arrives in one message, grouped by what it means: below your own average cost, above it, off a holding’s own 12-month high, or through a price level you set — plus the one thing the algorithm raises on its own, and a standing view of every holding that asks for nothing. Prices are shown in the currency their market quotes. Never more than one email per rule per day.</figcaption>
   </figure>
 
   <section class="lp-signin">
