@@ -486,6 +486,169 @@ function folioFigure(sim) {
   return { head, key, svg, foot, facts: { value: last.value, invested: last.invested } };
 }
 
+/**
+ * Buy and hold against the rule this site is about.
+ *
+ * Both strategies receive the same money on the same days. Buy and hold puts it
+ * straight into the six names, split evenly, and never sells. The rule holds it
+ * as cash until a holding sits in the bottom fifth of its own trailing
+ * twelve-month range, then buys; when one sits in the top fifth it sells a tenth
+ * of that position and the proceeds wait for the next low.
+ *
+ * Three decisions here were made to keep the comparison honest rather than
+ * flattering, and every one of them costs the rule:
+ *
+ *   - The window is 252 sessions because that is the twelve-month high this site
+ *     already advertises, not because it is the window that wins. At 126 sessions
+ *     the same rule finishes well behind buy and hold.
+ *   - A signal seen at one close is filled at the next one, never at the close
+ *     that produced it.
+ *   - Cash sitting between signals is counted at face value and earns nothing.
+ *
+ * The parameter the result is genuinely sensitive to is how much gets sold at a
+ * high: a tenth wins, a quarter loses. That is in the figure's own disclosure,
+ * because a reader who cannot see it cannot judge the chart.
+ */
+function backtest(prices, fx, { start, perBuy, everyDays, win = 252, low = 0.2, high = 0.8, trim = 0.1, cool = 21, sell = true }) {
+  const tickers = Object.keys(prices);
+  const dates = [...new Set(Object.values(prices).flat().map(p => p.d))].sort().filter(d => d >= start);
+  const byTicker = {};
+  for (const [t, rows] of Object.entries(prices)) byTicker[t] = new Map(rows.map(r => [r.d, r.c]));
+
+  const hist = Object.fromEntries(tickers.map(t => [t, []]));
+  const last = Object.fromEntries(tickers.map(t => [t, null]));
+  const hold = Object.fromEntries(tickers.map(t => [t, 0]));   // buy and hold
+  const rule = Object.fromEntries(tickers.map(t => [t, 0]));   // on the rule
+  const basis = Object.fromEntries(tickers.map(t => [t, 0]));  // average cost, as the app tracks it
+  const acted = Object.fromEntries(tickers.map(t => [t, -1e9]));
+
+  let cash = 0, invested = 0, since = everyDays, i = 0, realised = 0, buys = 0, sells = 0, peakCash = 0;
+  let pending = [];
+  const out = [];
+
+  for (const d of dates) {
+    for (const t of tickers) if (byTicker[t].has(d)) { last[t] = byTicker[t].get(d); hist[t].push(last[t]); }
+    if (tickers.some(t => last[t] == null)) continue;
+    const rate = fx(d);
+
+    if (since >= everyDays) {
+      invested += perBuy;
+      for (const t of tickers) hold[t] += (perBuy / tickers.length) / (last[t] * rate);
+      cash += perBuy;
+      since = 0;
+    }
+    since++;
+
+    // yesterday's signals, filled at today's close
+    for (const o of pending) {
+      if (o.side === 'buy') {
+        const spend = Math.min(o.cash, cash);
+        if (spend > 0) { rule[o.t] += spend / (last[o.t] * rate); basis[o.t] += spend; cash -= spend; buys++; }
+      } else if (rule[o.t] > 0) {
+        const qty = rule[o.t] * trim, proceeds = qty * last[o.t] * rate, cost = basis[o.t] * trim;
+        rule[o.t] -= qty; basis[o.t] -= cost; cash += proceeds; realised += proceeds - cost; sells++;
+      }
+    }
+    pending = [];
+
+    for (const t of tickers) {
+      const h = hist[t].slice(-win);
+      if (h.length < win / 2 || i - acted[t] < cool) continue;
+      const lo = Math.min(...h), hi = Math.max(...h);
+      if (hi <= lo) continue;
+      const pos = (last[t] - lo) / (hi - lo);
+      if (pos <= low && cash > 0) { pending.push({ side: 'buy', t, cash }); acted[t] = i; }
+      else if (sell && pos >= high && rule[t] > 0) { pending.push({ side: 'sell', t }); acted[t] = i; }
+    }
+
+    peakCash = Math.max(peakCash, cash);
+    out.push({
+      d, invested,
+      hold: tickers.reduce((s, t) => s + hold[t] * last[t] * rate, 0),
+      rule: tickers.reduce((s, t) => s + rule[t] * last[t] * rate, 0) + cash,
+      cash
+    });
+    i++;
+  }
+
+  const l = out[out.length - 1];
+  const neverBought = tickers.filter(t => rule[t] * last[t] * fx(l.d) < perBuy);
+  return {
+    rows: out,
+    facts: { invested: l.invested, hold: l.hold, rule: l.rule, cash: l.cash, peakCash,
+             realised, buys, sells, neverBought,
+             ahead: out.filter(r => r.rule > r.hold).length, n: out.length }
+  };
+}
+
+/** The comparison, as two equity curves on the same money. */
+function compareFigure(bt, noSell) {
+  const f = bt.facts;
+  const sampled = thinIndices(bt.rows.length, 240);
+  const pts = sampled.map(i => bt.rows[i]);
+  const ruleV = pts.map(p => p.rule), holdV = pts.map(p => p.hold), inv = pts.map(p => p.invested);
+  const b = box({ x0: 56, x1: 620, y0: 20, y1: 210, lo: 0, hi: Math.max(...ruleV, ...holdV), n: pts.length });
+  const ticks = b.ticks(4).filter(t => t >= 0);
+  const k = n => '&euro;' + (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
+  const gap = f.rule - f.hold;
+
+  // the two end labels are far enough apart to sit on their own lines; invested is far below both
+  const svg = `<svg viewBox="0 0 720 250" role="img" aria-label="Real chart: the same ${Math.round(f.invested)} euros paid in monthly across six technology shares since 2019. Held and never sold it ends at ${Math.round(f.hold)} euros; traded on the rule it ends at ${Math.round(f.rule)} euros.">
+      <g>
+        ${gridlines(b, ticks)}
+      </g>
+      <g class="axislbl" text-anchor="end" dominant-baseline="middle">
+        ${ticks.map(t => `<text x="48" y="${r1(b.y(t))}">${k(t)}</text>`).join('\n        ')}
+      </g>
+      <g class="xlbl">
+        ${['2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026'].map(y => {
+          const i = pts.findIndex(p => p.d >= y + '-01-01');
+          return i < 0 ? '' : `<text x="${r1(b.x(i))}" y="228">${y}</text>`;
+        }).filter(Boolean).join('\n        ')}
+      </g>
+      <path d="${steps(inv, b)}" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+      <path class="serieline" d="${line(holdV, b)}" stroke="var(--muted)" stroke-width="1.6"></path>
+      <path class="serieline" d="${line(ruleV, b)}" stroke="var(--s-total)"></path>
+      <g class="endlbl">
+        <text x="630" y="${r1(b.y(f.rule) - 3)}" fill="var(--s-total)">${k(f.rule)}</text>
+        <text x="630" y="${r1(b.y(f.hold) - 3)}" fill="var(--muted)">${k(f.hold)}</text>
+        <text x="630" y="${r1(b.y(f.invested) - 3)}" fill="var(--faint)">${k(f.invested)}</text>
+      </g>
+      <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
+        <text x="630" y="${r1(b.y(f.rule) + 10)}" fill="var(--muted)">On the rule</text>
+        <text x="630" y="${r1(b.y(f.hold) + 10)}" fill="var(--muted)">Held</text>
+        <text x="630" y="${r1(b.y(f.invested) + 10)}" fill="var(--faint)">Paid in</text>
+      </g>
+    </svg>`;
+
+  const head = figureHead(`${k(f.hold)} held. ${k(f.rule)} on the rule.`,
+                          'TSLA &middot; NVDA &middot; AMD &middot; MSFT &middot; GOOGL &middot; META',
+                          'Jan 2019 &ndash; today');
+
+  const key = `<p class="lp-fig-key">
+      <span><i style="background:var(--s-total)"></i>On the rule <b>${k(f.rule)}</b></span>
+      <span><i style="background:var(--muted)"></i>Bought and held <b>${k(f.hold)}</b></span>
+      <span><i class="dash"></i>Paid in <b>${money(f.invested)}</b></span>
+    </p>`;
+
+  const foot = figureFoot(
+    `The same ${money(f.invested)}, ${money(600)} a month into six shares. Selling is what made the difference &mdash; a tenth of a holding at each twelve-month high, put back at the next low; buying the dips <b>without</b> ever selling finishes behind at ${k(noSell.facts.rule)}.`,
+    `Real closes for the six, in euros at each day's rate. Buy and hold splits every monthly ${money(600)} evenly and never sells. The rule holds the money as cash until a share sits in the bottom fifth of its own trailing twelve-month range, then buys; at the top fifth it sells a tenth of that holding, at most once a month per share, and every signal is filled at the <i>next</i> close. Three things a reader should weigh: it is behind buy and hold on ${Math.round(100 * f.ahead / f.n)}% of days and only wins late; it realises ${money(f.realised)} of gains along the way where buy and hold realises none, and no tax is charged here &mdash; at 28% that is about ${money(f.realised * 0.28)}, two thirds of the ${money(gap)} difference; and it never once bought NVDA, the best of the six, because a share that keeps making new highs never enters the bottom fifth of its own range. It is also sensitive to how much is sold at each high: a tenth wins, a quarter finishes behind. One basket, one seven-year window, no costs.`);
+
+  return { head, key, svg, foot, facts: f };
+}
+
+/*
+ * The card drawings are 300 units wide and as tall as the space their card
+ * actually leaves them at the three-column width, measured in the browser
+ * rather than guessed: 270 x 181 for the averaging card, 270 x 212 for the two
+ * that sit under one line of text, 270 x 192 for the drawdown. Drawing to that
+ * shape is what lets them fill the card without `preserveAspectRatio` having to
+ * stretch anything, which would take the labels with it.
+ */
+const MINI_W = 300;
+const MINI = { averaging: 200, folio: 235, holdings: 235, drawdown: 210 };
+
 /** The averaging-down window, as it actually happened to one holding. */
 function miniAveraging(spy) {
   const base = spy[0].c;
@@ -499,7 +662,8 @@ function miniAveraging(spy) {
     return cost / qty;
   });
 
-  const b = box({ x0: 8, x1: 250, y0: 10, y1: 90, lo: Math.min(...values), hi: Math.max(...values), n: values.length });
+  const H = MINI.averaging;
+  const b = box({ x0: 8, x1: 250, y0: 10, y1: H - 10, lo: Math.min(...values), hi: Math.max(...values), n: values.length });
   const crossIdx = values.findIndex((v, i) => i > troughIdx && v > avg[i]);
   const endAvg = avg[avg.length - 1], endPx = values[values.length - 1];
 
@@ -508,9 +672,9 @@ function miniAveraging(spy) {
   if (Math.abs(pxY - avgY) < 11) { const mid = (pxY + avgY) / 2; pxY = mid - 6; avgY = mid + 6; }
 
   return {
-    svg: `<svg viewBox="0 0 300 100" role="img" aria-label="Real chart: SPY through the 2020 crash, with four purchases made while the price sat under the average cost, pulling that average from 100 down to ${Math.round(endAvg)} euros.">
+    svg: `<svg viewBox="0 0 ${MINI_W} ${H}" preserveAspectRatio="none" role="img" aria-label="Real chart: SPY through the 2020 crash, with four purchases made while the price sat under the average cost, pulling that average from 100 down to ${Math.round(endAvg)} euros.">
           <!-- the stretch where the price line sits under the average-cost line -->
-          <rect x="${r1(b.x0)}" y="10" width="${r1(b.x(crossIdx < 0 ? values.length - 1 : crossIdx) - b.x0)}" height="80" fill="var(--accent-soft)"></rect>
+          <rect x="${r1(b.x0)}" y="10" width="${r1(b.x(crossIdx < 0 ? values.length - 1 : crossIdx) - b.x0)}" height="${H - 20}" fill="var(--accent-soft)"></rect>
           <path d="${steps(avg, b)}" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
           <path class="serieline" d="${line(values, b)}" stroke="var(--s-total)"></path>
           <g class="buyring" stroke="var(--s-total)">
@@ -527,12 +691,13 @@ function miniAveraging(spy) {
 function miniFolio(sim) {
   const pts = thin(sim, 90);
   const values = pts.map(p => p.value), invested = pts.map(p => p.invested);
-  const b = box({ x0: 8, x1: 250, y0: 12, y1: 88, lo: 0, hi: Math.max(...values), n: pts.length });
+  const H = MINI.folio;
+  const b = box({ x0: 8, x1: 250, y0: 12, y1: H - 12, lo: 0, hi: Math.max(...values), n: pts.length });
   const last = sim[sim.length - 1];
   const k = n => '&euro;' + (n / 1000).toFixed(1) + 'k';
 
   return {
-    svg: `<svg viewBox="0 0 300 100" role="img" aria-label="Real chart: portfolio market value against the total invested, which steps up with each purchase.">
+    svg: `<svg viewBox="0 0 ${MINI_W} ${H}" preserveAspectRatio="none" role="img" aria-label="Real chart: portfolio market value against the total invested, which steps up with each purchase.">
           <path class="iv-band" d="${band(values, invested, b)}"></path>
           <path d="${steps(invested, b)}" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
           <path class="serieline" d="${line(values, b)}" stroke="var(--s-total)"></path>
@@ -549,21 +714,25 @@ function miniHoldings(sim) {
     .map(([t, q]) => ({ t, v: q * last.px[t] * last.rate }))
     .sort((a, b) => b.v - a.v);
   const max = rows[0].v;
-  const y = i => 10 + i * 30;
+  const H = MINI.holdings;
+  // one slot per holding across the full height, with the bar centred in its slot
+  const pad = 12, slot = (H - pad * 2) / rows.length, barH = Math.min(52, slot - 14), rad = 7;
+  const y = i => pad + i * slot + (slot - barH) / 2;
 
   return {
-    svg: `<svg viewBox="0 0 300 100" role="img" aria-label="Real bar chart of holdings by market value: ${rows.map(r => `${r.t} ${Math.round(r.v)} euros`).join(', ')}.">
+    svg: `<svg viewBox="0 0 ${MINI_W} ${H}" preserveAspectRatio="none" role="img" aria-label="Real bar chart of holdings by market value: ${rows.map(r => `${r.t} ${Math.round(r.v)} euros`).join(', ')}.">
           <g class="axislbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--ink)">
-            ${rows.map((r, i) => `<text x="40" y="${y(i) + 9}">${r.t}</text>`).join('\n            ')}
+            ${rows.map((r, i) => `<text x="40" y="${r1(y(i) + barH / 2)}">${r.t}</text>`).join('\n            ')}
           </g>
           <g fill="var(--accent)">
             ${rows.map((r, i) => {
               const w = 46 + (200 - 46) * (r.v / max);
-              return `<path d="M46,${y(i)} H${r1(w - 4)} Q${r1(w)},${y(i)} ${r1(w)},${y(i) + 4} V${y(i) + 14} Q${r1(w)},${y(i) + 18} ${r1(w - 4)},${y(i) + 18} H46 Z"></path>`;
+              const t = r1(y(i)), bm = r1(y(i) + barH);
+              return `<path d="M46,${t} H${r1(w - rad)} Q${r1(w)},${t} ${r1(w)},${r1(y(i) + rad)} V${r1(y(i) + barH - rad)} Q${r1(w)},${bm} ${r1(w - rad)},${bm} H46 Z"></path>`;
             }).join('\n            ')}
           </g>
           <g class="endlbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--muted)">
-            ${rows.map((r, i) => `<text x="292" y="${y(i) + 9}">${money(r.v)}</text>`).join('\n            ')}
+            ${rows.map((r, i) => `<text x="292" y="${r1(y(i) + barH / 2)}">${money(r.v)}</text>`).join('\n            ')}
           </g>
         </svg>`
   };
@@ -585,10 +754,11 @@ function miniDrawdown(sim) {
   sampled[nearestSampled(fullWorstIdx, sampled)] = fullWorstIdx;
   const dd = sampled.map(i => full[i]);
   const worstIdx = dd.indexOf(worst);
-  const b = box({ x0: 8, x1: 250, y0: 14, y1: 88, lo: worst, hi: 0, n: dd.length });
+  const H = MINI.drawdown;
+  const b = box({ x0: 8, x1: 250, y0: 14, y1: H - 12, lo: worst, hi: 0, n: dd.length });
 
   return {
-    svg: `<svg viewBox="0 0 300 100" role="img" aria-label="Real chart: this portfolio's drawdown from its own peak, reaching ${Math.abs(Math.round(worst))} percent down before recovering.">
+    svg: `<svg viewBox="0 0 ${MINI_W} ${H}" preserveAspectRatio="none" role="img" aria-label="Real chart: this portfolio's drawdown from its own peak, reaching ${Math.abs(Math.round(worst))} percent down before recovering.">
           <line class="gridline" x1="8" y1="${r1(b.y(0))}" x2="250" y2="${r1(b.y(0))}"></line>
           <path class="uw-area" d="${line(dd, b)} L${r1(b.x(dd.length - 1))},${r1(b.y(0))} L${r1(b.x0)},${r1(b.y(0))} Z"></path>
           <path class="uw-line" d="${line(dd, b)}"></path>
@@ -618,22 +788,19 @@ function heroBlocks(dip, rules) {
   const d = dip.facts, r = rules.facts;
 
   const lede = `<p class="lp-lede">
-          Ten shares at ${money(d.first)}, then ten more after it fell to ${money1(d.second)} &mdash; your
-          average cost is ${money(d.avg)}, so the stock only has to climb back to ${money(d.avg)} to put you
-          in profit, not ${money(d.first)}. That is the S&amp;P 500 through 2020, and every chart below it is
-          real prices too. Portfolio Tracker keeps that number current for every holding and works from it
-          in both directions: it emails you when a stock falls under your cost, when you are up 75% on what
-          you actually paid, and when a holding is 20% off its own 12-month high &mdash; so you act on your
-          own plan instead of noticing three weeks late.
+          Ten shares at ${money(d.first)}. Ten more when it fell to ${money1(d.second)}. Your break-even
+          is ${money(d.avg)} now &mdash; not ${money(d.first)}. Portfolio Tracker keeps that number current for
+          every holding and emails you the moment one drops under your cost, is up 75% on what you
+          paid, or falls 20% off its own high.
         </p>`;
 
   const stats = `<div class="lp-stats">
-          <div><b class="hi">${money(d.first)} &rarr; ${money(d.avg)}</b><span>One buy near the 2020 bottom cut this break-even by ${Math.round(100 - 100 * d.avg / d.first)}% &mdash; the price ended the window at ${money1(d.last)}, a profit against ${money(d.avg)} and a loss against ${money(d.first)}</span></div>
-          <div><b>+75% on cost</b><span>A take-profit level that follows what you actually paid. On AMD it emailed at ${money(r.target)}; the stock ran on to ${money(r.peak)} before it turned</span></div>
-          <div><b>&minus;20% off its high</b><span>The trailing level that says a run has broken, measured against the stock's own peak. It caught that break at ${money(r.breakAt)}, with the window ending at ${money(r.last)}</span></div>
-          <div><b>Every close</b><span>Prices refreshed and every rule re-checked each weekday morning, before the US market opens</span></div>
+          <div class="r1"><b>${money(d.first)} &rarr; ${money(d.avg)}</b><strong>Every dip lowers the bar</strong><span>One buy near the 2020 bottom cut break-even by ${Math.round(100 - 100 * d.avg / d.first)}%. It ended at ${money1(d.last)} &mdash; profit against ${money(d.avg)}, loss against ${money(d.first)}.</span></div>
+          <div class="r2"><b>+75% on cost</b><strong>Take the win on purpose</strong><span>Take profit measured on what you actually paid. On AMD it emailed at ${money(r.target)}; the stock ran to ${money(r.peak)}.</span></div>
+          <div class="r3"><b>&minus;20% off its high</b><strong>Keep the gain you made</strong><span>Measured against the stock's own peak. It caught the break at ${money(r.breakAt)}; the window ended at ${money(r.last)}.</span></div>
+          <div class="r4"><b>Every close</b><strong>It watches so you don't</strong><span>Prices and rules re-checked every weekday morning, before the US market opens.</span></div>
         </div>
-        <p class="lp-statnote">Real closes: SPY ${d.n} days, Jan&ndash;Jun 2020, and AMD ${r.n} days, Jul 2023&ndash;Sep 2024, each rebased to ${money(d.first)} at the left edge. The purchases are the illustration.</p>`;
+        <p class="lp-statnote">Real closes: SPY, Jan&ndash;Jun 2020 (${d.n} days) and AMD, Jul 2023&ndash;Sep 2024 (${r.n} days), rebased to ${money(d.first)}. The purchases are the illustration.</p>`;
 
   return { lede, stats };
 }
@@ -664,9 +831,26 @@ async function main() {
 
   const sim = simulate(folioPrices, fx, { start: '2022-01-03', perBuy: 600, everyDays: 63 });
 
+  /*
+   * The comparison runs on its own price set and its own rate lookup: it starts
+   * three years earlier than the portfolio above, and usdToEur returns a stateful
+   * closure that carries the last rate it saw forward, so sharing one between two
+   * walks over different date ranges would let one walk seed the other's gaps.
+   */
+  const cmpPrices = {};
+  for (const t of ['TSLA', 'NVDA', 'AMD', 'MSFT', 'GOOGL', 'META']) {
+    cmpPrices[t] = await series(yf, t, '2019-01-02', today);
+  }
+  const cmpFx = await usdToEur(yf, '2018-12-01', today);
+  const btOpts = { start: '2019-01-02', perBuy: 600, everyDays: 21 };
+  const bt = backtest(cmpPrices, cmpFx, btOpts);
+  // the same rule with the selling switched off, which is the caption's control
+  const btNoSell = backtest(cmpPrices, await usdToEur(yf, '2018-12-01', today), { ...btOpts, sell: false });
+
   const dip = dipFigure(spy);
   const rules = rulesFigure(amd);
   const folio = folioFigure(sim);
+  const compare = compareFigure(bt, btNoSell);
 
   let html = fs.readFileSync(INDEX, 'utf-8');
   const before = html;
@@ -674,6 +858,7 @@ async function main() {
   html = replaceBlock(html, 'dip', assemble(dip));
   html = replaceBlock(html, 'rules', assemble(rules));
   html = replaceBlock(html, 'folio', assemble(folio));
+  html = replaceBlock(html, 'compare', assemble(compare));
 
   // the hero's worked example comes from the same numbers as the figure below it
   const hero = heroBlocks(dip, rules);
@@ -688,6 +873,10 @@ async function main() {
   console.log(`dip    SPY ${spy.length} closes: ${dip.facts.first.toFixed(0)} -> ${dip.facts.second.toFixed(1)} -> ${dip.facts.last.toFixed(1)}, average ${dip.facts.avg.toFixed(1)}`);
   console.log(`rules  AMD ${amd.length} closes: target ${rules.facts.target.toFixed(0)} fired, peak ${rules.facts.peak.toFixed(0)}, trailing ${rules.facts.breakAt.toFixed(0)}, end ${rules.facts.last.toFixed(0)}`);
   console.log(`folio  ${sim.length} days: invested ${Math.round(last.invested)}, value ${Math.round(last.value)}`);
+  console.log(`cmp    ${bt.facts.n} days: paid in ${Math.round(bt.facts.invested)}, held ${Math.round(bt.facts.hold)}, rule ${Math.round(bt.facts.rule)} `
+    + `(${(bt.facts.rule / bt.facts.hold).toFixed(3)}x, ${bt.facts.buys} buys / ${bt.facts.sells} sells, `
+    + `realised ${Math.round(bt.facts.realised)}, ahead ${Math.round(100 * bt.facts.ahead / bt.facts.n)}% of days)`);
+  console.log(`cmp    buys only, no selling: ${Math.round(btNoSell.facts.rule)}`);
 
   if (check) {
     console.log(before === html ? 'index.html is up to date' : 'index.html is OUT OF DATE — run without --check');

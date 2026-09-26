@@ -24,6 +24,8 @@
     --accent:#2a78d6; --accent-soft:rgba(42,120,214,.10);
     --pos:#3f8f5b; --neg:#c0473e; --warn:#b8861f;
     --shadow:0 1px 2px rgba(20,22,28,.05),0 8px 24px rgba(20,22,28,.06);
+    /* one hue per hero rule, matched to the colour that rule wears in the charts below */
+    --r1:#2a78d6; --r2:#d2551f; --r3:#c0473e; --r4:#1b8f63;
   }
   @media (prefers-color-scheme:dark){
     :root:not([data-theme="light"]){
@@ -34,6 +36,7 @@
       --accent:#3987e5; --accent-soft:rgba(57,135,229,.16);
       --pos:#5aa877; --neg:#d2685e; --warn:#d4a13f;
       --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+      --r1:#4d97ec; --r2:#f0803f; --r3:#e08278; --r4:#34c48e;
     }
   }
   :root[data-theme="dark"]{
@@ -44,6 +47,7 @@
     --accent:#3987e5; --accent-soft:rgba(57,135,229,.16);
     --pos:#5aa877; --neg:#d2685e; --warn:#d4a13f;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+    --r1:#4d97ec; --r2:#f0803f; --r3:#e08278; --r4:#34c48e;
   }
 
   *{box-sizing:border-box}
@@ -453,18 +457,24 @@
   /* headline runs the full container width; the body below it is split into two
      columns so the width is used without stretching prose to an unreadable measure */
   .lp-hero h1{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:clamp(32px,5.6vw,54px);line-height:1.08;letter-spacing:-.018em;margin:0 0 28px;text-wrap:balance}
-  .lp-herogrid{display:grid;grid-template-columns:1.08fr .92fr;gap:44px;align-items:start}
+  .lp-herogrid{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:start}
+  @media (min-width:821px){ .lp-herogrid>div:last-child{align-self:center} }
   @media (max-width:820px){ .lp-herogrid{grid-template-columns:1fr;gap:26px} }
-  .lp-hero .lp-lede{font-size:16px;color:var(--muted);margin:0 0 14px;max-width:52ch}
+  .lp-hero .lp-lede{font-size:18px;line-height:1.55;color:var(--ink);margin:0 0 18px;max-width:42ch}
 
   .lp-stats{border:1px solid var(--hair);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
-  .lp-stats>div{padding:15px 18px}
+  .lp-stats>div{padding:14px 18px 14px 15px;border-left:3px solid var(--rule)}
   .lp-stats>div+div{border-top:1px solid var(--hair)}
-  .lp-stats b{display:block;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:21px;font-weight:600;letter-spacing:-.015em;line-height:1.2}
-  .lp-stats b.hi{color:var(--accent)}
-  .lp-stats span{display:block;font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.45}
+  .lp-stats .r1{--rule:var(--r1)} .lp-stats .r2{--rule:var(--r2)}
+  .lp-stats .r3{--rule:var(--r3)} .lp-stats .r4{--rule:var(--r4)}
+  .lp-stats b{display:block;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:23px;font-weight:600;letter-spacing:-.015em;line-height:1.2;color:var(--rule)}
+  .lp-stats strong{display:block;font-family:"Newsreader",Georgia,serif;font-size:19px;font-weight:500;letter-spacing:-.005em;line-height:1.2;color:var(--ink);margin-top:7px}
+  .lp-stats span{display:block;font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.45}
   .lp-statnote{margin:10px 2px 0;font-size:11.5px;color:var(--faint)}
   .lp-cta{display:flex;flex-wrap:wrap;gap:10px}
+  .lp-hero .lp-btn{font-size:15px;padding:13px 22px}
+  /* at hero size the two buttons no longer fit side by side on a phone */
+  @media (max-width:520px){ .lp-hero .lp-btn{font-size:14px;padding:12px 18px} }
   .lp-btn{font:inherit;font-size:14px;font-weight:500;padding:11px 20px;border-radius:9px;border:1px solid var(--hair);background:var(--surface);color:var(--ink);text-decoration:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
   .lp-btn:hover{background:var(--surface-2)}
   .lp-btn.primary{background:var(--accent);border-color:transparent;color:#fff}
@@ -529,13 +539,30 @@
   .lp-card{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:18px;display:flex;flex-direction:column}
   .lp-card h3{margin:0 0 7px;font-size:14.5px;font-weight:600;letter-spacing:-.005em}
   .lp-card p{margin:0;font-size:13px;color:var(--muted);line-height:1.55}
-  .lp-mini{margin-top:auto;padding-top:16px}
-  .lp-mini svg{display:block;width:100%;height:auto}
+  /* The chart takes whatever the text leaves, instead of sitting at the bottom
+     of the card with the slack above it. The SVGs are drawn to the same aspect
+     this box has at the three-column width, so "fit" and "fill" agree there and
+     the drawing only letterboxes slightly at the other breakpoints. */
+  .lp-mini{flex:1;min-height:160px;margin-top:16px;display:flex;flex-direction:column;justify-content:space-between;gap:10px}
+  /* the two cards whose visual is markup: the boxes grow into the space rather
+     than being pushed to the ends of it, which left them floating apart */
+  .lp-mini .lp-alert{flex:1;align-items:center}
+  .lp-mini svg{display:block;width:100%;height:100%;flex:1;min-height:0}
+  /* the drawings stretch to their box, so keep stroke widths out of that scaling */
+  .lp-mini svg path,.lp-mini svg line,.lp-mini svg circle{vector-effect:non-scaling-stroke}
+  /* one column: the cards size to their content here, so the drawings can keep
+     their own proportions instead of being stretched into a short box */
+  @media (max-width:620px){ .lp-mini svg{height:auto;flex:none} }
   .lp-minileg{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:14px}
   .lp-minileg span{display:inline-flex;align-items:center;gap:6px}
   .lp-minileg i{width:11px;height:3px;border-radius:2px;flex:none}
   .lp-minileg i.dash{height:0;border-top:2px dashed var(--faint)}
 
+  .lp-quote{margin:0 0 18px;padding-left:15px;border-left:2px solid var(--hair);max-width:42ch}
+  .lp-quote p{margin:0;font-family:"Newsreader",Georgia,serif;font-size:16.5px;line-height:1.45;font-style:italic;color:var(--muted)}
+  .lp-quote cite{display:block;margin-top:7px;font-style:normal;font-size:12px;color:var(--faint)}
+  .lp-quote cite a{color:inherit;text-decoration:none;border-bottom:1px solid var(--hair)}
+  .lp-quote cite a:hover{color:var(--ink)}
   .lp-caveat{font-size:13.5px;color:var(--faint);margin:0 0 24px;max-width:52ch}
 
   /* sign-in section: centered block at the foot of the page */
@@ -569,11 +596,12 @@
 
   /* rule chips in the alerts card */
   .lp-rules{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .lp-mini .lp-rules{margin-bottom:0}
   .lp-rules span{font-size:11px;color:var(--muted);border:1px solid var(--hair);border-radius:999px;padding:3px 9px;background:var(--surface-2)}
 
   /* transaction rows mock */
-  .lp-txn{border:1px solid var(--hair);border-radius:9px;overflow:hidden}
-  .lp-txn div{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:11.5px;font-family:"IBM Plex Mono",monospace}
+  .lp-txn{border:1px solid var(--hair);border-radius:9px;overflow:hidden;flex:1;display:flex;flex-direction:column}
+  .lp-txn div{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:11.5px;font-family:"IBM Plex Mono",monospace;flex:1}
   .lp-txn div+div{border-top:1px solid var(--hair)}
   .lp-txn .tag{font-size:9.5px;font-weight:600;letter-spacing:.04em;border-radius:4px;padding:2px 5px;flex:none}
   .lp-txn .buy{background:var(--accent-soft);color:var(--accent)}
@@ -779,21 +807,21 @@
   </nav>
 
   <section class="lp-hero">
-    <h1>Buy the dips. Sell near the tops. On a rule, not a feeling.</h1>
-
     <div class="lp-herogrid">
       <div>
+        <h1>Buy the dips. Sell near the tops. On a rule, not a feeling.</h1>
         <!-- figure:hero-lede:start -->
       <p class="lp-lede">
-          Ten shares at &euro;100, then ten more after it fell to &euro;68.63 &mdash; your
-          average cost is &euro;84, so the stock only has to climb back to &euro;84 to put you
-          in profit, not &euro;100. That is the S&amp;P 500 through 2020, and every chart below it is
-          real prices too. Portfolio Tracker keeps that number current for every holding and works from it
-          in both directions: it emails you when a stock falls under your cost, when you are up 75% on what
-          you actually paid, and when a holding is 20% off its own 12-month high &mdash; so you act on your
-          own plan instead of noticing three weeks late.
+          Ten shares at &euro;100. Ten more when it fell to &euro;68.63. Your break-even
+          is &euro;84 now &mdash; not &euro;100. Portfolio Tracker keeps that number current for
+          every holding and emails you the moment one drops under your cost, is up 75% on what you
+          paid, or falls 20% off its own high.
         </p>
     <!-- figure:hero-lede:end -->
+        <blockquote class="lp-quote">
+          <p>We will be buying businesses &mdash; or small parts of businesses, called stocks &mdash; year in, year out as long as I live&hellip; Given these intentions, declining prices for businesses benefit us, and rising prices hurt us.</p>
+          <cite><a href="https://www.berkshirehathaway.com/letters/1990.html" target="_blank" rel="noopener">Warren Buffett, Berkshire Hathaway letter, 1990</a></cite>
+        </blockquote>
         <p class="lp-caveat">It won't call the bottom or the top. It makes sure you don't miss your own signal.</p>
         <div class="lp-cta">
           <a class="lp-btn primary" href="#signin">Get started &mdash; it's free</a>
@@ -804,12 +832,12 @@
       <div>
         <!-- figure:hero-stats:start -->
       <div class="lp-stats">
-          <div><b class="hi">&euro;100 &rarr; &euro;84</b><span>One buy near the 2020 bottom cut this break-even by 16% &mdash; the price ended the window at &euro;94.92, a profit against &euro;84 and a loss against &euro;100</span></div>
-          <div><b>+75% on cost</b><span>A take-profit level that follows what you actually paid. On AMD it emailed at &euro;154; the stock ran on to &euro;182 before it turned</span></div>
-          <div><b>&minus;20% off its high</b><span>The trailing level that says a run has broken, measured against the stock's own peak. It caught that break at &euro;146, with the window ending at &euro;128</span></div>
-          <div><b>Every close</b><span>Prices refreshed and every rule re-checked each weekday morning, before the US market opens</span></div>
+          <div class="r1"><b>&euro;100 &rarr; &euro;84</b><strong>Every dip lowers the bar</strong><span>One buy near the 2020 bottom cut break-even by 16%. It ended at &euro;94.92 &mdash; profit against &euro;84, loss against &euro;100.</span></div>
+          <div class="r2"><b>+75% on cost</b><strong>Take the win on purpose</strong><span>Take profit measured on what you actually paid. On AMD it emailed at &euro;154; the stock ran to &euro;182.</span></div>
+          <div class="r3"><b>&minus;20% off its high</b><strong>Keep the gain you made</strong><span>Measured against the stock's own peak. It caught the break at &euro;146; the window ended at &euro;128.</span></div>
+          <div class="r4"><b>Every close</b><strong>It watches so you don't</strong><span>Prices and rules re-checked every weekday morning, before the US market opens.</span></div>
         </div>
-        <p class="lp-statnote">Real closes: SPY 125 days, Jan&ndash;Jun 2020, and AMD 299 days, Jul 2023&ndash;Sep 2024, each rebased to &euro;100 at the left edge. The purchases are the illustration.</p>
+        <p class="lp-statnote">Real closes: SPY, Jan&ndash;Jun 2020 (125 days) and AMD, Jul 2023&ndash;Sep 2024 (299 days), rebased to &euro;100. The purchases are the illustration.</p>
     <!-- figure:hero-stats:end -->
       </div>
     </div>
@@ -938,22 +966,22 @@
 
   <figure class="lp-figure crop-gutter">
     <!-- figure:folio:start -->
-      <h3 class="lp-fig-h">&euro;11,400 in. &euro;27,409 today.</h3>
+      <h3 class="lp-fig-h">&euro;11,400 in. &euro;27,551 today.</h3>
       <p class="lp-fig-src"><b>TSLA &middot; MSFT &middot; AMD</b> &middot; Jan 2022 &ndash; today <span class="real">real closes</span></p>
       <p class="lp-fig-key">
-      <span><i style="background:var(--s-total)"></i>Market value <b>&euro;27,409</b></span>
+      <span><i style="background:var(--s-total)"></i>Market value <b>&euro;27,551</b></span>
       <span><i class="dash"></i>Invested <b>&euro;11,400</b></span>
     </p>
-      <svg viewBox="0 0 720 250" role="img" aria-label="Real chart: a portfolio of TSLA, MSFT and AMD bought every quarter from January 2022, priced in euros. Market value ends at 27409 euros against 11400 euros invested.">
+      <svg viewBox="0 0 720 250" role="img" aria-label="Real chart: a portfolio of TSLA, MSFT and AMD bought every quarter from January 2022, priced in euros. Market value ends at 27551 euros against 11400 euros invested.">
       <g>
         <line class="gridline" x1="56" y1="196.9" x2="620" y2="196.9"></line>
-        <line class="gridline" x1="56" y1="137.1" x2="620" y2="137.1"></line>
-        <line class="gridline" x1="56" y1="77.4" x2="620" y2="77.4"></line>
+        <line class="gridline" x1="56" y1="137.4" x2="620" y2="137.4"></line>
+        <line class="gridline" x1="56" y1="78" x2="620" y2="78"></line>
       </g>
       <g class="axislbl" text-anchor="end" dominant-baseline="middle">
         <text x="48" y="196.9">&euro;0k</text>
-        <text x="48" y="137.1">&euro;10k</text>
-        <text x="48" y="77.4">&euro;20k</text>
+        <text x="48" y="137.4">&euro;10k</text>
+        <text x="48" y="78">&euro;20k</text>
       </g>
       <g class="xlbl">
         <text x="56" y="228">2022</text>
@@ -963,42 +991,91 @@
         <text x="535" y="228">2026</text>
       </g>
       <!-- gain band: market value above invested -->
-      <path class="iv-band" d="M56,193.3 L58.4,193.7 L60.7,193.8 L63.1,194.1 L65.4,194.1 L67.8,194.2 L70.2,194.1 L72.5,194.6 L74.9,194.2 L77.2,194.2 L79.6,194.3 L82,193.8 L84.3,193.5 L86.7,189.9 L89,190.5 L91.4,190.5 L93.8,190.7 L96.1,190.4 L98.5,191.4 L100.8,191.6 L103.2,191.7 L105.6,191.3 L107.9,191.5 L110.3,191.9 L112.6,191.3 L115,191.6 L117.4,187.5 L119.7,187.5 L122.1,186.9 L124.4,186 L126.8,185.8 L129.2,185.4 L131.5,185.9 L133.9,186.4 L136.2,187 L138.6,187 L141,187 L143.3,187.5 L145.7,188.1 L148,185.4 L150.4,185.6 L152.8,185.6 L155.1,185.4 L157.5,186.1 L159.8,186 L162.2,186.6 L164.6,186.3 L166.9,186.5 L169.3,186.8 L171.6,187.9 L174,188.7 L176.4,185.4 L178.7,184.5 L181.1,184.3 L183.4,182.9 L185.8,181.9 L188.2,181.6 L190.5,181.5 L192.9,181.6 L195.2,181.7 L197.6,182.3 L199.9,180.6 L202.3,180.7 L204.7,180.2 L207,177 L209.4,177.6 L211.7,178.7 L214.1,177.8 L216.5,177.1 L218.8,176.8 L221.2,174.9 L223.5,172.8 L225.9,172.2 L228.3,171.6 L230.6,173.1 L233,173.1 L235.3,172.1 L237.7,169.1 L240.1,169.7 L242.4,169.9 L244.8,169.7 L247.1,170.6 L249.5,171.9 L251.9,171.5 L254.2,170.2 L256.6,169.8 L258.9,168.5 L261.3,170.7 L263.7,170.4 L266,166.1 L268.4,165.2 L270.7,167.3 L273.1,168.6 L275.5,166.2 L277.8,165.9 L280.2,164.4 L282.5,164.2 L284.9,164.2 L287.3,163.1 L289.6,162.7 L292,162.6 L294.3,163.1 L296.7,158.3 L299.1,157.1 L301.4,154.8 L303.8,156.8 L306.1,155.5 L308.5,154.6 L310.9,156.6 L313.2,154.9 L315.6,152.4 L317.9,154.1 L320.3,154.9 L322.7,154.8 L325,156.8 L327.4,151.7 L329.7,155.4 L332.1,154.9 L334.5,155.3 L336.8,154.7 L339.2,153.4 L341.5,153.3 L343.9,152.8 L346.3,152.7 L348.6,152.2 L351,151.7 L353.3,150.1 L355.7,141.6 L358.1,142.8 L360.4,145.9 L362.8,149.8 L365.1,153.4 L367.5,152.6 L369.9,149.2 L372.2,150.9 L374.6,152.2 L376.9,150.4 L379.3,148.9 L381.7,147.2 L384,146.7 L386.4,142.3 L388.7,145.1 L391.1,144.7 L393.5,140.7 L395.8,145.6 L398.2,139.3 L400.5,138.8 L402.9,138.1 L405.3,136.1 L407.6,133.6 L410,134.2 L412.3,132.3 L414.7,134.7 L417.1,132.7 L419.4,131.2 L421.8,133.3 L424.1,134.8 L426.5,137.9 L428.9,138.3 L431.2,143.6 L433.6,146.6 L435.9,151.9 L438.3,151.5 L440.7,144.9 L443,148.3 L445.4,156.6 L447.7,148.7 L450.1,150.3 L452.5,146.4 L454.8,144.3 L457.2,135.9 L459.5,138.3 L461.9,136.6 L464.3,140.7 L466.6,138.4 L469,136.5 L471.3,134.7 L473.7,137.7 L476.1,130.7 L478.4,128.2 L480.8,127.8 L483.1,125.3 L485.5,125.1 L487.8,124.3 L490.2,125.6 L492.6,127.2 L494.9,129 L497.3,122.9 L499.6,121.9 L502,120.7 L504.4,113 L506.7,108.3 L509.1,104.5 L511.4,100.5 L513.8,99.2 L516.2,103.9 L518.5,107.4 L520.9,111.4 L523.2,110.5 L525.6,108.6 L528,109 L530.3,108 L532.7,110.6 L535,112.7 L537.4,107 L539.8,102.6 L542.1,108.4 L544.5,119.3 L546.8,116.1 L549.2,116.8 L551.6,117.9 L553.9,117.2 L556.3,117.6 L558.6,119.3 L561,120.8 L563.4,117.8 L565.7,111.2 L568.1,102.2 L570.4,92.7 L572.8,91 L575.2,69.6 L577.5,76.1 L579.9,61.3 L582.2,57.5 L584.6,68.1 L587,63.8 L589.3,62.5 L591.7,54.6 L594,61.3 L596.4,55.6 L598.8,53 L601.1,79.8 L603.5,64.7 L605.8,63.4 L608.2,66.4 L610.6,63.5 L612.9,65.7 L615.3,58.2 L617.6,49.3 L620,33.1 L620,128.8 L617.6,128.8 L615.3,128.8 L612.9,128.8 L610.6,128.8 L608.2,128.8 L605.8,128.8 L603.5,128.8 L601.1,128.8 L598.8,128.8 L596.4,128.8 L594,132.4 L591.7,132.4 L589.3,132.4 L587,132.4 L584.6,132.4 L582.2,132.4 L579.9,132.4 L577.5,132.4 L575.2,132.4 L572.8,132.4 L570.4,132.4 L568.1,132.4 L565.7,132.4 L563.4,135.9 L561,135.9 L558.6,135.9 L556.3,135.9 L553.9,135.9 L551.6,135.9 L549.2,135.9 L546.8,135.9 L544.5,135.9 L542.1,135.9 L539.8,135.9 L537.4,135.9 L535,139.5 L532.7,139.5 L530.3,139.5 L528,139.5 L525.6,139.5 L523.2,139.5 L520.9,139.5 L518.5,139.5 L516.2,139.5 L513.8,139.5 L511.4,139.5 L509.1,139.5 L506.7,139.5 L504.4,143.1 L502,143.1 L499.6,143.1 L497.3,143.1 L494.9,143.1 L492.6,143.1 L490.2,143.1 L487.8,143.1 L485.5,143.1 L483.1,143.1 L480.8,143.1 L478.4,143.1 L476.1,143.1 L473.7,146.7 L471.3,146.7 L469,146.7 L466.6,146.7 L464.3,146.7 L461.9,146.7 L459.5,146.7 L457.2,146.7 L454.8,146.7 L452.5,146.7 L450.1,146.7 L447.7,146.7 L445.4,150.3 L443,150.3 L440.7,150.3 L438.3,150.3 L435.9,150.3 L433.6,150.3 L431.2,150.3 L428.9,150.3 L426.5,150.3 L424.1,150.3 L421.8,150.3 L419.4,150.3 L417.1,150.3 L414.7,153.9 L412.3,153.9 L410,153.9 L407.6,153.9 L405.3,153.9 L402.9,153.9 L400.5,153.9 L398.2,153.9 L395.8,153.9 L393.5,153.9 L391.1,153.9 L388.7,153.9 L386.4,153.9 L384,157.5 L381.7,157.5 L379.3,157.5 L376.9,157.5 L374.6,157.5 L372.2,157.5 L369.9,157.5 L367.5,157.5 L365.1,157.5 L362.8,157.5 L360.4,157.5 L358.1,157.5 L355.7,157.5 L353.3,161 L351,161 L348.6,161 L346.3,161 L343.9,161 L341.5,161 L339.2,161 L336.8,161 L334.5,161 L332.1,161 L329.7,161 L327.4,161 L325,164.6 L322.7,164.6 L320.3,164.6 L317.9,164.6 L315.6,164.6 L313.2,164.6 L310.9,164.6 L308.5,164.6 L306.1,164.6 L303.8,164.6 L301.4,164.6 L299.1,164.6 L296.7,164.6 L294.3,168.2 L292,168.2 L289.6,168.2 L287.3,168.2 L284.9,168.2 L282.5,168.2 L280.2,168.2 L277.8,168.2 L275.5,168.2 L273.1,168.2 L270.7,168.2 L268.4,168.2 L266,168.2 L263.7,171.8 L261.3,171.8 L258.9,171.8 L256.6,171.8 L254.2,171.8 L251.9,171.8 L249.5,171.8 L247.1,171.8 L244.8,171.8 L242.4,171.8 L240.1,171.8 L237.7,171.8 L235.3,175.4 L233,175.4 L230.6,175.4 L228.3,175.4 L225.9,175.4 L223.5,175.4 L221.2,175.4 L218.8,175.4 L216.5,175.4 L214.1,175.4 L211.7,175.4 L209.4,175.4 L207,175.4 L204.7,179 L202.3,179 L199.9,179 L197.6,179 L195.2,179 L192.9,179 L190.5,179 L188.2,179 L185.8,179 L183.4,179 L181.1,179 L178.7,179 L176.4,179 L174,182.6 L171.6,182.6 L169.3,182.6 L166.9,182.6 L164.6,182.6 L162.2,182.6 L159.8,182.6 L157.5,182.6 L155.1,182.6 L152.8,182.6 L150.4,182.6 L148,182.6 L145.7,186.1 L143.3,186.1 L141,186.1 L138.6,186.1 L136.2,186.1 L133.9,186.1 L131.5,186.1 L129.2,186.1 L126.8,186.1 L124.4,186.1 L122.1,186.1 L119.7,186.1 L117.4,186.1 L115,189.7 L112.6,189.7 L110.3,189.7 L107.9,189.7 L105.6,189.7 L103.2,189.7 L100.8,189.7 L98.5,189.7 L96.1,189.7 L93.8,189.7 L91.4,189.7 L89,189.7 L86.7,189.7 L84.3,193.3 L82,193.3 L79.6,193.3 L77.2,193.3 L74.9,193.3 L72.5,193.3 L70.2,193.3 L67.8,193.3 L65.4,193.3 L63.1,193.3 L60.7,193.3 L58.4,193.3 L56,193.3 Z"></path>
-      <path d="M56,193.3 H86.7 V189.7 H117.4 V186.1 H148 V182.6 H176.4 V179 H207 V175.4 H237.7 V171.8 H266 V168.2 H296.7 V164.6 H327.4 V161 H355.7 V157.5 H386.4 V153.9 H417.1 V150.3 H447.7 V146.7 H476.1 V143.1 H506.7 V139.5 H537.4 V135.9 H565.7 V132.4 H596.4 V128.8 H620" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
-      <path class="serieline" d="M56,193.3 L58.4,193.7 L60.7,193.8 L63.1,194.1 L65.4,194.1 L67.8,194.2 L70.2,194.1 L72.5,194.6 L74.9,194.2 L77.2,194.2 L79.6,194.3 L82,193.8 L84.3,193.5 L86.7,189.9 L89,190.5 L91.4,190.5 L93.8,190.7 L96.1,190.4 L98.5,191.4 L100.8,191.6 L103.2,191.7 L105.6,191.3 L107.9,191.5 L110.3,191.9 L112.6,191.3 L115,191.6 L117.4,187.5 L119.7,187.5 L122.1,186.9 L124.4,186 L126.8,185.8 L129.2,185.4 L131.5,185.9 L133.9,186.4 L136.2,187 L138.6,187 L141,187 L143.3,187.5 L145.7,188.1 L148,185.4 L150.4,185.6 L152.8,185.6 L155.1,185.4 L157.5,186.1 L159.8,186 L162.2,186.6 L164.6,186.3 L166.9,186.5 L169.3,186.8 L171.6,187.9 L174,188.7 L176.4,185.4 L178.7,184.5 L181.1,184.3 L183.4,182.9 L185.8,181.9 L188.2,181.6 L190.5,181.5 L192.9,181.6 L195.2,181.7 L197.6,182.3 L199.9,180.6 L202.3,180.7 L204.7,180.2 L207,177 L209.4,177.6 L211.7,178.7 L214.1,177.8 L216.5,177.1 L218.8,176.8 L221.2,174.9 L223.5,172.8 L225.9,172.2 L228.3,171.6 L230.6,173.1 L233,173.1 L235.3,172.1 L237.7,169.1 L240.1,169.7 L242.4,169.9 L244.8,169.7 L247.1,170.6 L249.5,171.9 L251.9,171.5 L254.2,170.2 L256.6,169.8 L258.9,168.5 L261.3,170.7 L263.7,170.4 L266,166.1 L268.4,165.2 L270.7,167.3 L273.1,168.6 L275.5,166.2 L277.8,165.9 L280.2,164.4 L282.5,164.2 L284.9,164.2 L287.3,163.1 L289.6,162.7 L292,162.6 L294.3,163.1 L296.7,158.3 L299.1,157.1 L301.4,154.8 L303.8,156.8 L306.1,155.5 L308.5,154.6 L310.9,156.6 L313.2,154.9 L315.6,152.4 L317.9,154.1 L320.3,154.9 L322.7,154.8 L325,156.8 L327.4,151.7 L329.7,155.4 L332.1,154.9 L334.5,155.3 L336.8,154.7 L339.2,153.4 L341.5,153.3 L343.9,152.8 L346.3,152.7 L348.6,152.2 L351,151.7 L353.3,150.1 L355.7,141.6 L358.1,142.8 L360.4,145.9 L362.8,149.8 L365.1,153.4 L367.5,152.6 L369.9,149.2 L372.2,150.9 L374.6,152.2 L376.9,150.4 L379.3,148.9 L381.7,147.2 L384,146.7 L386.4,142.3 L388.7,145.1 L391.1,144.7 L393.5,140.7 L395.8,145.6 L398.2,139.3 L400.5,138.8 L402.9,138.1 L405.3,136.1 L407.6,133.6 L410,134.2 L412.3,132.3 L414.7,134.7 L417.1,132.7 L419.4,131.2 L421.8,133.3 L424.1,134.8 L426.5,137.9 L428.9,138.3 L431.2,143.6 L433.6,146.6 L435.9,151.9 L438.3,151.5 L440.7,144.9 L443,148.3 L445.4,156.6 L447.7,148.7 L450.1,150.3 L452.5,146.4 L454.8,144.3 L457.2,135.9 L459.5,138.3 L461.9,136.6 L464.3,140.7 L466.6,138.4 L469,136.5 L471.3,134.7 L473.7,137.7 L476.1,130.7 L478.4,128.2 L480.8,127.8 L483.1,125.3 L485.5,125.1 L487.8,124.3 L490.2,125.6 L492.6,127.2 L494.9,129 L497.3,122.9 L499.6,121.9 L502,120.7 L504.4,113 L506.7,108.3 L509.1,104.5 L511.4,100.5 L513.8,99.2 L516.2,103.9 L518.5,107.4 L520.9,111.4 L523.2,110.5 L525.6,108.6 L528,109 L530.3,108 L532.7,110.6 L535,112.7 L537.4,107 L539.8,102.6 L542.1,108.4 L544.5,119.3 L546.8,116.1 L549.2,116.8 L551.6,117.9 L553.9,117.2 L556.3,117.6 L558.6,119.3 L561,120.8 L563.4,117.8 L565.7,111.2 L568.1,102.2 L570.4,92.7 L572.8,91 L575.2,69.6 L577.5,76.1 L579.9,61.3 L582.2,57.5 L584.6,68.1 L587,63.8 L589.3,62.5 L591.7,54.6 L594,61.3 L596.4,55.6 L598.8,53 L601.1,79.8 L603.5,64.7 L605.8,63.4 L608.2,66.4 L610.6,63.5 L612.9,65.7 L615.3,58.2 L617.6,49.3 L620,33.1" stroke="var(--s-total)"></path>
+      <path class="iv-band" d="M56,193.3 L58.4,193.7 L60.7,193.8 L63.1,194.2 L65.4,194.1 L67.8,194.2 L70.2,194.1 L72.5,194.6 L74.9,194.2 L77.2,194.2 L79.6,194.3 L82,193.8 L84.3,193.6 L86.7,190.2 L89,190.6 L91.4,190.6 L93.8,190.7 L96.1,190.5 L98.5,191.5 L100.8,191.6 L103.2,191.8 L105.6,191.3 L107.9,191.5 L110.3,192 L112.6,191.4 L115,191.6 L117.4,187.6 L119.7,187.5 L122.1,187 L124.4,186 L126.8,185.9 L129.2,185.4 L131.5,186 L133.9,186.5 L136.2,187.1 L138.6,187.1 L141,187.1 L143.3,187.5 L145.7,184.4 L148,185.7 L150.4,185.6 L152.8,185.7 L155.1,185.5 L157.5,186.1 L159.8,186 L162.2,186.6 L164.6,186.3 L166.9,186.6 L169.3,186.9 L171.6,187.9 L174,188.7 L176.4,185.5 L178.7,184.5 L181.1,184.4 L183.4,183 L185.8,182 L188.2,181.7 L190.5,181.6 L192.9,181.7 L195.2,181.8 L197.6,182.3 L199.9,181 L202.3,180.9 L204.7,180.7 L207,177.5 L209.4,177.8 L211.7,179.2 L214.1,177.9 L216.5,177.2 L218.8,176.9 L221.2,175 L223.5,172.9 L225.9,172.4 L228.3,171.7 L230.6,173.2 L233,173.2 L235.3,172.3 L237.7,169.2 L240.1,169.9 L242.4,170.1 L244.8,169.8 L247.1,170.7 L249.5,172 L251.9,171.6 L254.2,170.2 L256.6,170 L258.9,169.4 L261.3,171.3 L263.7,170.3 L266,165.6 L268.4,166.1 L270.7,168 L273.1,168.4 L275.5,166.4 L277.8,166.1 L280.2,164.6 L282.5,164.4 L284.9,164.4 L287.3,163.3 L289.6,162.9 L292,162.8 L294.3,163.2 L296.7,158.5 L299.1,157.3 L301.4,155 L303.8,157 L306.1,155.7 L308.5,154.8 L310.9,154.5 L313.2,153.2 L315.6,152.4 L317.9,155.2 L320.3,155.5 L322.7,155.1 L325,156.5 L327.4,153.2 L329.7,156.9 L332.1,154.6 L334.5,154.6 L336.8,155.1 L339.2,153.6 L341.5,153.5 L343.9,153.1 L346.3,152.9 L348.6,152.4 L351,151.9 L353.3,150.3 L355.7,141.9 L358.1,143 L360.4,146.1 L362.8,150 L365.1,153.7 L367.5,151.7 L369.9,149.4 L372.2,151.4 L374.6,151.7 L376.9,149.3 L379.3,149.6 L381.7,146.5 L384,147.5 L386.4,142.7 L388.7,145.4 L391.1,145.5 L393.5,143.4 L395.8,143.2 L398.2,139.8 L400.5,139.7 L402.9,138.4 L405.3,136.4 L407.6,133.9 L410,134.5 L412.3,132.6 L414.7,135.1 L417.1,133 L419.4,131.5 L421.8,133.6 L424.1,134.2 L426.5,139.6 L428.9,137.6 L431.2,144.8 L433.6,146.4 L435.9,150.6 L438.3,150.6 L440.7,147 L443,148.1 L445.4,145.9 L447.7,151.8 L450.1,149 L452.5,145.1 L454.8,143.2 L457.2,136.9 L459.5,138 L461.9,137.8 L464.3,141 L466.6,138.7 L469,136.8 L471.3,135 L473.7,138 L476.1,131 L478.4,128.6 L480.8,125.6 L483.1,124.9 L485.5,124.7 L487.8,124.9 L490.2,126.4 L492.6,127.7 L494.9,128.3 L497.3,123.6 L499.6,123 L502,120.8 L504.4,113.4 L506.7,109.3 L509.1,105.2 L511.4,100.3 L513.8,102.9 L516.2,105.6 L518.5,110.4 L520.9,113 L523.2,110.2 L525.6,109.3 L528,109.5 L530.3,108.5 L532.7,111.1 L535,113.2 L537.4,107 L539.8,102 L542.1,110.2 L544.5,115.9 L546.8,116.3 L549.2,119.7 L551.6,117.9 L553.9,115.3 L556.3,116.4 L558.6,118.4 L561,121.9 L563.4,119.5 L565.7,109.3 L568.1,100.9 L570.4,94.9 L572.8,89.9 L575.2,72.5 L577.5,78.1 L579.9,62.9 L582.2,55.5 L584.6,73.9 L587,63.9 L589.3,63.2 L591.7,55.4 L594,56.4 L596.4,60.6 L598.8,60.2 L601.1,67.5 L603.5,63.2 L605.8,62.9 L608.2,67.4 L610.6,63.7 L612.9,64.7 L615.3,56.6 L617.6,48 L620,33.1 L620,129.1 L617.6,129.1 L615.3,129.1 L612.9,129.1 L610.6,129.1 L608.2,129.1 L605.8,129.1 L603.5,129.1 L601.1,129.1 L598.8,129.1 L596.4,129.1 L594,132.7 L591.7,132.7 L589.3,132.7 L587,132.7 L584.6,132.7 L582.2,132.7 L579.9,132.7 L577.5,132.7 L575.2,132.7 L572.8,132.7 L570.4,132.7 L568.1,132.7 L565.7,132.7 L563.4,136.3 L561,136.3 L558.6,136.3 L556.3,136.3 L553.9,136.3 L551.6,136.3 L549.2,136.3 L546.8,136.3 L544.5,136.3 L542.1,136.3 L539.8,136.3 L537.4,136.3 L535,139.8 L532.7,139.8 L530.3,139.8 L528,139.8 L525.6,139.8 L523.2,139.8 L520.9,139.8 L518.5,139.8 L516.2,139.8 L513.8,139.8 L511.4,139.8 L509.1,139.8 L506.7,139.8 L504.4,143.4 L502,143.4 L499.6,143.4 L497.3,143.4 L494.9,143.4 L492.6,143.4 L490.2,143.4 L487.8,143.4 L485.5,143.4 L483.1,143.4 L480.8,143.4 L478.4,143.4 L476.1,143.4 L473.7,147 L471.3,147 L469,147 L466.6,147 L464.3,147 L461.9,147 L459.5,147 L457.2,147 L454.8,147 L452.5,147 L450.1,147 L447.7,147 L445.4,147 L443,150.5 L440.7,150.5 L438.3,150.5 L435.9,150.5 L433.6,150.5 L431.2,150.5 L428.9,150.5 L426.5,150.5 L424.1,150.5 L421.8,150.5 L419.4,150.5 L417.1,150.5 L414.7,154.1 L412.3,154.1 L410,154.1 L407.6,154.1 L405.3,154.1 L402.9,154.1 L400.5,154.1 L398.2,154.1 L395.8,154.1 L393.5,154.1 L391.1,154.1 L388.7,154.1 L386.4,154.1 L384,157.7 L381.7,157.7 L379.3,157.7 L376.9,157.7 L374.6,157.7 L372.2,157.7 L369.9,157.7 L367.5,157.7 L365.1,157.7 L362.8,157.7 L360.4,157.7 L358.1,157.7 L355.7,157.7 L353.3,161.2 L351,161.2 L348.6,161.2 L346.3,161.2 L343.9,161.2 L341.5,161.2 L339.2,161.2 L336.8,161.2 L334.5,161.2 L332.1,161.2 L329.7,161.2 L327.4,161.2 L325,164.8 L322.7,164.8 L320.3,164.8 L317.9,164.8 L315.6,164.8 L313.2,164.8 L310.9,164.8 L308.5,164.8 L306.1,164.8 L303.8,164.8 L301.4,164.8 L299.1,164.8 L296.7,164.8 L294.3,168.4 L292,168.4 L289.6,168.4 L287.3,168.4 L284.9,168.4 L282.5,168.4 L280.2,168.4 L277.8,168.4 L275.5,168.4 L273.1,168.4 L270.7,168.4 L268.4,168.4 L266,168.4 L263.7,171.9 L261.3,171.9 L258.9,171.9 L256.6,171.9 L254.2,171.9 L251.9,171.9 L249.5,171.9 L247.1,171.9 L244.8,171.9 L242.4,171.9 L240.1,171.9 L237.7,171.9 L235.3,175.5 L233,175.5 L230.6,175.5 L228.3,175.5 L225.9,175.5 L223.5,175.5 L221.2,175.5 L218.8,175.5 L216.5,175.5 L214.1,175.5 L211.7,175.5 L209.4,175.5 L207,175.5 L204.7,179.1 L202.3,179.1 L199.9,179.1 L197.6,179.1 L195.2,179.1 L192.9,179.1 L190.5,179.1 L188.2,179.1 L185.8,179.1 L183.4,179.1 L181.1,179.1 L178.7,179.1 L176.4,179.1 L174,182.6 L171.6,182.6 L169.3,182.6 L166.9,182.6 L164.6,182.6 L162.2,182.6 L159.8,182.6 L157.5,182.6 L155.1,182.6 L152.8,182.6 L150.4,182.6 L148,182.6 L145.7,182.6 L143.3,186.2 L141,186.2 L138.6,186.2 L136.2,186.2 L133.9,186.2 L131.5,186.2 L129.2,186.2 L126.8,186.2 L124.4,186.2 L122.1,186.2 L119.7,186.2 L117.4,186.2 L115,189.8 L112.6,189.8 L110.3,189.8 L107.9,189.8 L105.6,189.8 L103.2,189.8 L100.8,189.8 L98.5,189.8 L96.1,189.8 L93.8,189.8 L91.4,189.8 L89,189.8 L86.7,189.8 L84.3,193.3 L82,193.3 L79.6,193.3 L77.2,193.3 L74.9,193.3 L72.5,193.3 L70.2,193.3 L67.8,193.3 L65.4,193.3 L63.1,193.3 L60.7,193.3 L58.4,193.3 L56,193.3 Z"></path>
+      <path d="M56,193.3 H86.7 V189.8 H117.4 V186.2 H145.7 V182.6 H176.4 V179.1 H207 V175.5 H237.7 V171.9 H266 V168.4 H296.7 V164.8 H327.4 V161.2 H355.7 V157.7 H386.4 V154.1 H417.1 V150.5 H445.4 V147 H476.1 V143.4 H506.7 V139.8 H537.4 V136.3 H565.7 V132.7 H596.4 V129.1 H620" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+      <path class="serieline" d="M56,193.3 L58.4,193.7 L60.7,193.8 L63.1,194.2 L65.4,194.1 L67.8,194.2 L70.2,194.1 L72.5,194.6 L74.9,194.2 L77.2,194.2 L79.6,194.3 L82,193.8 L84.3,193.6 L86.7,190.2 L89,190.6 L91.4,190.6 L93.8,190.7 L96.1,190.5 L98.5,191.5 L100.8,191.6 L103.2,191.8 L105.6,191.3 L107.9,191.5 L110.3,192 L112.6,191.4 L115,191.6 L117.4,187.6 L119.7,187.5 L122.1,187 L124.4,186 L126.8,185.9 L129.2,185.4 L131.5,186 L133.9,186.5 L136.2,187.1 L138.6,187.1 L141,187.1 L143.3,187.5 L145.7,184.4 L148,185.7 L150.4,185.6 L152.8,185.7 L155.1,185.5 L157.5,186.1 L159.8,186 L162.2,186.6 L164.6,186.3 L166.9,186.6 L169.3,186.9 L171.6,187.9 L174,188.7 L176.4,185.5 L178.7,184.5 L181.1,184.4 L183.4,183 L185.8,182 L188.2,181.7 L190.5,181.6 L192.9,181.7 L195.2,181.8 L197.6,182.3 L199.9,181 L202.3,180.9 L204.7,180.7 L207,177.5 L209.4,177.8 L211.7,179.2 L214.1,177.9 L216.5,177.2 L218.8,176.9 L221.2,175 L223.5,172.9 L225.9,172.4 L228.3,171.7 L230.6,173.2 L233,173.2 L235.3,172.3 L237.7,169.2 L240.1,169.9 L242.4,170.1 L244.8,169.8 L247.1,170.7 L249.5,172 L251.9,171.6 L254.2,170.2 L256.6,170 L258.9,169.4 L261.3,171.3 L263.7,170.3 L266,165.6 L268.4,166.1 L270.7,168 L273.1,168.4 L275.5,166.4 L277.8,166.1 L280.2,164.6 L282.5,164.4 L284.9,164.4 L287.3,163.3 L289.6,162.9 L292,162.8 L294.3,163.2 L296.7,158.5 L299.1,157.3 L301.4,155 L303.8,157 L306.1,155.7 L308.5,154.8 L310.9,154.5 L313.2,153.2 L315.6,152.4 L317.9,155.2 L320.3,155.5 L322.7,155.1 L325,156.5 L327.4,153.2 L329.7,156.9 L332.1,154.6 L334.5,154.6 L336.8,155.1 L339.2,153.6 L341.5,153.5 L343.9,153.1 L346.3,152.9 L348.6,152.4 L351,151.9 L353.3,150.3 L355.7,141.9 L358.1,143 L360.4,146.1 L362.8,150 L365.1,153.7 L367.5,151.7 L369.9,149.4 L372.2,151.4 L374.6,151.7 L376.9,149.3 L379.3,149.6 L381.7,146.5 L384,147.5 L386.4,142.7 L388.7,145.4 L391.1,145.5 L393.5,143.4 L395.8,143.2 L398.2,139.8 L400.5,139.7 L402.9,138.4 L405.3,136.4 L407.6,133.9 L410,134.5 L412.3,132.6 L414.7,135.1 L417.1,133 L419.4,131.5 L421.8,133.6 L424.1,134.2 L426.5,139.6 L428.9,137.6 L431.2,144.8 L433.6,146.4 L435.9,150.6 L438.3,150.6 L440.7,147 L443,148.1 L445.4,145.9 L447.7,151.8 L450.1,149 L452.5,145.1 L454.8,143.2 L457.2,136.9 L459.5,138 L461.9,137.8 L464.3,141 L466.6,138.7 L469,136.8 L471.3,135 L473.7,138 L476.1,131 L478.4,128.6 L480.8,125.6 L483.1,124.9 L485.5,124.7 L487.8,124.9 L490.2,126.4 L492.6,127.7 L494.9,128.3 L497.3,123.6 L499.6,123 L502,120.8 L504.4,113.4 L506.7,109.3 L509.1,105.2 L511.4,100.3 L513.8,102.9 L516.2,105.6 L518.5,110.4 L520.9,113 L523.2,110.2 L525.6,109.3 L528,109.5 L530.3,108.5 L532.7,111.1 L535,113.2 L537.4,107 L539.8,102 L542.1,110.2 L544.5,115.9 L546.8,116.3 L549.2,119.7 L551.6,117.9 L553.9,115.3 L556.3,116.4 L558.6,118.4 L561,121.9 L563.4,119.5 L565.7,109.3 L568.1,100.9 L570.4,94.9 L572.8,89.9 L575.2,72.5 L577.5,78.1 L579.9,62.9 L582.2,55.5 L584.6,73.9 L587,63.9 L589.3,63.2 L591.7,55.4 L594,56.4 L596.4,60.6 L598.8,60.2 L601.1,67.5 L603.5,63.2 L605.8,62.9 L608.2,67.4 L610.6,63.7 L612.9,64.7 L615.3,56.6 L617.6,48 L620,33.1" stroke="var(--s-total)"></path>
       <g class="buyring" stroke="var(--s-total)">
         <circle cx="56" cy="193.3" r="3"></circle>
-        <circle cx="86.7" cy="189.9" r="3"></circle>
+        <circle cx="86.7" cy="190.2" r="3"></circle>
         <circle cx="115" cy="191.6" r="3"></circle>
-        <circle cx="145.7" cy="188.1" r="3"></circle>
-        <circle cx="176.4" cy="185.4" r="3"></circle>
-        <circle cx="207" cy="177" r="3"></circle>
-        <circle cx="235.3" cy="172.1" r="3"></circle>
-        <circle cx="266" cy="166.1" r="3"></circle>
-        <circle cx="296.7" cy="158.3" r="3"></circle>
-        <circle cx="325" cy="156.8" r="3"></circle>
-        <circle cx="355.7" cy="141.6" r="3"></circle>
-        <circle cx="386.4" cy="142.3" r="3"></circle>
-        <circle cx="414.7" cy="134.7" r="3"></circle>
-        <circle cx="445.4" cy="156.6" r="3"></circle>
-        <circle cx="476.1" cy="130.7" r="3"></circle>
-        <circle cx="506.7" cy="108.3" r="3"></circle>
-        <circle cx="535" cy="112.7" r="3"></circle>
-        <circle cx="565.7" cy="111.2" r="3"></circle>
-        <circle cx="596.4" cy="55.6" r="3"></circle>
+        <circle cx="145.7" cy="184.4" r="3"></circle>
+        <circle cx="176.4" cy="185.5" r="3"></circle>
+        <circle cx="204.7" cy="180.7" r="3"></circle>
+        <circle cx="235.3" cy="172.3" r="3"></circle>
+        <circle cx="266" cy="165.6" r="3"></circle>
+        <circle cx="296.7" cy="158.5" r="3"></circle>
+        <circle cx="325" cy="156.5" r="3"></circle>
+        <circle cx="355.7" cy="141.9" r="3"></circle>
+        <circle cx="386.4" cy="142.7" r="3"></circle>
+        <circle cx="414.7" cy="135.1" r="3"></circle>
+        <circle cx="445.4" cy="145.9" r="3"></circle>
+        <circle cx="476.1" cy="131" r="3"></circle>
+        <circle cx="504.4" cy="113.4" r="3"></circle>
+        <circle cx="535" cy="113.2" r="3"></circle>
+        <circle cx="565.7" cy="109.3" r="3"></circle>
+        <circle cx="596.4" cy="60.6" r="3"></circle>
       </g>
       <g class="endlbl">
-        <text x="630" y="30.1" fill="var(--s-total)">&euro;27,409</text>
-        <text x="630" y="125.8" fill="var(--faint)">&euro;11,400</text>
+        <text x="630" y="30.1" fill="var(--s-total)">&euro;27,551</text>
+        <text x="630" y="126.1" fill="var(--faint)">&euro;11,400</text>
       </g>
       <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
         <text x="630" y="43.1" fill="var(--muted)">Market value</text>
-        <text x="630" y="138.8" fill="var(--faint)">Invested</text>
+        <text x="630" y="139.1" fill="var(--faint)">Invested</text>
       </g>
     </svg>
       <figcaption>&euro;600 every quarter, whatever the price was that morning &mdash; and <b>350 days</b> along the way when it was worth less than the money put in.</figcaption>
-      <details class="lp-fig-more"><summary>Where these numbers come from</summary><p>Prices are real and converted to euros at each day's own rate; the buyer is the illustration &mdash; &euro;600 into one of the three holdings every quarter, in rotation. The shaded band is gain over what went in and the 19 rings are the purchases. Those 350 losing days out of 1186 ran as late as April 2025, which is the part a chart of somebody else's good idea usually leaves out.</p></details>
+      <details class="lp-fig-more"><summary>Where these numbers come from</summary><p>Prices are real and converted to euros at each day's own rate; the buyer is the illustration &mdash; &euro;600 into one of the three holdings every quarter, in rotation. The shaded band is gain over what went in and the 19 rings are the purchases. Those 350 losing days out of 1187 ran as late as April 2025, which is the part a chart of somebody else's good idea usually leaves out.</p></details>
     <!-- figure:folio:end -->
+    </figure>
+
+  <figure class="lp-figure crop-gutter">
+    <!-- figure:compare:start -->
+      <h3 class="lp-fig-h">&euro;327k held. &euro;404k on the rule.</h3>
+      <p class="lp-fig-src"><b>TSLA &middot; NVDA &middot; AMD &middot; MSFT &middot; GOOGL &middot; META</b> &middot; Jan 2019 &ndash; today <span class="real">real closes</span></p>
+      <p class="lp-fig-key">
+      <span><i style="background:var(--s-total)"></i>On the rule <b>&euro;404k</b></span>
+      <span><i style="background:var(--muted)"></i>Bought and held <b>&euro;327k</b></span>
+      <span><i class="dash"></i>Paid in <b>&euro;55,800</b></span>
+    </p>
+      <svg viewBox="0 0 720 250" role="img" aria-label="Real chart: the same 55800 euros paid in monthly across six technology shares since 2019. Held and never sold it ends at 327183 euros; traded on the rule it ends at 403545 euros.">
+      <g>
+        <line class="gridline" x1="56" y1="196.9" x2="620" y2="196.9"></line>
+        <line class="gridline" x1="56" y1="115.7" x2="620" y2="115.7"></line>
+        <line class="gridline" x1="56" y1="34.5" x2="620" y2="34.5"></line>
+      </g>
+      <g class="axislbl" text-anchor="end" dominant-baseline="middle">
+        <text x="48" y="196.9">&euro;0k</text>
+        <text x="48" y="115.7">&euro;200k</text>
+        <text x="48" y="34.5">&euro;400k</text>
+      </g>
+      <g class="xlbl">
+        <text x="56" y="228">2019</text>
+        <text x="129.2" y="228">2020</text>
+        <text x="204.7" y="228">2021</text>
+        <text x="277.8" y="228">2022</text>
+        <text x="348.6" y="228">2023</text>
+        <text x="421.8" y="228">2024</text>
+        <text x="494.9" y="228">2025</text>
+        <text x="568.1" y="228">2026</text>
+      </g>
+      <path d="M56,196.7 H63.1 V196.4 H70.2 V196.2 H74.9 V195.9 H82 V195.7 H86.7 V195.4 H93.8 V195.2 H100.8 V194.9 H105.6 V194.7 H112.6 V194.5 H117.4 V194.2 H124.4 V194 H129.2 V193.7 H136.2 V193.5 H143.3 V193.2 H148 V193 H155.1 V192.8 H159.8 V192.5 H166.9 V192.3 H174 V192 H178.7 V191.8 H185.8 V191.5 H190.5 V191.3 H197.6 V191.1 H202.3 V190.8 H209.4 V190.6 H216.5 V190.3 H221.2 V190.1 H228.3 V189.8 H233 V189.6 H240.1 V189.3 H247.1 V189.1 H251.9 V188.9 H258.9 V188.6 H263.7 V188.4 H270.7 V188.1 H275.5 V187.9 H282.5 V187.6 H289.6 V187.4 H294.3 V187.2 H301.4 V186.9 H306.1 V186.7 H313.2 V186.4 H320.3 V186.2 H325 V185.9 H332.1 V185.7 H336.8 V185.5 H343.9 V185.2 H348.6 V185 H355.7 V184.7 H362.8 V184.5 H367.5 V184.2 H374.6 V184 H379.3 V183.7 H386.4 V183.5 H393.5 V183.3 H398.2 V183 H405.3 V182.8 H410 V182.5 H417.1 V182.3 H421.8 V182 H428.9 V181.8 H435.9 V181.6 H440.7 V181.3 H447.7 V181.1 H452.5 V180.8 H459.5 V180.6 H466.6 V180.3 H471.3 V180.1 H478.4 V179.8 H483.1 V179.6 H490.2 V179.4 H494.9 V179.1 H502 V178.9 H509.1 V178.6 H513.8 V178.4 H520.9 V178.1 H525.6 V177.9 H532.7 V177.7 H539.8 V177.4 H544.5 V177.2 H551.6 V176.9 H556.3 V176.7 H563.4 V176.4 H568.1 V176.2 H575.2 V176 H582.2 V175.7 H587 V175.5 H594 V175.2 H598.8 V175 H605.8 V174.7 H612.9 V174.5 H617.6 V174.2 H620" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+      <path class="serieline" d="M56,196.7 L58.4,196.6 L60.7,196.6 L63.1,196.4 L65.4,196.4 L67.8,196.4 L70.2,196.1 L72.5,196.1 L74.9,195.8 L77.2,195.8 L79.6,195.8 L82,195.6 L84.3,195.7 L86.7,195.5 L89,195.4 L91.4,195.3 L93.8,195 L96.1,195 L98.5,195 L100.8,194.8 L103.2,194.8 L105.6,194.5 L107.9,194.5 L110.3,194.5 L112.6,194.2 L115,194.2 L117.4,193.7 L119.7,193.5 L122.1,193.5 L124.4,193.2 L126.8,192.9 L129.2,192.5 L131.5,192.2 L133.9,192.1 L136.2,191.4 L138.6,190.6 L141,191.7 L143.3,192.1 L145.7,192.1 L148,191.6 L150.4,190.7 L152.8,190.5 L155.1,189.9 L157.5,189.8 L159.8,189.8 L162.2,189.3 L164.6,189.5 L166.9,187.7 L169.3,187.5 L171.6,187.6 L174,186.7 L176.4,185.3 L178.7,185.1 L181.1,185.4 L183.4,185.1 L185.8,184.5 L188.2,184.7 L190.5,184.9 L192.9,184.4 L195.2,182.6 L197.6,181.5 L199.9,181.2 L202.3,181 L204.7,179.4 L207,178.5 L209.4,178.4 L211.7,179.1 L214.1,181.3 L216.5,180 L218.8,180.8 L221.2,179.4 L223.5,178.9 L225.9,179.2 L228.3,180.3 L230.6,180.1 L233,179.3 L235.3,179 L237.7,177.1 L240.1,176.9 L242.4,176.9 L244.8,175.6 L247.1,174.7 L249.5,174.4 L251.9,173.6 L254.2,173.8 L256.6,174 L258.9,173.3 L261.3,171.1 L263.7,166.3 L266,166.3 L268.4,164.6 L270.7,164.7 L273.1,168.2 L275.5,165.3 L277.8,165.6 L280.2,170.5 L282.5,169.6 L284.9,170.9 L287.3,170.1 L289.6,172.5 L292,166.6 L294.3,165.9 L296.7,168.7 L299.1,170.5 L301.4,172.2 L303.8,174.3 L306.1,173 L308.5,173.9 L310.9,174.5 L313.2,173.2 L315.6,170.7 L317.9,169 L320.3,167.6 L322.7,168.5 L325,171 L327.4,170.6 L329.7,173 L332.1,175.4 L334.5,175.1 L336.8,175.9 L339.2,175.3 L341.5,176.4 L343.9,176.6 L346.3,178.9 L348.6,180.4 L351,179 L353.3,176.4 L355.7,172.4 L358.1,173.7 L360.4,172.3 L362.8,172.4 L365.1,170.9 L367.5,170.8 L369.9,171.1 L372.2,171.2 L374.6,170.2 L376.9,167.8 L379.3,162.5 L381.7,160.7 L384,161.6 L386.4,160.4 L388.7,160.3 L391.1,160.1 L393.5,161.8 L395.8,160.3 L398.2,159 L400.5,159.6 L402.9,158.6 L405.3,157 L407.6,160.3 L410,159.2 L412.3,157.3 L414.7,157.6 L417.1,156.8 L419.4,155.4 L421.8,156.5 L424.1,153.6 L426.5,151.2 L428.9,148.6 L431.2,145.5 L433.6,143.9 L435.9,144.4 L438.3,142.8 L440.7,144 L443,148.5 L445.4,146 L447.7,143 L450.1,138 L452.5,134.4 L454.8,129.7 L457.2,130.9 L459.5,127.5 L461.9,135.4 L464.3,141.3 L466.6,132.7 L469,134.1 L471.3,137.4 L473.7,133.7 L476.1,131.7 L478.4,126.6 L480.8,124.4 L483.1,125.5 L485.5,119.1 L487.8,119.5 L490.2,113.4 L492.6,113.1 L494.9,109.5 L497.3,112.6 L499.6,117.5 L502,118.6 L504.4,123.8 L506.7,132.1 L509.1,133.4 L511.4,134.7 L513.8,138.4 L516.2,140.3 L518.5,133.6 L520.9,122.6 L523.2,122.4 L525.6,121.2 L528,121.2 L530.3,118.9 L532.7,113.6 L535,110.7 L537.4,109.7 L539.8,111.1 L542.1,111.8 L544.5,106.7 L546.8,104.6 L549.2,100 L551.6,100.5 L553.9,91.6 L556.3,97.9 L558.6,102.8 L561,99.4 L563.4,100.4 L565.7,96.5 L568.1,98.8 L570.4,98.5 L572.8,98.2 L575.2,103.1 L577.5,102.4 L579.9,101.3 L582.2,106.4 L584.6,105.2 L587,97.8 L589.3,88.2 L591.7,83.7 L594,79.5 L596.4,73.7 L598.8,81.3 L601.1,81 L603.5,79.2 L605.8,80.1 L608.2,91.5 L610.6,79.6 L612.9,81.2 L615.3,78.4 L617.6,77.2 L620,64.1" stroke="var(--muted)" stroke-width="1.6"></path>
+      <path class="serieline" d="M56,196.7 L58.4,196.7 L60.7,196.7 L63.1,196.4 L65.4,196.4 L67.8,196.4 L70.2,196.2 L72.5,196.2 L74.9,195.9 L77.2,195.9 L79.6,195.9 L82,195.7 L84.3,195.7 L86.7,195.4 L89,195.4 L91.4,195.4 L93.8,195.2 L96.1,195.2 L98.5,195.2 L100.8,194.9 L103.2,194.9 L105.6,194.6 L107.9,194.4 L110.3,194.4 L112.6,194.2 L115,194.1 L117.4,193.3 L119.7,193 L122.1,193.2 L124.4,192.9 L126.8,192.4 L129.2,192 L131.5,191.3 L133.9,191.1 L136.2,189.7 L138.6,188.7 L141,189.7 L143.3,190.8 L145.7,190.8 L148,190.6 L150.4,188.9 L152.8,188.4 L155.1,187.7 L157.5,187.4 L159.8,187.3 L162.2,186.6 L164.6,187 L166.9,184.5 L169.3,184 L171.6,184.7 L174,183.8 L176.4,181.9 L178.7,181.4 L181.1,181.6 L183.4,181.5 L185.8,181 L188.2,181.1 L190.5,181.2 L192.9,181 L195.2,178.9 L197.6,177.9 L199.9,177.5 L202.3,177.2 L204.7,175.8 L207,175.2 L209.4,175.3 L211.7,176.1 L214.1,177.3 L216.5,176.4 L218.8,176.9 L221.2,176.2 L223.5,175.9 L225.9,176.2 L228.3,176.5 L230.6,176.6 L233,176.3 L235.3,176.2 L237.7,175.3 L240.1,175.3 L242.4,175.3 L244.8,174.9 L247.1,174.4 L249.5,174.5 L251.9,173.9 L254.2,173.8 L256.6,173.6 L258.9,173.3 L261.3,172.5 L263.7,170.1 L266,171.1 L268.4,170.5 L270.7,170.3 L273.1,171.5 L275.5,170.2 L277.8,169.9 L280.2,171.1 L282.5,171.1 L284.9,173.7 L287.3,173.2 L289.6,175.1 L292,170.8 L294.3,168.7 L296.7,170.9 L299.1,171.4 L301.4,172.5 L303.8,173.7 L306.1,174 L308.5,175.5 L310.9,176.5 L313.2,175.1 L315.6,172.6 L317.9,174.3 L320.3,171.7 L322.7,172.8 L325,173.8 L327.4,174.7 L329.7,176.4 L332.1,177.8 L334.5,177.8 L336.8,181.9 L339.2,180.2 L341.5,181.3 L343.9,180.9 L346.3,181.6 L348.6,181.4 L351,180.1 L353.3,178.2 L355.7,172.4 L358.1,174.3 L360.4,172.7 L362.8,171.9 L365.1,171.2 L367.5,170.2 L369.9,170.4 L372.2,168.6 L374.6,168.8 L376.9,166.9 L379.3,163.8 L381.7,162.8 L384,162.7 L386.4,161 L388.7,161.8 L391.1,160.5 L393.5,161.9 L395.8,161.7 L398.2,160.6 L400.5,160.2 L402.9,159.7 L405.3,158.5 L407.6,159.9 L410,159.6 L412.3,158.8 L414.7,159 L417.1,158.7 L419.4,157.7 L421.8,158 L424.1,157.4 L426.5,156.6 L428.9,153.6 L431.2,152.1 L433.6,154.6 L435.9,157.2 L438.3,154.2 L440.7,153.9 L443,159 L445.4,154.6 L447.7,154.2 L450.1,153.7 L452.5,153.6 L454.8,151.5 L457.2,146.8 L459.5,140.3 L461.9,146.2 L464.3,149.3 L466.6,145.4 L469,147.8 L471.3,144.1 L473.7,141.9 L476.1,139.7 L478.4,143 L480.8,136.8 L483.1,137.8 L485.5,124.7 L487.8,124.1 L490.2,114.1 L492.6,113.5 L494.9,113 L497.3,112.9 L499.6,116.8 L502,124.7 L504.4,131.6 L506.7,139.1 L509.1,141.5 L511.4,139.3 L513.8,145.4 L516.2,145.8 L518.5,139.6 L520.9,127.3 L523.2,128.4 L525.6,129.1 L528,126.4 L530.3,128.7 L532.7,122.3 L535,118.8 L537.4,119.6 L539.8,120.3 L542.1,120.2 L544.5,114.3 L546.8,109.5 L549.2,101.6 L551.6,98.7 L553.9,91.6 L556.3,97.4 L558.6,104.3 L561,98.8 L563.4,98.5 L565.7,97.6 L568.1,101.1 L570.4,95.6 L572.8,96.9 L575.2,102.3 L577.5,101.8 L579.9,100.5 L582.2,104.9 L584.6,104.3 L587,98.6 L589.3,82.9 L591.7,74.8 L594,72.9 L596.4,58.1 L598.8,67.9 L601.1,66.9 L603.5,61.8 L605.8,63.5 L608.2,77.4 L610.6,60.1 L612.9,61.5 L615.3,58.8 L617.6,50.7 L620,33.1" stroke="var(--s-total)"></path>
+      <g class="endlbl">
+        <text x="630" y="30.1" fill="var(--s-total)">&euro;404k</text>
+        <text x="630" y="61.1" fill="var(--muted)">&euro;327k</text>
+        <text x="630" y="171.2" fill="var(--faint)">&euro;56k</text>
+      </g>
+      <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
+        <text x="630" y="43.1" fill="var(--muted)">On the rule</text>
+        <text x="630" y="74.1" fill="var(--muted)">Held</text>
+        <text x="630" y="184.2" fill="var(--faint)">Paid in</text>
+      </g>
+    </svg>
+      <figcaption>The same &euro;55,800, &euro;600 a month into six shares. Selling is what made the difference &mdash; a tenth of a holding at each twelve-month high, put back at the next low; buying the dips <b>without</b> ever selling finishes behind at &euro;276k.</figcaption>
+      <details class="lp-fig-more"><summary>Where these numbers come from</summary><p>Real closes for the six, in euros at each day's rate. Buy and hold splits every monthly &euro;600 evenly and never sells. The rule holds the money as cash until a share sits in the bottom fifth of its own trailing twelve-month range, then buys; at the top fifth it sells a tenth of that holding, at most once a month per share, and every signal is filled at the <i>next</i> close. Three things a reader should weigh: it is behind buy and hold on 40% of days and only wins late; it realises &euro;175,114 of gains along the way where buy and hold realises none, and no tax is charged here &mdash; at 28% that is about &euro;49,032, two thirds of the &euro;76,362 difference; and it never once bought NVDA, the best of the six, because a share that keeps making new highs never enters the bottom fifth of its own range. It is also sensitive to how much is sold at each high: a tenth wins, a quarter finishes behind. One basket, one seven-year window, no costs.</p></details>
+    <!-- figure:compare:end -->
     </figure>
 
   <h2 class="lp-h2" id="features">What it does</h2>
@@ -1015,19 +1092,19 @@
       </div>
       <div class="lp-mini">
         <!-- figure:mini-averaging:start -->
-      <svg viewBox="0 0 300 100" role="img" aria-label="Real chart: SPY through the 2020 crash, with four purchases made while the price sat under the average cost, pulling that average from 100 down to 90 euros.">
+      <svg viewBox="0 0 300 200" preserveAspectRatio="none" role="img" aria-label="Real chart: SPY through the 2020 crash, with four purchases made while the price sat under the average cost, pulling that average from 100 down to 90 euros.">
           <!-- the stretch where the price line sits under the average-cost line -->
-          <rect x="8" y="10" width="158.1" height="80" fill="var(--accent-soft)"></rect>
-          <path d="M8,23.6 H66.5 V19.8 H115.3 V41.3 H144.6 V43 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
-          <path class="serieline" d="M8,23.6 L10,25 L11.9,24.3 L13.9,24.8 L15.8,23.8 L17.8,22.5 L19.7,23.1 L21.7,21.7 L23.6,22 L25.6,21.6 L27.5,20 L29.5,19.3 L31.4,19.7 L33.4,19.7 L35.3,19.5 L37.3,21.2 L39.2,24.4 L41.2,22.4 L43.1,22.5 L45.1,21.9 L47,25.4 L49,24 L50.9,21.1 L52.9,18.8 L54.8,18.1 L56.8,19.2 L58.7,17.7 L60.7,17.4 L62.6,16.1 L64.6,16.3 L66.5,16 L68.5,16.5 L70.5,15.5 L72.4,16.3 L74.4,18.4 L76.3,25 L78.3,30.9 L80.2,31.6 L82.2,39.9 L84.1,40.7 L86.1,33 L88,38.3 L90,30.7 L91.9,37 L93.9,40 L95.8,53.8 L97.8,45.4 L99.7,53.8 L101.7,69.4 L103.6,56.8 L105.6,74.4 L107.5,66.6 L109.5,74.3 L111.4,74 L113.4,81 L115.3,84.5 L117.3,72.4 L119.2,70.2 L121.2,61.6 L123.1,66.3 L125.1,61.4 L127,63.7 L129,70.6 L131,67.2 L132.9,69.4 L134.9,59.4 L136.8,59.3 L138.8,54 L140.7,51.5 L142.7,53 L144.6,48.1 L146.6,51.7 L148.5,50.9 L150.5,46.4 L152.4,49.4 L154.4,54.5 L156.3,50.9 L158.3,50.9 L160.2,48.6 L162.2,46.2 L164.1,47 L166.1,42.5 L168,44.1 L170,48.7 L171.9,48.3 L173.9,46.7 L175.8,47.8 L177.8,45.8 L179.7,43 L181.7,42.9 L183.6,46.4 L185.6,49.4 L187.5,47.4 L189.5,46.6 L191.5,41.4 L193.4,43.2 L195.4,40.3 L197.3,41.5 L199.3,41.2 L201.2,39 L203.2,36.3 L205.1,36.7 L207.1,35.9 L209,35.1 L211,33.6 L212.9,31.2 L214.9,31.6 L216.8,26.9 L218.8,24.6 L220.7,26 L222.7,27.1 L224.6,38.1 L226.6,35.9 L228.5,34.2 L230.5,30.7 L232.4,31.5 L234.4,31.4 L236.3,33.3 L238.3,32.1 L240.2,31.2 L242.2,36 L244.1,34 L246.1,38.4 L248,35.8 L250,33.4" stroke="var(--s-total)"></path>
+          <rect x="8" y="10" width="158.1" height="180" fill="var(--accent-soft)"></rect>
+          <path d="M8,40.5 H66.5 V32 H115.3 V80.5 H144.6 V84.3 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+          <path class="serieline" d="M8,40.5 L10,43.8 L11.9,42.2 L13.9,43.4 L15.8,41.1 L17.8,38.1 L19.7,39.4 L21.7,36.4 L23.6,37.1 L25.6,36.1 L27.5,32.4 L29.5,31 L31.4,31.9 L33.4,31.8 L35.3,31.3 L37.3,35.3 L39.2,42.4 L41.2,37.8 L43.1,38.2 L45.1,36.7 L47,44.8 L49,41.5 L50.9,34.9 L52.9,29.8 L54.8,28.3 L56.8,30.7 L58.7,27.3 L60.7,26.6 L62.6,23.7 L64.6,24.1 L66.5,23.4 L68.5,24.6 L70.5,22.4 L72.4,24.3 L74.4,28.9 L76.3,43.8 L78.3,57 L80.2,58.5 L82.2,77.3 L84.1,79 L86.1,61.7 L88,73.6 L90,56.7 L91.9,70.7 L93.9,77.4 L95.8,108.6 L97.8,89.5 L99.7,108.5 L101.7,143.8 L103.6,115.2 L105.6,154.9 L107.5,137.4 L109.5,154.7 L111.4,154 L113.4,169.7 L115.3,177.6 L117.3,150.4 L119.2,145.5 L121.2,126.1 L123.1,136.6 L125.1,125.5 L127,130.8 L129,146.4 L131,138.7 L132.9,143.6 L134.9,121.2 L136.8,120.9 L138.8,108.9 L140.7,103.3 L142.7,106.7 L144.6,95.8 L146.6,103.9 L148.5,102.1 L150.5,91.9 L152.4,98.7 L154.4,110.2 L156.3,102.1 L158.3,102.1 L160.2,96.9 L162.2,91.4 L164.1,93.2 L166.1,83.1 L168,86.8 L170,97.1 L171.9,96.1 L173.9,92.5 L175.8,95.2 L177.8,90.5 L179.7,84.1 L181.7,84.1 L183.6,91.9 L185.6,98.7 L187.5,94.2 L189.5,92.4 L191.5,80.7 L193.4,84.8 L195.4,78.1 L197.3,80.9 L199.3,80.1 L201.2,75.2 L203.2,69.2 L205.1,70 L207.1,68.2 L209,66.5 L211,63.1 L212.9,57.6 L214.9,58.7 L216.8,48 L218.8,42.8 L220.7,46 L222.7,48.4 L224.6,73.2 L226.6,68.3 L228.5,64.5 L230.5,56.5 L232.4,58.3 L234.4,58.1 L236.3,62.4 L238.3,59.7 L240.2,57.8 L242.2,68.5 L244.1,64.1 L246.1,73.9 L248,68 L250,62.7" stroke="var(--s-total)"></path>
           <g class="buyring" stroke="var(--s-total)">
-            <circle cx="8" cy="23.6" r="3.2"></circle>
-            <circle cx="66.5" cy="16" r="3.2"></circle>
-            <circle cx="115.3" cy="84.5" r="3.2"></circle>
-            <circle cx="144.6" cy="48.1" r="3.2"></circle>
+            <circle cx="8" cy="40.5" r="3.2"></circle>
+            <circle cx="66.5" cy="23.4" r="3.2"></circle>
+            <circle cx="115.3" cy="177.6" r="3.2"></circle>
+            <circle cx="144.6" cy="95.8" r="3.2"></circle>
           </g>
-          <text class="endlbl" x="256" y="32.2" fill="var(--s-total)">&euro;94.92</text>
-          <text class="endlbl" x="256" y="44.2" fill="var(--faint)">&euro;90</text>
+          <text class="endlbl" x="256" y="62.7" fill="var(--s-total)">&euro;94.92</text>
+          <text class="endlbl" x="256" y="84.3" fill="var(--faint)">&euro;90</text>
         </svg>
     <!-- figure:mini-averaging:end -->
       </div>
@@ -1062,12 +1139,12 @@
       <p>Market value against the total you have put in, from your first buy to today &mdash; so you read gain, not just balance.</p>
       <div class="lp-mini">
         <!-- figure:mini-folio:start -->
-      <svg viewBox="0 0 300 100" role="img" aria-label="Real chart: portfolio market value against the total invested, which steps up with each purchase.">
-          <path class="iv-band" d="M8,81.3 L10.7,81.6 L13.4,81.7 L16.2,81.7 L18.9,81.6 L21.6,80.1 L24.3,80.2 L27,80.5 L29.8,80.6 L32.5,80.6 L35.2,78.9 L37.9,78.3 L40.6,78.4 L43.3,78.6 L46.1,79.2 L48.8,78.2 L51.5,78.4 L54.2,78.4 L56.9,78.9 L59.7,78.2 L62.4,77.6 L65.1,76.3 L67.8,76.7 L70.5,76.3 L73.3,75 L76,75.1 L78.7,74.1 L81.4,73 L84.1,73.1 L86.9,71.3 L89.6,71.9 L92.3,72.4 L95,71.4 L97.7,72.2 L100.4,71.2 L103.2,70.4 L105.9,69.6 L108.6,68.9 L111.3,67.3 L114,66 L116.8,66.1 L119.5,64.8 L122.2,66 L124.9,65.4 L127.6,65.7 L130.4,64.9 L133.1,65.2 L135.8,63.2 L138.5,62.3 L141.2,65.1 L144,64.7 L146.7,63.6 L149.4,62.4 L152.1,61.1 L154.8,59.7 L157.6,58.7 L160.3,58 L163,57.1 L165.7,57.5 L168.4,60 L171.1,64.2 L173.9,63.7 L176.6,65.5 L179.3,61.2 L182,58.4 L184.7,58.6 L187.5,58.8 L190.2,55.1 L192.9,53.3 L195.6,54.9 L198.3,52.8 L201.1,46.2 L203.8,43.5 L206.5,46.9 L209.2,47.6 L211.9,47.5 L214.7,46.6 L217.4,50.6 L220.1,49.9 L222.8,50.4 L225.5,51.1 L228.2,42.6 L231,32.7 L233.7,27.6 L236.4,27.3 L239.1,25.5 L241.8,35.9 L244.6,28 L247.3,29.2 L250,17.2 L250,55.5 L247.3,55.5 L244.6,55.5 L241.8,55.5 L239.1,56.9 L236.4,56.9 L233.7,56.9 L231,56.9 L228.2,56.9 L225.5,58.4 L222.8,58.4 L220.1,58.4 L217.4,58.4 L214.7,58.4 L211.9,59.8 L209.2,59.8 L206.5,59.8 L203.8,59.8 L201.1,59.8 L198.3,61.2 L195.6,61.2 L192.9,61.2 L190.2,61.2 L187.5,62.7 L184.7,62.7 L182,62.7 L179.3,62.7 L176.6,62.7 L173.9,64.1 L171.1,64.1 L168.4,64.1 L165.7,64.1 L163,64.1 L160.3,65.5 L157.6,65.5 L154.8,65.5 L152.1,65.5 L149.4,67 L146.7,67 L144,67 L141.2,67 L138.5,67 L135.8,68.4 L133.1,68.4 L130.4,68.4 L127.6,68.4 L124.9,68.4 L122.2,69.9 L119.5,69.9 L116.8,69.9 L114,69.9 L111.3,69.9 L108.6,71.3 L105.9,71.3 L103.2,71.3 L100.4,71.3 L97.7,72.7 L95,72.7 L92.3,72.7 L89.6,72.7 L86.9,72.7 L84.1,74.2 L81.4,74.2 L78.7,74.2 L76,74.2 L73.3,74.2 L70.5,75.6 L67.8,75.6 L65.1,75.6 L62.4,75.6 L59.7,75.6 L56.9,77 L54.2,77 L51.5,77 L48.8,77 L46.1,78.5 L43.3,78.5 L40.6,78.5 L37.9,78.5 L35.2,78.5 L32.5,79.9 L29.8,79.9 L27,79.9 L24.3,79.9 L21.6,79.9 L18.9,81.3 L16.2,81.3 L13.4,81.3 L10.7,81.3 L8,81.3 Z"></path>
-          <path d="M8,81.3 H21.6 V79.9 H35.2 V78.5 H48.8 V77 H59.7 V75.6 H73.3 V74.2 H86.9 V72.7 H100.4 V71.3 H111.3 V69.9 H124.9 V68.4 H138.5 V67 H152.1 V65.5 H163 V64.1 H176.6 V62.7 H190.2 V61.2 H201.1 V59.8 H214.7 V58.4 H228.2 V56.9 H241.8 V55.5 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
-          <path class="serieline" d="M8,81.3 L10.7,81.6 L13.4,81.7 L16.2,81.7 L18.9,81.6 L21.6,80.1 L24.3,80.2 L27,80.5 L29.8,80.6 L32.5,80.6 L35.2,78.9 L37.9,78.3 L40.6,78.4 L43.3,78.6 L46.1,79.2 L48.8,78.2 L51.5,78.4 L54.2,78.4 L56.9,78.9 L59.7,78.2 L62.4,77.6 L65.1,76.3 L67.8,76.7 L70.5,76.3 L73.3,75 L76,75.1 L78.7,74.1 L81.4,73 L84.1,73.1 L86.9,71.3 L89.6,71.9 L92.3,72.4 L95,71.4 L97.7,72.2 L100.4,71.2 L103.2,70.4 L105.9,69.6 L108.6,68.9 L111.3,67.3 L114,66 L116.8,66.1 L119.5,64.8 L122.2,66 L124.9,65.4 L127.6,65.7 L130.4,64.9 L133.1,65.2 L135.8,63.2 L138.5,62.3 L141.2,65.1 L144,64.7 L146.7,63.6 L149.4,62.4 L152.1,61.1 L154.8,59.7 L157.6,58.7 L160.3,58 L163,57.1 L165.7,57.5 L168.4,60 L171.1,64.2 L173.9,63.7 L176.6,65.5 L179.3,61.2 L182,58.4 L184.7,58.6 L187.5,58.8 L190.2,55.1 L192.9,53.3 L195.6,54.9 L198.3,52.8 L201.1,46.2 L203.8,43.5 L206.5,46.9 L209.2,47.6 L211.9,47.5 L214.7,46.6 L217.4,50.6 L220.1,49.9 L222.8,50.4 L225.5,51.1 L228.2,42.6 L231,32.7 L233.7,27.6 L236.4,27.3 L239.1,25.5 L241.8,35.9 L244.6,28 L247.3,29.2 L250,17.2" stroke="var(--s-total)"></path>
-          <text class="endlbl" x="256" y="17.2" fill="var(--s-total)">&euro;27.4k</text>
-          <text class="endlbl" x="256" y="55.5" fill="var(--faint)">&euro;11.4k</text>
+      <svg viewBox="0 0 300 235" preserveAspectRatio="none" role="img" aria-label="Real chart: portfolio market value against the total invested, which steps up with each purchase.">
+          <path class="iv-band" d="M8,204.5 L10.7,205.3 L13.4,205.5 L16.2,205.5 L18.9,205.3 L21.6,201.1 L24.3,201.5 L27,202.2 L29.8,202.4 L32.5,202.4 L35.2,197.9 L37.9,195.8 L40.6,196.3 L43.3,197 L46.1,198.7 L48.8,195.8 L51.5,196.5 L54.2,196.7 L56.9,197.9 L59.7,195.8 L62.4,193.5 L65.1,190.7 L67.8,191.7 L70.5,190.5 L73.3,187.1 L76,187.4 L78.7,184.6 L81.4,181 L84.1,181.9 L86.9,176.7 L89.6,178.8 L92.3,179.9 L95,177.1 L97.7,178.1 L100.4,176.6 L103.2,174.2 L105.9,172.4 L108.6,170.1 L111.3,165.9 L114,163 L116.8,162.4 L119.5,159 L122.2,162 L124.9,160.6 L127.6,161.5 L130.4,160.2 L133.1,159.5 L135.8,154.5 L138.5,152.1 L141.2,159.6 L144,158.5 L146.7,156 L149.4,148.8 L152.1,148.5 L154.8,145 L157.6,142.2 L160.3,140 L163,138.5 L165.7,139.9 L168.4,145.6 L171.1,158.1 L173.9,154.8 L176.6,160.9 L179.3,147.7 L182,141.8 L184.7,142.3 L187.5,142.1 L190.2,129.3 L192.9,127.3 L195.6,131.4 L198.3,126.3 L201.1,112.7 L203.8,100.1 L206.5,112.4 L209.2,111.5 L211.9,111.2 L214.7,107.6 L217.4,122.8 L220.1,117.7 L222.8,119.4 L225.5,121.1 L228.2,99.1 L231,69.8 L233.7,54.5 L236.4,52.7 L239.1,54.5 L241.8,64.8 L244.6,61.3 L247.3,54.6 L250,26.6 L250,133.2 L247.3,133.2 L244.6,133.2 L241.8,133.2 L239.1,137.1 L236.4,137.1 L233.7,137.1 L231,137.1 L228.2,137.1 L225.5,141.1 L222.8,141.1 L220.1,141.1 L217.4,141.1 L214.7,141.1 L211.9,145.1 L209.2,145.1 L206.5,145.1 L203.8,145.1 L201.1,145.1 L198.3,149 L195.6,149 L192.9,149 L190.2,149 L187.5,153 L184.7,153 L182,153 L179.3,153 L176.6,153 L173.9,157 L171.1,157 L168.4,157 L165.7,157 L163,157 L160.3,160.9 L157.6,160.9 L154.8,160.9 L152.1,160.9 L149.4,160.9 L146.7,164.9 L144,164.9 L141.2,164.9 L138.5,164.9 L135.8,168.8 L133.1,168.8 L130.4,168.8 L127.6,168.8 L124.9,168.8 L122.2,172.8 L119.5,172.8 L116.8,172.8 L114,172.8 L111.3,172.8 L108.6,176.8 L105.9,176.8 L103.2,176.8 L100.4,176.8 L97.7,180.7 L95,180.7 L92.3,180.7 L89.6,180.7 L86.9,180.7 L84.1,184.7 L81.4,184.7 L78.7,184.7 L76,184.7 L73.3,184.7 L70.5,188.6 L67.8,188.6 L65.1,188.6 L62.4,188.6 L59.7,188.6 L56.9,192.6 L54.2,192.6 L51.5,192.6 L48.8,192.6 L46.1,196.6 L43.3,196.6 L40.6,196.6 L37.9,196.6 L35.2,196.6 L32.5,200.5 L29.8,200.5 L27,200.5 L24.3,200.5 L21.6,200.5 L18.9,204.5 L16.2,204.5 L13.4,204.5 L10.7,204.5 L8,204.5 Z"></path>
+          <path d="M8,204.5 H21.6 V200.5 H35.2 V196.6 H48.8 V192.6 H59.7 V188.6 H73.3 V184.7 H86.9 V180.7 H100.4 V176.8 H111.3 V172.8 H124.9 V168.8 H138.5 V164.9 H149.4 V160.9 H163 V157 H176.6 V153 H190.2 V149 H201.1 V145.1 H214.7 V141.1 H228.2 V137.1 H241.8 V133.2 H250" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
+          <path class="serieline" d="M8,204.5 L10.7,205.3 L13.4,205.5 L16.2,205.5 L18.9,205.3 L21.6,201.1 L24.3,201.5 L27,202.2 L29.8,202.4 L32.5,202.4 L35.2,197.9 L37.9,195.8 L40.6,196.3 L43.3,197 L46.1,198.7 L48.8,195.8 L51.5,196.5 L54.2,196.7 L56.9,197.9 L59.7,195.8 L62.4,193.5 L65.1,190.7 L67.8,191.7 L70.5,190.5 L73.3,187.1 L76,187.4 L78.7,184.6 L81.4,181 L84.1,181.9 L86.9,176.7 L89.6,178.8 L92.3,179.9 L95,177.1 L97.7,178.1 L100.4,176.6 L103.2,174.2 L105.9,172.4 L108.6,170.1 L111.3,165.9 L114,163 L116.8,162.4 L119.5,159 L122.2,162 L124.9,160.6 L127.6,161.5 L130.4,160.2 L133.1,159.5 L135.8,154.5 L138.5,152.1 L141.2,159.6 L144,158.5 L146.7,156 L149.4,148.8 L152.1,148.5 L154.8,145 L157.6,142.2 L160.3,140 L163,138.5 L165.7,139.9 L168.4,145.6 L171.1,158.1 L173.9,154.8 L176.6,160.9 L179.3,147.7 L182,141.8 L184.7,142.3 L187.5,142.1 L190.2,129.3 L192.9,127.3 L195.6,131.4 L198.3,126.3 L201.1,112.7 L203.8,100.1 L206.5,112.4 L209.2,111.5 L211.9,111.2 L214.7,107.6 L217.4,122.8 L220.1,117.7 L222.8,119.4 L225.5,121.1 L228.2,99.1 L231,69.8 L233.7,54.5 L236.4,52.7 L239.1,54.5 L241.8,64.8 L244.6,61.3 L247.3,54.6 L250,26.6" stroke="var(--s-total)"></path>
+          <text class="endlbl" x="256" y="26.6" fill="var(--s-total)">&euro;27.6k</text>
+          <text class="endlbl" x="256" y="133.2" fill="var(--faint)">&euro;11.4k</text>
         </svg>
     <!-- figure:mini-folio:end -->
       </div>
@@ -1078,21 +1155,21 @@
       <p>Every holding broken out by quantity, cost, market value and its share of the whole portfolio.</p>
       <div class="lp-mini">
         <!-- figure:mini-holdings:start -->
-      <svg viewBox="0 0 300 100" role="img" aria-label="Real bar chart of holdings by market value: AMD 17386 euros, TSLA 5037 euros, MSFT 4985 euros.">
+      <svg viewBox="0 0 300 235" preserveAspectRatio="none" role="img" aria-label="Real bar chart of holdings by market value: AMD 17424 euros, MSFT 5168 euros, TSLA 4960 euros.">
           <g class="axislbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--ink)">
-            <text x="40" y="19">AMD</text>
-            <text x="40" y="49">TSLA</text>
-            <text x="40" y="79">MSFT</text>
+            <text x="40" y="47.2">AMD</text>
+            <text x="40" y="117.5">MSFT</text>
+            <text x="40" y="187.8">TSLA</text>
           </g>
           <g fill="var(--accent)">
-            <path d="M46,10 H196 Q200,10 200,14 V24 Q200,28 196,28 H46 Z"></path>
-            <path d="M46,40 H86.6 Q90.6,40 90.6,44 V54 Q90.6,58 86.6,58 H46 Z"></path>
-            <path d="M46,70 H86.2 Q90.2,70 90.2,74 V84 Q90.2,88 86.2,88 H46 Z"></path>
+            <path d="M46,21.2 H193 Q200,21.2 200,28.2 V66.2 Q200,73.2 193,73.2 H46 Z"></path>
+            <path d="M46,91.5 H84.7 Q91.7,91.5 91.7,98.5 V136.5 Q91.7,143.5 84.7,143.5 H46 Z"></path>
+            <path d="M46,161.8 H82.8 Q89.8,161.8 89.8,168.8 V206.8 Q89.8,213.8 82.8,213.8 H46 Z"></path>
           </g>
           <g class="endlbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--muted)">
-            <text x="292" y="19">&euro;17,386</text>
-            <text x="292" y="49">&euro;5,037</text>
-            <text x="292" y="79">&euro;4,985</text>
+            <text x="292" y="47.2">&euro;17,424</text>
+            <text x="292" y="117.5">&euro;5,168</text>
+            <text x="292" y="187.8">&euro;4,960</text>
           </g>
         </svg>
     <!-- figure:mini-holdings:end -->
@@ -1104,13 +1181,13 @@
       <p>How far below its high water mark the portfolio has been, and how long it took to climb back. The same measure per holding is what a trailing rule fires on.</p>
       <div class="lp-mini">
         <!-- figure:mini-drawdown:start -->
-      <svg viewBox="0 0 300 100" role="img" aria-label="Real chart: this portfolio's drawdown from its own peak, reaching 39 percent down before recovering.">
-          <line class="gridline" x1="8" y1="19.1" x2="250" y2="19.1"></line>
-          <path class="uw-area" d="M8,19.1 L10.2,46.1 L12.4,60 L14.7,65.3 L16.9,67.4 L19.1,42.5 L21.3,29 L23.5,37.7 L25.8,52.5 L28,67.3 L30.2,58 L32.4,56.4 L34.6,25.3 L36.9,19.1 L39.1,26.5 L41.3,30.2 L43.5,42.3 L45.7,47.1 L48,32.4 L50.2,31.3 L52.4,36.6 L54.6,43.8 L56.8,54.6 L59.1,70.1 L61.3,21.5 L63.5,19.1 L65.7,25.6 L67.9,30.2 L70.2,19.1 L72.4,19.1 L74.6,29.7 L76.8,19.4 L79,20.1 L81.3,21.6 L83.5,34.5 L85.7,22.6 L87.9,29.3 L90.1,33.9 L92.4,36.5 L94.6,27.3 L96.8,35.7 L99,19.1 L101.2,34.9 L103.5,19.1 L105.7,19.1 L107.9,19.1 L110.1,20.7 L112.3,19.1 L114.6,24 L116.8,21.4 L119,23.4 L121.2,31.6 L123.4,37.7 L125.7,37.4 L127.9,25.8 L130.1,21.1 L132.3,23.2 L134.6,20.3 L136.8,19.1 L139,44.2 L141.2,53.9 L143.4,45.3 L145.7,47.2 L147.9,35.5 L150.1,27.3 L152.3,22.2 L154.5,19.1 L156.8,20.2 L159,19.1 L161.2,27.3 L163.4,19.1 L165.6,27.7 L167.9,38.4 L170.1,57.5 L172.3,67.8 L174.5,82.9 L176.7,76.3 L179,54 L181.2,38.4 L183.4,42.3 L185.6,28.4 L187.8,31 L190.1,22.6 L192.3,22.3 L194.5,25.4 L196.7,28.1 L198.9,20.7 L201.2,27.6 L203.4,19.1 L205.6,29.5 L207.8,41.7 L210,36.6 L212.3,37.1 L214.5,32.5 L216.7,37.1 L218.9,49.1 L221.1,46.4 L223.4,48.4 L225.6,50.1 L227.8,24.6 L230,20.6 L232.2,21.1 L234.5,36.5 L236.7,27.1 L238.9,25.9 L241.1,33.9 L243.3,33.7 L245.6,39.3 L247.8,25.6 L250,19.1 L250,19.1 L8,19.1 Z"></path>
-          <path class="uw-line" d="M8,19.1 L10.2,46.1 L12.4,60 L14.7,65.3 L16.9,67.4 L19.1,42.5 L21.3,29 L23.5,37.7 L25.8,52.5 L28,67.3 L30.2,58 L32.4,56.4 L34.6,25.3 L36.9,19.1 L39.1,26.5 L41.3,30.2 L43.5,42.3 L45.7,47.1 L48,32.4 L50.2,31.3 L52.4,36.6 L54.6,43.8 L56.8,54.6 L59.1,70.1 L61.3,21.5 L63.5,19.1 L65.7,25.6 L67.9,30.2 L70.2,19.1 L72.4,19.1 L74.6,29.7 L76.8,19.4 L79,20.1 L81.3,21.6 L83.5,34.5 L85.7,22.6 L87.9,29.3 L90.1,33.9 L92.4,36.5 L94.6,27.3 L96.8,35.7 L99,19.1 L101.2,34.9 L103.5,19.1 L105.7,19.1 L107.9,19.1 L110.1,20.7 L112.3,19.1 L114.6,24 L116.8,21.4 L119,23.4 L121.2,31.6 L123.4,37.7 L125.7,37.4 L127.9,25.8 L130.1,21.1 L132.3,23.2 L134.6,20.3 L136.8,19.1 L139,44.2 L141.2,53.9 L143.4,45.3 L145.7,47.2 L147.9,35.5 L150.1,27.3 L152.3,22.2 L154.5,19.1 L156.8,20.2 L159,19.1 L161.2,27.3 L163.4,19.1 L165.6,27.7 L167.9,38.4 L170.1,57.5 L172.3,67.8 L174.5,82.9 L176.7,76.3 L179,54 L181.2,38.4 L183.4,42.3 L185.6,28.4 L187.8,31 L190.1,22.6 L192.3,22.3 L194.5,25.4 L196.7,28.1 L198.9,20.7 L201.2,27.6 L203.4,19.1 L205.6,29.5 L207.8,41.7 L210,36.6 L212.3,37.1 L214.5,32.5 L216.7,37.1 L218.9,49.1 L221.1,46.4 L223.4,48.4 L225.6,50.1 L227.8,24.6 L230,20.6 L232.2,21.1 L234.5,36.5 L236.7,27.1 L238.9,25.9 L241.1,33.9 L243.3,33.7 L245.6,39.3 L247.8,25.6 L250,19.1"></path>
-          <circle cx="174.5" cy="82.9" r="3.2" fill="var(--neg)"></circle>
-          <text class="endlbl" x="256" y="19.1" fill="var(--faint)">0%</text>
-          <text class="endlbl" x="180.5" y="93.9" fill="var(--neg)">&minus;39%</text>
+      <svg viewBox="0 0 300 210" preserveAspectRatio="none" role="img" aria-label="Real chart: this portfolio's drawdown from its own peak, reaching 39 percent down before recovering.">
+          <line class="gridline" x1="8" y1="26.7" x2="250" y2="26.7"></line>
+          <path class="uw-area" d="M8,26.7 L10.2,93.9 L12.4,128.3 L14.7,141.5 L16.9,139.7 L19.1,84.9 L21.3,51.4 L23.5,73 L25.8,109.7 L28,146.5 L30.2,123.5 L32.4,119.5 L34.6,38.6 L36.9,26.7 L39.1,45.2 L41.3,54.3 L43.5,84.3 L45.7,96.2 L48,59.8 L50.2,57 L52.4,79.1 L54.6,88 L56.8,115 L59.1,153.5 L61.3,32.7 L63.5,26.7 L65.7,42.9 L67.9,54.2 L70.2,31.5 L72.4,26.7 L74.6,53 L76.8,27.5 L79,29.2 L81.3,32.9 L83.5,65 L85.7,35.4 L87.9,54.4 L90.1,68.5 L92.4,70 L94.6,47.1 L96.8,67.9 L99,26.7 L101.2,65.9 L103.5,26.8 L105.7,29.4 L107.9,28.9 L110.1,40.2 L112.3,26.7 L114.6,39 L116.8,32.4 L119,37.4 L121.2,56.5 L123.4,68 L125.7,72.5 L127.9,49 L130.1,31.7 L132.3,36.9 L134.6,29.6 L136.8,26.7 L139,96 L141.2,113.3 L143.4,100.8 L145.7,87.3 L147.9,67.5 L150.1,47.1 L152.3,34.4 L154.5,26.7 L156.8,28.5 L159,27.6 L161.2,56.3 L163.4,34 L165.6,53.7 L167.9,74.7 L170.1,122.2 L172.3,146.5 L174.5,185.3 L176.7,158.2 L179,110.9 L181.2,70.9 L183.4,73.7 L185.6,49.9 L187.8,56.3 L190.1,27.2 L192.3,30 L194.5,39.5 L196.7,46 L198.9,26.7 L201.2,39.2 L203.4,26.7 L205.6,52.6 L207.8,75.6 L210,75.2 L212.3,72.9 L214.5,58.4 L216.7,66.4 L218.9,102.3 L221.1,95.6 L223.4,99.6 L225.6,104.5 L227.8,33.1 L230,26.7 L232.2,30.6 L234.5,53.5 L236.7,48.5 L238.9,38.2 L241.1,63.5 L243.3,68.3 L245.6,66.2 L247.8,50.5 L250,26.7 L250,26.7 L8,26.7 Z"></path>
+          <path class="uw-line" d="M8,26.7 L10.2,93.9 L12.4,128.3 L14.7,141.5 L16.9,139.7 L19.1,84.9 L21.3,51.4 L23.5,73 L25.8,109.7 L28,146.5 L30.2,123.5 L32.4,119.5 L34.6,38.6 L36.9,26.7 L39.1,45.2 L41.3,54.3 L43.5,84.3 L45.7,96.2 L48,59.8 L50.2,57 L52.4,79.1 L54.6,88 L56.8,115 L59.1,153.5 L61.3,32.7 L63.5,26.7 L65.7,42.9 L67.9,54.2 L70.2,31.5 L72.4,26.7 L74.6,53 L76.8,27.5 L79,29.2 L81.3,32.9 L83.5,65 L85.7,35.4 L87.9,54.4 L90.1,68.5 L92.4,70 L94.6,47.1 L96.8,67.9 L99,26.7 L101.2,65.9 L103.5,26.8 L105.7,29.4 L107.9,28.9 L110.1,40.2 L112.3,26.7 L114.6,39 L116.8,32.4 L119,37.4 L121.2,56.5 L123.4,68 L125.7,72.5 L127.9,49 L130.1,31.7 L132.3,36.9 L134.6,29.6 L136.8,26.7 L139,96 L141.2,113.3 L143.4,100.8 L145.7,87.3 L147.9,67.5 L150.1,47.1 L152.3,34.4 L154.5,26.7 L156.8,28.5 L159,27.6 L161.2,56.3 L163.4,34 L165.6,53.7 L167.9,74.7 L170.1,122.2 L172.3,146.5 L174.5,185.3 L176.7,158.2 L179,110.9 L181.2,70.9 L183.4,73.7 L185.6,49.9 L187.8,56.3 L190.1,27.2 L192.3,30 L194.5,39.5 L196.7,46 L198.9,26.7 L201.2,39.2 L203.4,26.7 L205.6,52.6 L207.8,75.6 L210,75.2 L212.3,72.9 L214.5,58.4 L216.7,66.4 L218.9,102.3 L221.1,95.6 L223.4,99.6 L225.6,104.5 L227.8,33.1 L230,26.7 L232.2,30.6 L234.5,53.5 L236.7,48.5 L238.9,38.2 L241.1,63.5 L243.3,68.3 L245.6,66.2 L247.8,50.5 L250,26.7"></path>
+          <circle cx="174.5" cy="185.3" r="3.2" fill="var(--neg)"></circle>
+          <text class="endlbl" x="256" y="26.7" fill="var(--faint)">0%</text>
+          <text class="endlbl" x="180.5" y="196.3" fill="var(--neg)">&minus;39%</text>
         </svg>
     <!-- figure:mini-drawdown:end -->
       </div>
