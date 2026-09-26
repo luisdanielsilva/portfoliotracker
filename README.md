@@ -1052,9 +1052,9 @@ and that date. Both now say the number they mean.
 
 ### 🧮 The In-detail grid lost half its tiles — 2026-09-26
 
-The *In detail* panel on the Portfolio tab carried 19 KPI tiles. On request it is down to **9**:
-market value, invested, total gain, capital added, peak value, now vs peak, best/worst gap,
-estimated unrealised return, deepest drawdown.
+The *In detail* panel on the Portfolio tab carried 19 KPI tiles. On request it is down to **8**,
+in two even rows: market value, invested, total gain, capital added, peak value, now vs peak,
+best/worst gap, estimated unrealised return.
 
 Removed: *Return on picks* and *Return on picks / yr*, *Snapshot-to-snapshot swing*,
 *Concentration*, *Biggest lift / drag*, *At this pace*, *Lowest value*, *Since &lt;date&gt;*,
@@ -1072,6 +1072,13 @@ one of the 17,500 that has no empty snapshot; the rest need a `null` in `TOTAL`,
 one reads a bogus −100%. That case cannot reach the screen because `app.js` drops snapshots with
 no holdings at ingest. `Max drawdown` still appears once, in the KPI strip above the tabs, which
 is also where *Lowest value* and *Since &lt;date&gt;* still live.
+
+**Then *Now vs peak* and *Deepest drawdown* became one tile**, because between them they
+printed the same figure twice: the deepest-drawdown sub-line showed `DD[n-1]`, which is
+`nowTot/peak-1` — the headline of the tile beside it. The survivor keeps all three distinct
+numbers — *−0,5% · deepest −4,8% · clawed back +€15.102 off the low* — and `GROWTH.ddNow`, whose
+only reader was the tile that went, is gone with it. The sub-line carries a fall and a recovery
+at once, so it no longer takes a colour class; each figure shows its own sign.
 
 **Two things worth knowing about the tiles that remain.** *Best / worst gap* is a single step
 between consecutive snapshots, not a peak-to-trough measure — and because empty snapshots are

@@ -317,8 +317,7 @@
     GROWTH={
       invStart:INVESTED[0], invEnd:invEnd, valEnd:valEnd, gain:gain,
       gainPct:gain/invEnd, added:invEnd-INVESTED[0],
-      ddMin:Math.min.apply(null,DD.filter(function(x){return x!=null;})),
-      ddNow:DD[n-1]
+      ddMin:Math.min.apply(null,DD.filter(function(x){return x!=null;}))
     };
 
     var fr=document.getElementById("firstrun"); if(fr) fr.hidden=!!n;
@@ -868,14 +867,22 @@
       {l:"Invested (cost basis)", v:"\u20ac "+nfEur0.format(g.invEnd), s:"estimated, from the return % column"},
       {l:"Total gain", v:d0(g.gain), s:dp(g.gainPct)+" on cost", c:g.gain>=0?"pos":"neg"},
       {l:"Capital added", v:d0(g.added), s:"since "+shortDate(T0)},
-      strip[2],   // Peak value; max drawdown is the strip's job, and the same
-                 // number again as "Deepest drawdown" two tiles down
-      {l:"Now vs peak", v:dp(nowTot/peak-1), c:nowTot>=peak?"pos":"neg", s:"clawed back "+d0(nowTot-trough)+" off the low"},
+      strip[2],   // Peak value; max drawdown stays the strip's job, and the
+                 // tile below now carries the same figure from the other end
+      /*
+       * Where it stands against its own high, how far it has ever been below
+       * it, and what it has taken back - one tile, because the two this
+       * replaced shared a number: the old "Deepest drawdown" sub-line printed
+       * DD[n-1], which is nowTot/peak-1 - the headline of the tile beside it.
+       * The sub carries a fall and a recovery at once, so it takes no colour
+       * class; each figure carries its own sign.
+       */
+      {l:"Now vs peak", v:dp(nowTot/peak-1),
+       s:"deepest "+dp(g.ddMin)+" \u00b7 clawed back "+d0(nowTot-trough)+" off the low"},
       {l:"Best / worst gap", v:mv.length?dp(mv[bi])+" / "+dp(mv[wi]):"\u2014",
        s:mv.length?gap(bi)+"  \u00b7  "+gap(wi):"needs more than one day of history"},
       withRent.length?{l:"Est. unrealised return", v:dp(rentVal/costSum-1), c:"pos", s:"all-time \u00b7 ~"+d0(rentVal-costSum)+" on ~\u20ac"+nfEur0.format(costSum)+" cost"+(withRent.length<per.length?" ("+withRent.length+"/"+per.length+" names)":"")}
-        :{l:"Est. unrealised return", v:"\u2014", s:"add a Ret.% on a snapshot to enable"},
-      {l:"Deepest drawdown", v:dp(g.ddMin), s:"now "+dp(g.ddNow), c:"neg"}
+        :{l:"Est. unrealised return", v:"\u2014", s:"add a Ret.% on a snapshot to enable"}
     ].map(kpi).join("");
 
     document.getElementById("ind-h1").textContent="Weight of each holding \u00b7 "+fmtDayY.format(new Date(T1));
