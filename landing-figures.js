@@ -620,14 +620,20 @@ function compareFigure(bt, noSell) {
 
 /*
  * The card drawings are 300 units wide and as tall as the space their card
- * actually leaves them at the three-column width, measured in the browser
- * rather than guessed: 270 x 181 for the averaging card, 270 x 212 for the two
- * that sit under one line of text, 270 x 192 for the drawdown. Drawing to that
- * shape is what lets them fill the card without `preserveAspectRatio` having to
- * stretch anything, which would take the labels with it.
+ * actually leaves them, measured in the browser rather than guessed. Drawing to
+ * that shape is what lets them fill the card without `preserveAspectRatio`
+ * having to letterbox them, which is what leaves a drawing floating in a band of
+ * white while the card next to it is full.
+ *
+ * These are the heights for the *two*-column grid the section went to when it
+ * dropped from six cards to four: the box each drawing gets is now 430 x 306,
+ * 430 x 337 and 430 x 317 at desktop, so the ratios below are those boxes at 300
+ * units wide. Re-measure if the column count changes again — the numbers do not
+ * survive it, and a stale one shows up as a drawing that does not reach its own
+ * card's edges.
  */
 const MINI_W = 300;
-const MINI = { averaging: 200, folio: 235, holdings: 235, drawdown: 210 };
+const MINI = { averaging: 213, folio: 235, drawdown: 221 };
 
 /** The averaging-down window, as it actually happened to one holding. */
 function miniAveraging(spy) {
@@ -688,37 +694,6 @@ function miniFolio(sim) {
 }
 
 /** Holdings by market value, taken from where that simulation ended. */
-function miniHoldings(sim) {
-  const last = sim[sim.length - 1];
-  const rows = Object.entries(last.holdings)
-    .map(([t, q]) => ({ t, v: q * last.px[t] * last.rate }))
-    .sort((a, b) => b.v - a.v);
-  const max = rows[0].v;
-  const H = MINI.holdings;
-  // one slot per holding across the full height, with the bar centred in its slot
-  const pad = 12, slot = (H - pad * 2) / rows.length, barH = Math.min(52, slot - 14), rad = 7;
-  const y = i => pad + i * slot + (slot - barH) / 2;
-
-  return {
-    svg: `<svg viewBox="0 0 ${MINI_W} ${H}" preserveAspectRatio="none" role="img" aria-label="Real bar chart of holdings by market value: ${rows.map(r => `${r.t} ${Math.round(r.v)} euros`).join(', ')}.">
-          <g class="axislbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--ink)">
-            ${rows.map((r, i) => `<text x="40" y="${r1(y(i) + barH / 2)}">${r.t}</text>`).join('\n            ')}
-          </g>
-          <g fill="var(--accent)">
-            ${rows.map((r, i) => {
-              const w = 46 + (200 - 46) * (r.v / max);
-              const t = r1(y(i)), bm = r1(y(i) + barH);
-              return `<path d="M46,${t} H${r1(w - rad)} Q${r1(w)},${t} ${r1(w)},${r1(y(i) + rad)} V${r1(y(i) + barH - rad)} Q${r1(w)},${bm} ${r1(w - rad)},${bm} H46 Z"></path>`;
-            }).join('\n            ')}
-          </g>
-          <g class="endlbl" text-anchor="end" dominant-baseline="middle" style="fill:var(--muted)">
-            ${rows.map((r, i) => `<text x="292" y="${r1(y(i) + barH / 2)}">${money(r.v)}</text>`).join('\n            ')}
-          </g>
-        </svg>`
-  };
-}
-
-/** How far under its own high water mark that portfolio has been. */
 function miniDrawdown(sim) {
   /*
    * The drawdown is computed on every day and only then sampled, because a peak
@@ -845,7 +820,6 @@ async function main() {
   html = replaceBlock(html, 'hero-stats', hero.stats);
   html = replaceBlock(html, 'mini-averaging', miniAveraging(spy).svg);
   html = replaceBlock(html, 'mini-folio', miniFolio(sim).svg);
-  html = replaceBlock(html, 'mini-holdings', miniHoldings(sim).svg);
   html = replaceBlock(html, 'mini-drawdown', miniDrawdown(sim).svg);
 
   const last = sim[sim.length - 1];

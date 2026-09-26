@@ -149,9 +149,10 @@ suite. Everything below this line is the engineering record for the deployment a
   Fields match the form on dupsweep.com: Type (Support / Feature Request), Name, E-mail,
   Title, Description. The app page previously had its own copy of all of this, with a
   browser `alert()` for feedback, and the two policy pages had none.
-- **Landing page:** Logged-out visitors get a public page explaining the tool (two worked examples
-  — one buying the dip, one selling near the top — six feature cards, a How-it-works time track,
-  and a preview of the alert email) rather than a bare login form. It lives inside `#auth-gate` in
+- **Landing page:** Logged-out visitors get a public page explaining the tool (three figures —
+  one buying the dip, one selling near the top, one on what the rule did over seven years — four
+  feature cards, a How-it-works time track, and a preview of the alert email) rather than a bare
+  login form. It lives inside `#auth-gate` in
   `index.html` and is replaced by the app on sign-in. **Its mock of the alert email is a hand-built
   copy of `renderAlertDigest()`** — change one and check the other, or the page starts advertising
   an email nobody receives.
@@ -909,7 +910,7 @@ row in a file is flagged and skipped, not applied; `stock_splits` is still maint
 Every figure a logged-out visitor saw was a hand-drawn polyline: twelve points across four years,
 each landing on a tidy number. Nothing moves like that. The page asks a stranger to trust the tool
 with their transaction history, and the first thing it showed them was a picture of a market that
-does not exist. `landing-figures.js` now draws all seven from real closes, fetched from the same
+does not exist. `landing-figures.js` now draws every one of them from real closes, fetched from the same
 source the app itself uses. Closes issue #13.
 
 **The windows were chosen for the shape each figure has to teach, and verified before use:**
@@ -919,7 +920,7 @@ source the app itself uses. Closes issue #13.
 | What one buy on the dip does | **SPY**, 2 Jan – 30 Jun 2020 | −31.4% into the 23 March trough, back to −5.1% |
 | What a rule near the top does | **AMD**, 13 Jul 2023 – 18 Sep 2024 | +82% into the 7 March peak, then −30% off it |
 | Paid in, held, and on the rule | **TSLA, NVDA, AMD, MSFT, GOOGL, META** from Jan 2019 | a 52% fall into Dec 2022, and the rule finishing €76k ahead |
-| The four feature cards | **TSLA, MSFT, AMD** from Jan 2022 | a 39% drawdown and a recovery |
+| The feature-card drawings | **TSLA, MSFT, AMD** from Jan 2022 | a 39% drawdown and a recovery |
 
 **The prices are real and the buyer is invented, and the captions say which is which.** Each one
 names the ticker, the dates and the rebasing. That matters more here than anywhere else on the
@@ -1022,6 +1023,25 @@ survives a window change only by getting more flattering is the wrong statistic.
 
 `simulate()` and the 2022 basket are still fetched and still drawn — they feed the four small
 drawings in the feature cards. What went was `folioFigure()` and its `figure:folio` block.
+
+**And then the card grid went from six to four — 2026-09-26.** *Portfolio in detail* and *Buys
+and sells in any currency* were removed on request. Four cards do not sit in a three-column grid
+without leaving a hole, so the grid is **two columns** now (one below 620px, unchanged), which
+makes each card roughly half the container instead of a third.
+
+**The drawings had to be re-measured, not just left to scale.** Each mini SVG is drawn to the
+exact shape of the box its card gives it, so that `preserveAspectRatio` never has to letterbox
+it — at three columns those boxes were 270 wide, at two they are 430, and a drawing built for the
+old ratio sits in a band of white while the card beside it is full. The heights in `MINI` are now
+the measured two-column boxes (430x306, 430x337, 430x317) expressed at 300 units wide. **If the
+column count changes again, re-measure — these numbers do not survive it.**
+
+**The rules card gained a fourth alert, because the layout exposed a copy problem.** It is titled
+"Four rules, both directions" and showed four chips but only two example alerts; at the old width
+the two were stretched to fill the card, which hid it. Unstretched, the gap was obvious. It now
+shows one alert per chip — dip on cost, target on cost, trailing high, plain price level — which
+fills the card honestly and makes the chips and the examples say the same thing. `miniHoldings()`
+and the `.lp-txn` styles went with the two removed cards.
 
 **Two more things the merge turned up, both in text nobody had recomputed.** The disclosure said
 the rule "is behind buy and hold on **40%** of days" while quoting `facts.ahead`, which counts the
