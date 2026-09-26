@@ -20,9 +20,12 @@
  * Windows were not picked for looks. Each one is the shape its figure has to
  * teach, verified before it was chosen:
  *
- *   dip    SPY   2020-01-02 -> 2020-06-30   -31.4% to the trough, back to -5.1%
- *   rules  AMD   2023-07-13 -> 2024-09-18   +82% to the peak, then -30% off it
- *   folio  TSLA/MSFT/AMD  2022-01-03 -> now  a real drawdown and a real recovery
+ *   dip      SPY   2020-01-02 -> 2020-06-30   -31.4% to the trough, back to -5.1%
+ *   rules    AMD   2023-07-13 -> 2024-09-18   +82% to the peak, then -30% off it
+ *   compare  six   2019-01-02 -> now          paid in, held, and traded on the rule
+ *
+ * The TSLA/MSFT/AMD simulation from 2022 is still run, but only for the four
+ * drawings in the feature cards: as a full figure it repeated the one below it.
  *
  * If a window is changed, re-read the figure's annotations: they are computed,
  * but the prose around them is not.
@@ -419,73 +422,6 @@ function simulate(prices, fx, { start, perBuy, everyDays }) {
   return out;
 }
 
-function folioFigure(sim) {
-  const sampled = thinIndices(sim.length, 240);
-  const pts = sampled.map(i => sim[i]);
-  const values = pts.map(p => p.value);
-  const invested = pts.map(p => p.invested);
-  const b = box({ x0: 56, x1: 620, y0: 20, y1: 210, lo: 0, hi: Math.max(...values), n: pts.length });
-  const ticks = b.ticks(4).filter(t => t >= 0);
-  const last = sim[sim.length - 1];
-  /*
-   * Rings are placed by date, not by whether the purchase survived sampling.
-   * A buy happens on one day in sixty-odd, so sampling 240 points out of
-   * twelve hundred quietly dropped three quarters of them — the figure claimed
-   * four purchases where the simulation made nineteen.
-   */
-  const buyIdx = [...new Set(sim
-    .map((p, i) => (p.buys.length ? nearestSampled(i, sampled) : -1))
-    .filter(i => i >= 0))];
-  const k = n => '&euro;' + (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
-
-  const svg = `<svg viewBox="0 0 720 250" role="img" aria-label="Real chart: a portfolio of TSLA, MSFT and AMD bought every quarter from January 2022, priced in euros. Market value ends at ${Math.round(last.value)} euros against ${Math.round(last.invested)} euros invested.">
-      <g>
-        ${gridlines(b, ticks)}
-      </g>
-      <g class="axislbl" text-anchor="end" dominant-baseline="middle">
-        ${ticks.map(t => `<text x="48" y="${r1(b.y(t))}">${k(t)}</text>`).join('\n        ')}
-      </g>
-      <g class="xlbl">
-        ${['2022', '2023', '2024', '2025', '2026'].map(y => {
-          const i = pts.findIndex(p => p.d >= y + '-01-01');
-          return i < 0 ? '' : `<text x="${r1(b.x(i))}" y="228">${y}</text>`;
-        }).filter(Boolean).join('\n        ')}
-      </g>
-      <!-- gain band: market value above invested -->
-      <path class="iv-band" d="${band(values, invested, b)}"></path>
-      <path d="${steps(invested, b)}" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
-      <path class="serieline" d="${line(values, b)}" stroke="var(--s-total)"></path>
-      <g class="buyring" stroke="var(--s-total)">
-        ${buyIdx.map(i => `<circle cx="${r1(b.x(i))}" cy="${r1(b.y(values[i]))}" r="3"></circle>`).join('\n        ')}
-      </g>
-      <g class="endlbl">
-        <text x="630" y="${r1(b.y(last.value) - 3)}" fill="var(--s-total)">${money(last.value)}</text>
-        <text x="630" y="${r1(b.y(last.invested) - 3)}" fill="var(--faint)">${money(last.invested)}</text>
-      </g>
-      <g style="font-size:10px;font-family:'IBM Plex Sans',system-ui,sans-serif">
-        <text x="630" y="${r1(b.y(last.value) + 10)}" fill="var(--muted)">Market value</text>
-        <text x="630" y="${r1(b.y(last.invested) + 10)}" fill="var(--faint)">Invested</text>
-      </g>
-    </svg>`;
-
-  const under = sim.filter(p => p.value < p.invested);
-  const lastUnder = new Date(under[under.length - 1].d).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
-
-  const head = figureHead(`${money(last.invested)} in. ${money(last.value)} today.`,
-                          'TSLA &middot; MSFT &middot; AMD', 'Jan 2022 &ndash; today');
-
-  const key = `<p class="lp-fig-key">
-      <span><i style="background:var(--s-total)"></i>Market value <b>${money(last.value)}</b></span>
-      <span><i class="dash"></i>Invested <b>${money(last.invested)}</b></span>
-    </p>`;
-
-  const foot = figureFoot(
-    `${money(sim[0].invested)} every quarter, whatever the price was that morning &mdash; and <b>${under.length} days</b> along the way when it was worth less than the money put in.`,
-    `Prices are real and converted to euros at each day's own rate; the buyer is the illustration &mdash; ${money(sim[0].invested)} into one of the three holdings every quarter, in rotation. The shaded band is gain over what went in and the ${buyIdx.length} rings are the purchases. Those ${under.length} losing days out of ${sim.length} ran as late as ${lastUnder}, which is the part a chart of somebody else's good idea usually leaves out.`);
-
-  return { head, key, svg, foot, facts: { value: last.value, invested: last.invested } };
-}
-
 /**
  * Buy and hold against the rule this site is about.
  *
@@ -577,11 +513,21 @@ function backtest(prices, fx, { start, perBuy, everyDays, win = 252, low = 0.2, 
     rows: out,
     facts: { invested: l.invested, hold: l.hold, rule: l.rule, cash: l.cash, peakCash,
              realised, buys, sells, neverBought,
+             // days the rule is *ahead* of buy and hold; the caption quotes the other 60%
              ahead: out.filter(r => r.rule > r.hold).length, n: out.length }
   };
 }
 
-/** The comparison, as two equity curves on the same money. */
+/**
+ * The money in, what holding it became, and what the rule made of it — one figure.
+ *
+ * This used to be two. The one above it drew a quarterly buyer's invested line
+ * against market value from 2022, and this one drew paid-in against two strategy
+ * curves from 2019: the same shape, the same dashed step, the same claim, twice
+ * in a row. The band and the underwater count came down from that figure, so the
+ * "money in vs what it is worth" question is still answered here — it is just
+ * answered on the chart that also has something further to say.
+ */
 function compareFigure(bt, noSell) {
   const f = bt.facts;
   const sampled = thinIndices(bt.rows.length, 240);
@@ -591,6 +537,38 @@ function compareFigure(bt, noSell) {
   const ticks = b.ticks(4).filter(t => t >= 0);
   const k = n => '&euro;' + (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
   const gap = f.rule - f.hold;
+
+  /*
+   * The honest half of the caption, measured on every day rather than on the 240
+   * sampled ones — the same mistake the rings in the old portfolio figure made.
+   *
+   * The figure this one absorbed counted days worth less than the money put in,
+   * which was the right number for a buyer who started in 2022 and the wrong one
+   * here: three good years first mean it happens on 7 days out of 1,944, which
+   * reads as a boast. The drawdown is what this window actually has to admit, so
+   * that is what the visible line carries and the underwater count moved into the
+   * detail, where it is true rather than flattering.
+   */
+  const under = bt.rows.filter(r => r.hold < r.invested).length;
+  let peak = null, dd = { depth: 0 };
+  for (const r of bt.rows) {
+    if (!peak || r.hold > peak.hold) peak = r;
+    const depth = peak.hold > 0 ? 1 - r.hold / peak.hold : 0;
+    if (depth > dd.depth) dd = { depth, d: r.d, peak };
+  }
+  /*
+   * How long it took to be worth that much again — with the money that went in
+   * meanwhile named, because this portfolio is still being paid into while it
+   * falls. Reaching the old euro value in June 2023 sounds like a recovery and is
+   * partly just ten thousand euros of fresh buys; a figure that says "back to
+   * where it started" and leaves that out is doing the thing this page is against.
+   */
+  const backAt = bt.rows.find(r => r.d > dd.d && r.hold >= dd.peak.hold);
+  const month = d => new Date(d).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const recovery = backAt
+    ? `it was not worth that much again until ${month(backAt.d)}, and only with `
+      + `${money(backAt.invested - dd.peak.invested)} of fresh monthly buys added in between`
+    : `it has not been worth that much since`;
 
   // the two end labels are far enough apart to sit on their own lines; invested is far below both
   const svg = `<svg viewBox="0 0 720 250" role="img" aria-label="Real chart: the same ${Math.round(f.invested)} euros paid in monthly across six technology shares since 2019. Held and never sold it ends at ${Math.round(f.hold)} euros; traded on the rule it ends at ${Math.round(f.rule)} euros.">
@@ -606,6 +584,8 @@ function compareFigure(bt, noSell) {
           return i < 0 ? '' : `<text x="${r1(b.x(i))}" y="228">${y}</text>`;
         }).filter(Boolean).join('\n        ')}
       </g>
+      <!-- gain band: what holding turned the paid-in money into -->
+      <path class="iv-band" d="${band(holdV, inv, b)}"></path>
       <path d="${steps(inv, b)}" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"></path>
       <path class="serieline" d="${line(holdV, b)}" stroke="var(--muted)" stroke-width="1.6"></path>
       <path class="serieline" d="${line(ruleV, b)}" stroke="var(--s-total)"></path>
@@ -621,21 +601,21 @@ function compareFigure(bt, noSell) {
       </g>
     </svg>`;
 
-  const head = figureHead(`${k(f.hold)} held. ${k(f.rule)} on the rule.`,
+  const head = figureHead(`${k(f.invested)} in. ${k(f.hold)} held. ${k(f.rule)} on the rule.`,
                           'TSLA &middot; NVDA &middot; AMD &middot; MSFT &middot; GOOGL &middot; META',
                           'Jan 2019 &ndash; today');
 
   const key = `<p class="lp-fig-key">
-      <span><i style="background:var(--s-total)"></i>On the rule <b>${k(f.rule)}</b></span>
-      <span><i style="background:var(--muted)"></i>Bought and held <b>${k(f.hold)}</b></span>
       <span><i class="dash"></i>Paid in <b>${money(f.invested)}</b></span>
+      <span><i style="background:var(--muted)"></i>Bought and held <b>${k(f.hold)}</b></span>
+      <span><i style="background:var(--s-total)"></i>On the rule <b>${k(f.rule)}</b></span>
     </p>`;
 
   const foot = figureFoot(
-    `The same ${money(f.invested)}, ${money(600)} a month into six shares. Selling is what made the difference &mdash; a tenth of a holding at each twelve-month high, put back at the next low; buying the dips <b>without</b> ever selling finishes behind at ${k(noSell.facts.rule)}.`,
-    `Real closes for the six, in euros at each day's rate. Buy and hold splits every monthly ${money(600)} evenly and never sells. The rule holds the money as cash until a share sits in the bottom fifth of its own trailing twelve-month range, then buys; at the top fifth it sells a tenth of that holding, at most once a month per share, and every signal is filled at the <i>next</i> close. Three things a reader should weigh: it is behind buy and hold on ${Math.round(100 * f.ahead / f.n)}% of days and only wins late; it realises ${money(f.realised)} of gains along the way where buy and hold realises none, and no tax is charged here &mdash; at 28% that is about ${money(f.realised * 0.28)}, two thirds of the ${money(gap)} difference; and it never once bought NVDA, the best of the six, because a share that keeps making new highs never enters the bottom fifth of its own range. It is also sensitive to how much is sold at each high: a tenth wins, a quarter finishes behind. One basket, one seven-year window, no costs.`);
+    `${money(600)} a month into six shares, whatever the price was that morning &mdash; and a fall into ${month(dd.d)} that left them <b>${Math.round(100 * dd.depth)}% below</b> their peak. Selling is what turned ${k(f.hold)} into ${k(f.rule)}: a tenth of a holding at each twelve-month high, put back at the next low; buying the dips <b>without</b> ever selling finishes behind at ${k(noSell.facts.rule)}.`,
+    `Real closes for the six, in euros at each day's rate; the buyer is the illustration &mdash; ${money(600)} a month, ${money(f.invested)} in total. The shaded band is what simply holding it turned that money into: it was worth less than the money paid in on ${under} of ${f.n} days, all of them in the first months, and its worst fall was ${Math.round(100 * dd.depth)}% off its peak to ${month(dd.d)} &mdash; ${recovery}. Buy and hold splits every monthly ${money(600)} evenly and never sells. The rule holds the money as cash until a share sits in the bottom fifth of its own trailing twelve-month range, then buys; at the top fifth it sells a tenth of that holding, at most once a month per share, and every signal is filled at the <i>next</i> close. Three things a reader should weigh: it is behind buy and hold on ${100 - Math.round(100 * f.ahead / f.n)}% of days and only wins late; it realises ${money(f.realised)} of gains along the way where buy and hold realises none, and no tax is charged here &mdash; at 28% that is about ${money(f.realised * 0.28)}, two thirds of the ${money(gap)} difference; and it never once bought NVDA, the best of the six, because a share that keeps making new highs never enters the bottom fifth of its own range. It is also sensitive to how much is sold at each high: a tenth wins, a quarter finishes behind. One basket, one seven-year window, no costs.`);
 
-  return { head, key, svg, foot, facts: f };
+  return { head, key, svg, foot, facts: { ...f, under, drawdown: dd.depth } };
 }
 
 /*
@@ -829,6 +809,7 @@ async function main() {
   const folioPrices = {};
   for (const t of ['TSLA', 'MSFT', 'AMD']) folioPrices[t] = await series(yf, t, '2022-01-01', today);
 
+  // no longer a figure of its own: this one drives the four feature-card drawings
   const sim = simulate(folioPrices, fx, { start: '2022-01-03', perBuy: 600, everyDays: 63 });
 
   /*
@@ -849,7 +830,6 @@ async function main() {
 
   const dip = dipFigure(spy);
   const rules = rulesFigure(amd);
-  const folio = folioFigure(sim);
   const compare = compareFigure(bt, btNoSell);
 
   let html = fs.readFileSync(INDEX, 'utf-8');
@@ -857,7 +837,6 @@ async function main() {
   const assemble = f => `${f.head}\n      ${f.key}\n      ${f.svg}\n      ${f.foot}`;
   html = replaceBlock(html, 'dip', assemble(dip));
   html = replaceBlock(html, 'rules', assemble(rules));
-  html = replaceBlock(html, 'folio', assemble(folio));
   html = replaceBlock(html, 'compare', assemble(compare));
 
   // the hero's worked example comes from the same numbers as the figure below it
@@ -872,11 +851,12 @@ async function main() {
   const last = sim[sim.length - 1];
   console.log(`dip    SPY ${spy.length} closes: ${dip.facts.first.toFixed(0)} -> ${dip.facts.second.toFixed(1)} -> ${dip.facts.last.toFixed(1)}, average ${dip.facts.avg.toFixed(1)}`);
   console.log(`rules  AMD ${amd.length} closes: target ${rules.facts.target.toFixed(0)} fired, peak ${rules.facts.peak.toFixed(0)}, trailing ${rules.facts.breakAt.toFixed(0)}, end ${rules.facts.last.toFixed(0)}`);
-  console.log(`folio  ${sim.length} days: invested ${Math.round(last.invested)}, value ${Math.round(last.value)}`);
+  console.log(`minis  ${sim.length} days: invested ${Math.round(last.invested)}, value ${Math.round(last.value)}`);
   console.log(`cmp    ${bt.facts.n} days: paid in ${Math.round(bt.facts.invested)}, held ${Math.round(bt.facts.hold)}, rule ${Math.round(bt.facts.rule)} `
     + `(${(bt.facts.rule / bt.facts.hold).toFixed(3)}x, ${bt.facts.buys} buys / ${bt.facts.sells} sells, `
     + `realised ${Math.round(bt.facts.realised)}, ahead ${Math.round(100 * bt.facts.ahead / bt.facts.n)}% of days)`);
-  console.log(`cmp    buys only, no selling: ${Math.round(btNoSell.facts.rule)}`);
+  console.log(`cmp    buys only, no selling: ${Math.round(btNoSell.facts.rule)}; `
+    + `${compare.facts.under} days under water, worst drawdown ${Math.round(100 * compare.facts.drawdown)}%`);
 
   if (check) {
     console.log(before === html ? 'index.html is up to date' : 'index.html is OUT OF DATE — run without --check');

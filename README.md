@@ -918,7 +918,8 @@ source the app itself uses. Closes issue #13.
 |---|---|---|
 | What one buy on the dip does | **SPY**, 2 Jan – 30 Jun 2020 | −31.4% into the 23 March trough, back to −5.1% |
 | What a rule near the top does | **AMD**, 13 Jul 2023 – 18 Sep 2024 | +82% into the 7 March peak, then −30% off it |
-| Portfolio over time, and the four cards | **TSLA, MSFT, AMD** from Jan 2022 | a 39% drawdown and a recovery |
+| Paid in, held, and on the rule | **TSLA, NVDA, AMD, MSFT, GOOGL, META** from Jan 2019 | a 52% fall into Dec 2022, and the rule finishing €76k ahead |
+| The four feature cards | **TSLA, MSFT, AMD** from Jan 2022 | a 39% drawdown and a recovery |
 
 **The prices are real and the buyer is invented, and the captions say which is which.** Each one
 names the ticker, the dates and the rebasing. That matters more here than anywhere else on the
@@ -927,10 +928,11 @@ weakest sentence on it.
 
 **The figures now say the unflattering thing too**, because the real series does. The target rule
 fires at €154 and the stock carries on to €182 — so the caption says the target sold early and
-that this is what the trailing rule is for. The portfolio figure reports that on **350 of its
-1,186 days the holding was worth less than the money put into it**, the last of them in April
-2025. The dip figure admits its second purchase is placed at the very bottom, which nobody manages
-on purpose.
+that this is what the trailing rule is for. The comparison figure reports the **52% fall into
+December 2022** in its visible caption, and behind the toggle that the rule is behind buy and hold
+on 60% of days, realises €175k of gains that no tax is charged on here, and never once bought
+NVDA, the best of the six. The dip figure admits its second purchase is placed at the very bottom,
+which nobody manages on purpose.
 
 **Three measurement bugs, found by looking rather than by reading.** Each one is the same mistake
 in a different place — sampling a series and then measuring the sample:
@@ -953,7 +955,7 @@ a scroller takes it.
 
 1. **A headline carrying the payoff in numbers**, set in the same serif as the section headings at
    21&ndash;27px — *"Down 31%, and still in profit"*, *"It ran 82%, then gave 30% back. You heard
-   about both."*, *"&euro;11,400 in. &euro;27,409 today."* The old titles named the mechanism
+   about both."*, *"&euro;56k in. &euro;327k held. &euro;404k on the rule."* The old titles named the mechanism
    (`WHAT ONE BUY ON THE DIP DOES`, 11.5px uppercase, `var(--muted)`) and vanished while scrolling.
    **Every number in them is computed from the series**, so changing a window changes the headline.
 2. **A source line naming the ticker and the window** — `SPY — the S&P 500 · Jan – Jun 2020` with a
@@ -964,9 +966,9 @@ a scroller takes it.
    with the number bolded. Everything else — provenance, method, caveats — moved behind a
    *Where these numbers come from* toggle.
 
-**The unflattering half stays in the visible line, not the toggle.** The portfolio figure's takeaway
-is "&euro;600 every quarter … and **350 days** along the way when it was worth less than the money
-put in"; the rules figure says the target emailed at &euro;154 while the stock ran to &euro;182. A
+**The unflattering half stays in the visible line, not the toggle.** The comparison figure's takeaway
+is "&euro;600 a month … and a fall into December 2022 that left them **52% below** their peak"; the
+rules figure says the target emailed at &euro;154 while the stock ran to &euro;182. A
 page arguing for discipline cannot show only the good half, and the collapsed detail is exactly
 where nobody would read it.
 
@@ -993,9 +995,40 @@ and `figure:<id>:end` markers in `index.html`; `--check` reports whether the fil
 without writing. Historical closes do not change, so there is no cache and no fixture. The script
 is not in `PUBLIC_FILES`, so it is not served.
 
-**Cost:** `index.html` went from 124 KB to 146 KB, which is **32 KB to 40 KB gzipped** — about
-1,600 real data points for 7.6 KB on the wire. The figures are still static SVG: they draw before
+**Cost:** `index.html` is 154 KB, **42 KB gzipped** — about 1,900 real data points for some 8 KB
+on the wire, against 124 KB before any of this. The figures are still static SVG: they draw before
 any script runs, and a visitor with JavaScript off still sees them.
+
+**Then two of the four became one — 2026-09-26.** Figures three and four were the same drawing
+twice: a dashed stepped line for the money paid in, a line above it for what that money became,
+over a multi-year window on a basket of US tech. One ran TSLA/MSFT/AMD from 2022 and stopped at
+"€11,400 in, €27,551 today"; the other ran six names from 2019 and carried on to compare holding
+against trading on the rule. A visitor scrolling past learned the same thing twice and then, in
+the second one, something more.
+
+They are now **one figure**: *"€56k in. €327k held. €404k on the rule."* The comparison kept its
+two strategy curves and took the gain band from the figure above it, so the shaded area between
+the dashed paid-in line and the held curve still answers "what did the money put in turn into" —
+the question the deleted figure existed to ask — while the blue line above it answers the one only
+this chart can.
+
+**The honesty line had to change with the window, not just be carried across.** The deleted figure
+counted the days the holding was worth less than the money put into it: 350 of 1,186, because that
+buyer started in January 2022 and walked straight into the drawdown. The same count on a 2019
+start is **7 days out of 1,944** — true, and a boast. What this window actually has to admit is the
+fall: **52% off the peak, into December 2022**, which is now the bolded number in the visible
+caption, with the 7 days moved into the detail toggle where the context sits. A statistic that
+survives a window change only by getting more flattering is the wrong statistic.
+
+`simulate()` and the 2022 basket are still fetched and still drawn — they feed the four small
+drawings in the feature cards. What went was `folioFigure()` and its `figure:folio` block.
+
+**Two more things the merge turned up, both in text nobody had recomputed.** The disclosure said
+the rule "is behind buy and hold on **40%** of days" while quoting `facts.ahead`, which counts the
+days it is *ahead* — it is behind on **60%**, and the sentence had been understating its own
+caveat. And the drawdown note first read "back to where it started by June 2023", which is true of
+the euro value and false as a recovery: **€10,200 of fresh monthly buys** went in between the peak
+and that date. Both now say the number they mean.
 
 ### ⏱️ The cache was retired after the answer went out — 2026-09-26
 
