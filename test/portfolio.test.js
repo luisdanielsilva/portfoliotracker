@@ -158,3 +158,60 @@ test('a position reopened after being closed uses the live basis, not the old on
   assert.strictEqual(lastHeldAvgCost(db, u, 'ORCL'), null, 'held again, so nothing to carry');
   assert.ok(getAvgCostPerShare(db, u, 'ORCL'), 'the live basis answers instead');
 });
+
+/* ---- the average-cost method (#26) ----
+ *
+ * Every sale above sells at exactly the average, which is why subtracting the
+ * proceeds from the cost looked right for as long as it did. These sell at a
+ * profit, which is what the real TSLA history did.
+ */
+const { replayPosition } = require('../portfolio.js');
+
+test('a sale at a profit leaves the average of what is left unchanged', () => {
+  const db = freshDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'TSLA', quantity: 10, amount: 1000, ts: day(1) });            // €100
+  addTx(db, u, { ticker: 'TSLA', quantity: 4, amount: 800, type: 'sell', ts: day(2) }); // €200
+  const r = getAvgCostPerShare(db, u, 'TSLA');
+  assert.equal(r.quantity, 6);
+  assert.equal(r.avgCostEUR, 100, 'proceeds-subtraction read (1000-800)/6 = €33.33');
+});
+
+test('the profit on a sale is realised gain, not a lower cost', () => {
+  const db = freshDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'TSLA', quantity: 10, amount: 1000, ts: day(1) });
+  addTx(db, u, { ticker: 'TSLA', quantity: 4, amount: 800, type: 'sell', ts: day(2) });
+  const r = replayPosition(db, u, 'TSLA');
+  assert.equal(r.realised, 400, 'sold for €800 what cost €400');
+  assert.equal(r.totalAmount, 600, 'the six shares left cost €600');
+  assert.equal(r.steps[1].realisedGain, 400);
+});
+
+test('a position bought back after selling out starts a fresh average', () => {
+  const db = freshDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'TSLA', quantity: 10, amount: 1000, ts: day(1) });
+  addTx(db, u, { ticker: 'TSLA', quantity: 10, amount: 3000, type: 'sell', ts: day(2) }); // €2000 profit
+  addTx(db, u, { ticker: 'TSLA', quantity: 5, amount: 1500, ts: day(3) });                // €300
+  assert.equal(getAvgCostPerShare(db, u, 'TSLA').avgCostEUR, 300,
+    'the old method read (1000-3000+1500)/5 = −€100 a share');
+});
+
+test('a sale after a split is taken out at the post-split average', () => {
+  const db = freshDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'NVDA', quantity: 2, amount: 1200, ts: day(1) });   // 2 × €600
+  addSplit(db, { ticker: 'NVDA', date: '2026-01-05', ratio: 3 });            // 6 × €200
+  addTx(db, u, { ticker: 'NVDA', quantity: 3, amount: 1500, type: 'sell', ts: day(10) });
+  const r = replayPosition(db, u, 'NVDA');
+  assert.equal(r.quantity, 3);
+  assert.equal(r.totalAmount / r.quantity, 200);
+  assert.equal(r.realised, 900, '€1500 for three shares that cost €600');
+});
+
+test('every step records the average before and after it', () => {
+  const db = freshDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'ORCL', quantity: 10, amount: 1000, ts: day(1) });
+  addTx(db, u, { ticker: 'ORCL', quantity: 10, amount: 700, ts: day(2) });
+  addTx(db, u, { ticker: 'ORCL', quantity: 20, amount: 2000, type: 'sell', ts: day(3) });
+  const { steps } = replayPosition(db, u, 'ORCL');
+  assert.deepEqual(steps.map(s => [s.avgBefore, s.avgAfter]), [[null, 100], [100, 85], [85, null]]);
+  assert.equal(steps[2].realisedGain, 300);
+});

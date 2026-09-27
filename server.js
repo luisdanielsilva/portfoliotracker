@@ -192,7 +192,7 @@ function getAvgCostPerShare(ticker, userId) {
 // What a Dip or Target rule measures from — cost basis for a holding, recorded
 // reference price for a watched stock. Holdings always win. See reference-price.js.
 const { referenceFor, watchedTickers } = require('./reference-price');
-const { lastHeldAvgCost } = require('./portfolio');
+const { lastHeldAvgCost, applyTransaction, newPosition } = require('./portfolio');
 
 // A crash in one request must not take the process down with it. Under Node 22 an
 // unhandled rejection is fatal by default; pm2 would restart, but that is a
@@ -1472,7 +1472,9 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
     }
 
     // Build cumulative holdings at each transaction
-    const holdings = {}; // ticker -> {qty, totalAmount}
+    // ticker -> {quantity, cost, realised}, walked by the same step portfolio.js
+    // uses, so the chart's cost and the average alerts fire against cannot drift
+    const holdings = {};
     const transactionSnapshots = [];
 
     // A split multiplies only the shares held when it happened. Shares bought
@@ -1492,20 +1494,12 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
     transactions.forEach(tx => {
       const {ticker, tx_type, quantity, amount_eur, ts} = tx;
 
-      if (!holdings[ticker]) {
-        holdings[ticker] = {qty: 0, totalAmount: 0};
-      }
+      if (!holdings[ticker]) holdings[ticker] = newPosition();
 
       const txDate = new Date(ts).toISOString().slice(0, 10);
       const qtyInCurrentUnits = toCurrentUnits(ticker, quantity, txDate);
 
-      if (tx_type === 'buy') {
-        holdings[ticker].qty += qtyInCurrentUnits;
-        holdings[ticker].totalAmount += amount_eur;
-      } else if (tx_type === 'sell') {
-        holdings[ticker].qty -= qtyInCurrentUnits;
-        holdings[ticker].totalAmount -= amount_eur;
-      }
+      applyTransaction(holdings[ticker], tx_type, qtyInCurrentUnits, amount_eur);
 
       // Store snapshot state at this transaction
       transactionSnapshots.push({
@@ -1604,20 +1598,20 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
       // Build holdings array with market value, applying stock splits
       let marketValue = 0;
       const holdingsArray = Object.entries(stateAtDate)
-        .filter(([_, h]) => h.qty > 0) // Only include positive positions
+        .filter(([_, h]) => h.quantity > 0) // Only include positive positions
         .map(([ticker, h]) => {
-          const adjustedQty = applySplits(ticker, h.qty, snapshotDate);
+          const adjustedQty = applySplits(ticker, h.quantity, snapshotDate);
           const price = pricesOnDate[ticker];
-          const currentValue = price ? adjustedQty * price : adjustedQty * (h.totalAmount / h.qty); // Fallback to cost if no price
+          const currentValue = price ? adjustedQty * price : adjustedQty * (h.cost / h.quantity); // Fallback to cost if no price
           marketValue += currentValue;
 
 
           return {
             ticker,
             quantity: adjustedQty,
-            amount: h.totalAmount,
-            costPerShare: h.qty > 0 ? h.totalAmount / h.qty : 0,
-            price: price || (h.totalAmount / h.qty),
+            amount: h.cost,
+            costPerShare: h.quantity > 0 ? h.cost / h.quantity : 0,
+            price: price || (h.cost / h.quantity),
             marketValue: currentValue
           };
         });
@@ -1629,11 +1623,12 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
         portfolioTotal: marketValue,
         /* The cost of what is held, which is what the page puts beside the market
            value. Summing every entry instead included positions closed years ago,
-           whose totalAmount is proceeds minus purchases — a realised gain, arriving
+           whose running total was proceeds minus purchases — a realised gain, arriving
            here as negative cost. Airbus and AT&T between them moved this figure by
-           €175.87 against a portfolio they are no longer part of. The holdings array
-           above already filters on the same condition. */
-        costBasis: Object.values(stateAtDate).reduce((sum, h) => h.qty > 0 ? sum + h.totalAmount : sum, 0)
+           €175.87 against a portfolio they are no longer part of. A closed position
+           now resets to zero cost (#26), so the filter is belt and braces; it matches
+           the holdings array above. */
+        costBasis: Object.values(stateAtDate).reduce((sum, h) => h.quantity > 0 ? sum + h.cost : sum, 0)
       };
     });
 

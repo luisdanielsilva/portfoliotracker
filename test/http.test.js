@@ -315,6 +315,26 @@ test('cost basis counts what is held, and every holding carries what it cost', a
   s.idb.close(); s.pdb.close();
 });
 
+/**
+ * The chart's cost and the average alerts fire against are one calculation (#26).
+ * A profitable partial sale used to take its proceeds out of the cost: 10 shares
+ * for €1000, 4 sold for €800, and the chart put €200 of cost beside six shares.
+ */
+test('a profitable sale leaves the chart the cost of the shares still held', async () => {
+  const s = signIn('avgcost@example.com');
+  const post = (quantity, amountEUR, type, ts) => fetch(base + '/api/transactions', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: 'PART', quantity, amountEUR, type, ts })
+  });
+  assert.strictEqual((await post(10, 1000, 'buy', Date.UTC(2026, 0, 10))).status, 200);
+  assert.strictEqual((await post(4, 800, 'sell', Date.UTC(2026, 0, 12))).status, 200);
+
+  const { snapshots } = await fetch(base + '/api/snapshots', { headers: s.headers }).then(r => r.json());
+  const h = snapshots[snapshots.length - 1].holdings.find(x => x.ticker === 'PART');
+  assert.strictEqual(h.amount, 600, 'six shares at the €100 they cost');
+  assert.strictEqual(h.costPerShare, 100);
+  s.idb.close(); s.pdb.close();
+});
+
 test('the database runs in WAL mode with a busy timeout', () => {
   // Both are required before a second worker is safe: WAL so readers do not block
   // on a writer, busy_timeout so a blocked writer waits rather than erroring.

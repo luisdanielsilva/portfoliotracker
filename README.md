@@ -1173,6 +1173,56 @@ instead of about the timing. Two more came with it: a refused write must leave t
 and a holding registered now must appear in the very next read of the portfolio, which is the
 user-visible shape of the bug.
 
+### 🧮 A sale no longer moves the average cost — 2026-09-27
+
+Closes #26. **The average cost now follows the standard average-cost method**, which the user
+chose. A buy adds its shares and what they cost. A sale removes shares *at the current average*,
+and the difference between the proceeds and that removed cost is **realised gain**, kept
+separately. A position that reaches zero starts again from nothing.
+
+**What it replaced.** A sale used to take its *proceeds* out of the cost. That is right only when
+a sale happens at exactly the average price, and every sale in the test suite did, which is why
+nothing failed. Replaying the real 49 transactions showed two things:
+
+- **A profitable sale lowered the average.** TSLA, 9 Dec 2019: nothing was bought, and the
+  average fell from €16.45 to €12.96.
+- **A closed position's profit carried into the next one.** TSLA was sold out on 23 Dec 2019.
+  When it was bought back on 16 Apr 2020 at €44.86 a share, the app said **€10.65**. Today it
+  said **€95.80** for shares that cost **€108.90**.
+
+This is the same mistake as the closed-positions bug in *A stock split is not a purchase* (a
+realised gain arriving as negative cost). That one was fixed at the portfolio total; inside one
+ticker's history it survived until now.
+
+**One calculation, two readers.** `applyTransaction()` in `portfolio.js` is the step. The
+average-cost replay and the `/api/snapshots` builder both call it, so the chart's cost and the
+figure alerts fire against cannot drift apart. `replayPosition()` now also returns `realised`
+and one `steps` entry per transaction (average before and after), which is what the decision
+journal (#28) reads.
+
+**Measured before and after**, on a copy of the live database through the real endpoints:
+
+| | Before | After |
+|---|--:|--:|
+| TSLA average cost | €95.80 | **€108.90** |
+| Every other holding | — | unchanged to the cent |
+| Cost basis today | €41,430.16 | **€44,509.40** (+€3,079.24 = €13.10 × 235 shares) |
+| Cost basis, 17 Apr 2020 | €958.44 | €4,037.68 |
+| Market value, all 4,114 days | — | unchanged |
+
+Cost basis moved on 3,265 days, starting 26 Jun 2017: the April 2016 sale made a €4.79 profit,
+and that carried forward too. **The three TSLA sales realised €4.79 + €993.47 + €2,080.98 =
+€3,079.24, which is exactly the change in today's cost basis.** That is the check that nothing
+was lost or created: the profit used to sit inside the cost, and now it sits in `realised`.
+
+**Alerts, checked.** TSLA is the only current holding with a sale in its history.
+`gain_from_avg_cost` 75% read +240.7% and now reads +199.7%, so it still fires.
+`dip_from_avg_cost` 10% would now fire at €98.01 instead of €86.22. Watchlist references carried
+from AIR.PA and T are unchanged; both were single-buy positions.
+
+Six tests (`test/portfolio.test.js`, `test/http.test.js`) sell at a profit, re-open a closed
+position, and sell after a split. **All six were seen to fail on the old code.**
+
 ### ⏳ Open Items / Backlog
 
 **Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**
