@@ -2196,8 +2196,8 @@
       return;
     }
 
-    var head='<div class="wl-row wl-head" style="font-size:10.5px;font-weight:600;letter-spacing:.08em;'
-      +'text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:8px">'
+    var head='<div class="wl-row wl-head" style="font-size:13.5px;font-weight:600;letter-spacing:.08em;'
+      +'text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--hair);padding-bottom:8px">'
       +'<div>Ticker</div><div class="wl-num">Reference</div><div class="wl-num">Now</div>'
       +'<div class="wl-num">Change</div><div>Note</div><div></div></div>';
 
@@ -2253,7 +2253,7 @@
 
       var alertTxt=w.alertCount
         ? w.alertCount+(w.alertCount===1?" alert":" alerts")
-        : '<span style="color:var(--faint)">no alerts</span>';
+        : '<span style="color:var(--muted)">no alerts</span>';
 
       /* Say so when there is not a full year behind it.
        *
@@ -3178,9 +3178,12 @@
     });
     svg.appendChild(hit);
 
-    /* legend + one row per rule: what it fires at, how far away, how often it fired */
-    lg.innerHTML='<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)"><i style="width:11px;height:11px;border-radius:3px;background:var(--ink)"></i>Price</span>'
-      +(avgOn?'<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)"><i style="width:11px;height:2px;background:var(--muted)"></i>'+esc(refLabel)+'</span>':'');
+    /* legend + one row per rule: what it fires at, how far away, how often it fired.
+       The Watchlist tab runs two points larger than the Alerts tab it shares this
+       renderer with, so the legend follows the map rather than the stylesheet. */
+    var lfs = M.p === "wm" ? "15.5px" : "12.5px";
+    lg.innerHTML='<span style="display:inline-flex;align-items:center;gap:7px;font-size:'+lfs+';color:var(--muted)"><i style="width:11px;height:11px;border-radius:3px;background:var(--ink)"></i>Price</span>'
+      +(avgOn?'<span style="display:inline-flex;align-items:center;gap:7px;font-size:'+lfs+';color:var(--muted)"><i style="width:11px;height:2px;background:var(--muted)"></i>'+esc(refLabel)+'</span>':'');
 
     if(!rules.length){
       rowsBox.innerHTML='<p class="hint" style="margin:12px 0 0">No alerts on '+esc(M.ticker)+' yet &mdash; '

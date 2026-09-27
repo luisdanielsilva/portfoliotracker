@@ -711,11 +711,85 @@
           gap:12px;align-items:end}
   .wl-add input{width:100%}
   .wl-narrow-only{display:none}
+
+  /* The whole Watchlist tab runs three points larger than the rest of the app.
+     It inherited the alert row's type sizes because it is the same kind of
+     list, but this tab is mostly prose and numbers somebody stops to read —
+     what a reference price is, where it came from, how far the price has moved
+     from it — and at 10-12px none of that invited reading. Sizes here are the
+     measured ones elsewhere in the stylesheet plus 2px, so the tab keeps the
+     same relative rhythm it had, just larger. Two points was the first pass
+     and still read small next to the numbers, so it went to three. */
+  #view-watch .addcard h3{font-size:19px}
+  #view-watch .addcard p.hint{font-size:15px;max-width:66ch}
+  #view-watch .rule-lbl{font-size:13px}
+  #view-watch .rule-field input[type=number]{font-size:15px;max-width:180px}
+  #view-watch input[type=text]{font-size:16px}
+  #view-watch .frm-note{font-size:14.5px}
+  #view-watch .microcopy{font-size:15px}
+  #view-watch .btn{font-size:15.5px}
+  #view-watch .wl-act .btn{font-size:15px;padding:6px 11px}
+  #view-watch .chip{font-size:15px}
+  #view-watch .legend button{font-size:15.5px}
+  #view-watch .segmented button{font-size:15.5px}
+  #view-watch .tip{font-size:15px}
+  #view-watch .tip .th{font-size:15px}
+  /* the row itself sets the size its numbers inherit */
+  #view-watch .wl-row{font-size:19px}
+  #view-watch .wl-sub{font-size:13px}
+  #view-watch .wl-note{font-size:15px}
+  #view-watch .am-row{font-size:15.5px}
+  #view-watch .am-mv{font-size:13px}
+  #view-watch .am-hits{font-size:15px}
+  #view-watch .hint{font-size:15px}
+  /* The Add button takes a share of the row like the fields beside it, and
+     fills it the way every other form's button fills its column. Its column
+     used to be `auto`, which sized it to the word "Add" — 59px against fields
+     of 189, 213 and 379 — and the empty message slot underneath it pushed the
+     button a whole line above the inputs it belongs to. The message now has
+     its own row under the form, where an error has the width to be read. */
+  #view-watch .wl-add{grid-template-columns:minmax(120px,.8fr) minmax(120px,.9fr) minmax(160px,1.5fr) minmax(120px,.7fr)}
+  #view-watch .wl-add .rule-actions{margin-top:0}
+
+  /* Contrast. Measured on --surface: --faint is 2.74:1 in light and 3.30:1 in
+     dark, against the 4.5:1 WCAG AA asks for body text — so every explanation
+     on this tab was below the floor, which is what "hard to read" was. --muted
+     is 5.10:1 and 6.09:1 and is already the stylesheet's colour for secondary
+     text, so nothing new is invented here. Scoped to this tab first; the same
+     move applies to the others. */
+  #view-watch .hint,
+  #view-watch .addcard p.hint,
+  #view-watch .microcopy,
+  #view-watch .rule-lbl,
+  #view-watch .wl-sub,
+  #view-watch .wl-head,
+  #view-watch #wl-count,
+  #view-watch #wm-sub,
+  #view-watch .am-hits,
+  #view-watch .am-mv{color:var(--muted)}
+
+  /* Three palette colours are themselves under 4.5:1 for small text on this
+     tab's white: --pos 3.97, --warn 3.24, and white on --accent 4.41 (the Add
+     button). Redefining the tokens on the tab keeps the change where it was
+     asked for — moving these lines to :root is what rolls it out everywhere.
+     The dark values have to be restated or the light ones leak into dark mode,
+     where the originals already pass. */
+  #view-watch{--pos:#357a4d;--warn:#8c6510;--accent:#2569bd}
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]) #view-watch{--pos:#5aa877;--warn:#d4a13f;--accent:#2f77cf}
+  }
+  :root[data-theme="dark"] #view-watch{--pos:#5aa877;--warn:#d4a13f;--accent:#2f77cf}
   @media (max-width:760px){
     .wl-add{grid-template-columns:1fr}
     .wl-row{grid-template-columns:1fr 1fr;gap:6px 12px;padding:12px 10px}
     .wl-row .wl-note,.wl-head{display:none}
     .wl-narrow-only{display:block}
+    /* two buttons in a half-width column: at the tab's larger type they need
+       the padding back rather than the point size */
+    #view-watch .wl-act .btn{font-size:14.5px;padding:5px 9px}
+    /* the four-column rule above is an id selector, so the stacking rule has to
+       match its specificity or the form stays four columns on a phone */
+    #view-watch .wl-add{grid-template-columns:1fr}
   }
   .al-head .al-num{text-align:right}
   .al-tk{font-weight:600;font-size:15px;letter-spacing:-.01em}
@@ -1732,13 +1806,13 @@
           </div>
           <div class="rule-actions">
             <button type="button" class="btn primary" id="wl-add">Add</button>
-            <div class="frm-note" id="wl-note-msg"></div>
           </div>
         </div>
+        <div class="frm-note" id="wl-note-msg"></div>
       </div>
 
       <div class="addcard" id="wm-card">
-        <h3>Price history <span id="wm-sub" style="color:var(--faint);font-weight:400;font-size:13px"></span></h3>
+        <h3>Price history <span id="wm-sub" style="color:var(--muted);font-weight:400;font-size:16px"></span></h3>
         <p class="hint">One watched stock at a time: its price history, the reference a dip is
           measured from, and every alert you have on it drawn as its own line. The markers show
           where each rule <b>would have fired</b> over the period.</p>
@@ -1764,7 +1838,7 @@
       </div>
 
       <div class="addcard">
-        <h3>Watching <span id="wl-count" style="color:var(--faint);font-weight:400"></span></h3>
+        <h3>Watching <span id="wl-count" style="color:var(--muted);font-weight:400"></span></h3>
         <p class="hint">Non-US listings need the exchange suffix Yahoo uses &mdash; <code>ASML.AS</code>,
           <code>VOW3.DE</code>. Removing a stock removes its alerts too, since they would have
           nothing left to measure.</p>
