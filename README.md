@@ -1229,6 +1229,44 @@ from AIR.PA and T are unchanged; both were single-buy positions.
 Six tests (`test/portfolio.test.js`, `test/http.test.js`) sell at a profit, re-open a closed
 position, and sell after a split. **All six were seen to fail on the old code.**
 
+### 🔠 Every tab is larger and passes AA contrast — 2026-09-27
+
+Closes #29. The Watchlist was made readable first (`1f446eb`, reviewed by the user): three points
+larger, secondary text on `--muted` instead of `--faint`, and a palette that passes WCAG AA. The
+user asked for the same on every other tab.
+
+**How, so nothing out of scope could move.** Every app `font-size:Npx` is now
+`calc(Npx + var(--bump))`. `--bump` is `0px` on `:root` and `3px` on the Portfolio, DCA,
+Algorithm, Alerts and Transactions tabs. Everything outside those tabs renders exactly as before
+by construction: the landing page, the header above the tabs, and the Watchlist (sized by hand,
+and left as reviewed). **Measured:** all 408 elements of the logged-out landing page have the
+same computed font size before and after. Chart text (axis labels, end labels, the pie's centre)
+is not bumped: it is sized to land at 11px on screen, and the Watchlist kept it that way too.
+
+**Contrast.** Text coloured `--faint` (2.74:1 light, 3.30:1 dark) is now `--muted` (5.10:1,
+6.09:1) in 38 stylesheet rules, the tabs' inline styles and `app.js`. `footer` and
+`.footer-legal` keep `--faint` because the landing page uses them. The AA palette moved from
+`#view-watch` to `:root`: `--accent` #2569bd, `--pos` #357a4d, `--warn` #8c6510, and dark
+`--accent` #2f77cf. That one does reach the landing page: 8 of its elements changed colour.
+
+**What the larger type broke, found by looking and then measuring every card at 1280, 1000, 900,
+700 and 390px:**
+
+- **Alert table columns.** Four-digit euro prices ran into the next column, and "past by 41.6%"
+  ran over the sparkline. The number columns got wider floors; the sparkline went 170 → 104px.
+- **Alert table between 820 and 1000px.** Its buttons ran off the card by 34px *before* today and
+  68px after. The stacked layout now starts at 980px.
+- **The create-alert form on a phone.** A bare `1fr` track grew to its content; now `minmax(0,1fr)`.
+- **Transaction rows.** Five fields on one line broke the date over three lines in the half-width
+  column. Every row is now two lines: date, Buy/Sell and delete, then ticker, shares and amount.
+
+**And one that predates all of this:** the Portfolio tab's pie was a fixed 600px with
+`flex-shrink:0` beside a 160px legend, so on a phone the whole page scrolled sideways to 736px.
+The pie now scales to its column, and the legend becomes two columns under it on narrow screens.
+
+The sweep ends with **no element past its card on any tab at any of the five widths**. Before
+today, five places failed it.
+
 ### ⏳ Open Items / Backlog
 
 **Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**

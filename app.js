@@ -689,7 +689,7 @@
   function renderLegend(){
     var lg=document.getElementById("legend"); lg.innerHTML="";
     if(!n){ lg.innerHTML=""; return; }
-    if(!selected.length){ lg.innerHTML='<span style="font-size:12.5px;color:var(--faint)">Pick a series above to plot it</span>'; return; }
+    if(!selected.length){ lg.innerHTML='<span style="font-size:calc(12.5px + var(--bump));color:var(--muted)">Pick a series above to plot it</span>'; return; }
     selected.forEach(function(k){
       var s=byKey(k); if(!s) return;
       var b=document.createElement("button");
@@ -705,7 +705,7 @@
     var sorted=STOCK_SPLITS.slice().sort(function(a,b){
       return new Date(a.date).getTime()-new Date(b.date).getTime();
     });
-    var html='<div style="margin-top:8px"><b style="color:var(--ink);font-size:11px;letter-spacing:.08em;text-transform:uppercase">Events:</b><div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">';
+    var html='<div style="margin-top:8px"><b style="color:var(--ink);font-size:calc(11px + var(--bump));letter-spacing:.08em;text-transform:uppercase">Events:</b><div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">';
     sorted.forEach(function(split){
       var date=new Date(split.date).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
       html+='<span><b>'+date+'</b> \u00b7 '+split.ticker+' \u00b7 '+split.description+'</span>';
@@ -891,7 +891,10 @@
     var pieContainer=document.getElementById("bars-weight");
     var sorted=per.slice().sort(function(a,b){return b.w-a.w;});
     var svgW=600, svgH=600, cx=300, cy=300, r=200;
-    var svg='<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px"><div style="position:relative;flex-shrink:0"><svg viewBox="0 0 '+svgW+' '+svgH+'" style="width:600px;height:600px;cursor:pointer" id="pie-chart" role="img" aria-label="Portfolio allocation pie chart">';
+    /* The pie used to be a fixed 600px that could not shrink, beside a 160px legend:
+       772px on any screen, so a phone scrolled the whole page sideways. It now
+       scales down to its column and the legend wraps underneath when it must. */
+    var svg='<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:16px"><div style="position:relative;flex:1 1 280px;max-width:600px;min-width:0"><svg viewBox="0 0 '+svgW+' '+svgH+'" style="display:block;width:100%;height:auto;cursor:pointer" id="pie-chart" role="img" aria-label="Portfolio allocation pie chart">';
     svg+='<defs><style>.pie-slice{transition:all 0.15s;cursor:pointer}.pie-slice:hover{filter:brightness(1.1);stroke-width:3!important}</style></defs>';
     var angle=-Math.PI/2;
     var colors=palette();
@@ -909,11 +912,11 @@
     svg+='<circle cx="'+cx+'" cy="'+cy+'" r="120" fill="var(--surface)" stroke="var(--hair)" stroke-width="1"/>';
     svg+='<text x="'+cx+'" y="'+cy+'" text-anchor="middle" dy="0.3em" style="font-size:28px;font-weight:600;fill:var(--ink)">'+per.length+'</text>';
     svg+='<text x="'+cx+'" y="'+(cy+32)+'" text-anchor="middle" style="font-size:13px;fill:var(--faint)">holdings</text>';
-    svg+='</svg><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:10;background:var(--surface);border:1px solid var(--hair);border-radius:8px;padding:10px 14px;box-shadow:var(--shadow);white-space:nowrap" id="pie-tip" hidden><div style="font-weight:600;font-size:13px;color:var(--ink)" id="pie-tip-ticker"></div><div style="font-size:12px;color:var(--muted);margin-top:4px"><span id="pie-tip-pct"></span>%</div><div style="font-size:12px;color:var(--muted)">\u20ac<span id="pie-tip-val"></span></div></div></div>';
+    svg+='</svg><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:10;background:var(--surface);border:1px solid var(--hair);border-radius:8px;padding:10px 14px;box-shadow:var(--shadow);white-space:nowrap" id="pie-tip" hidden><div style="font-weight:600;font-size:calc(13px + var(--bump));color:var(--ink)" id="pie-tip-ticker"></div><div style="font-size:calc(12px + var(--bump));color:var(--muted);margin-top:4px"><span id="pie-tip-pct"></span>%</div><div style="font-size:calc(12px + var(--bump));color:var(--muted)">\u20ac<span id="pie-tip-val"></span></div></div></div>';
 
-    svg+='<div style="width:160px;display:flex;flex-direction:column;gap:4px">';
+    svg+='<div class="pie-legend">';
     sorted.forEach(function(p,i){
-      svg+='<div style="font-size:11px;padding:6px 8px;border-radius:4px;background:var(--surface-2);border-left:3px solid '+colors[i%8]+';text-align:right"><div style="font-weight:500;color:var(--ink)">'+esc(p.short)+'</div><div style="font-size:9px;color:var(--muted)">'+comma((p.w*100).toFixed(1))+'% \u00b7 \u20ac'+nfEur2.format(p.val)+'</div></div>';
+      svg+='<div style="font-size:calc(11px + var(--bump));padding:6px 8px;border-radius:4px;background:var(--surface-2);border-left:3px solid '+colors[i%8]+';text-align:right"><div style="font-weight:500;color:var(--ink)">'+esc(p.short)+'</div><div style="font-size:calc(9px + var(--bump));color:var(--muted)">'+comma((p.w*100).toFixed(1))+'% \u00b7 \u20ac'+nfEur2.format(p.val)+'</div></div>';
     });
     svg+='</div></div>';
 
@@ -1442,7 +1445,7 @@
     }
     function laneLine(x,key,name){
       var l=x[key];
-      if(l.d==="None") return name+": <span style=\"color:var(--faint)\">nothing</span>";
+      if(l.d==="None") return name+": <span style=\"color:var(--muted)\">nothing</span>";
       var col=l.d==="Buy"?"var(--pos)":l.d==="Sell"?"var(--neg)":"#d69a2e";
       return name+': <b style="color:'+col+'">'+l.d+'</b> · '+esc(algoTierWord(l.t))+' '+l.c+'%';
     }
@@ -1456,11 +1459,11 @@
       var evHere=(d.events||[]).filter(function(ev){ return algoIndexForDate(d.days,ev.date)===i; });
       tip.innerHTML='<div style="font-weight:600;margin-bottom:5px">'+algoDate(x.date)+'</div>'+
         '<div style="font-variant-numeric:tabular-nums;margin-bottom:6px">'+algoMoney(x.close,d.currency)+'</div>'+
-        '<div style="font-size:11.5px;line-height:1.7">'+
+        '<div style="font-size:calc(11.5px + var(--bump));line-height:1.7">'+
         laneLine(x,"e","Early")+'<br>'+laneLine(x,"f","Confirmed")+
         '<div style="margin-top:6px;border-top:1px solid var(--hair);padding-top:5px;color:var(--muted)">'+
         d.meta.windows.map(function(w){
-          return w.key+' '+esc(algoRegimeWord(x.rg[w.key]))+' <span style="color:var(--faint)">('+algoPct(x.pr[w.key])+')</span>';
+          return w.key+' '+esc(algoRegimeWord(x.rg[w.key]))+' <span style="color:var(--muted)">('+algoPct(x.pr[w.key])+')</span>';
         }).join("<br>")+'</div>'+
         (evHere.length?'<div style="margin-top:6px;border-top:1px solid var(--hair);padding-top:5px">'+
           evHere.map(function(ev){
@@ -1482,7 +1485,7 @@
     Array.prototype.forEach.call(svg.querySelectorAll(".algo-lanelab"),function(el){
       el.addEventListener("mouseenter",function(){
         var r=svg.getBoundingClientRect(), box=el.getBoundingClientRect();
-        tip.innerHTML='<div style="font-size:11.5px;line-height:1.6">'+ALGO_LANE_TEXT[el.dataset.lane]+'</div>';
+        tip.innerHTML='<div style="font-size:calc(11.5px + var(--bump));line-height:1.6">'+ALGO_LANE_TEXT[el.dataset.lane]+'</div>';
         tip.style.left=Math.min(r.width-120,140)+"px";
         tip.style.top=(box.top-r.top-8)+"px";
         tip.style.opacity="1";
@@ -1498,7 +1501,7 @@
           '<div class="r-p">'+r.days+' day'+(r.days===1?"":"s")+' · '+algoMoney(r.startClose,d.currency)+' &rarr; '+algoMoney(r.endClose,d.currency)+
           ' · peak '+Math.round(r.peakConfidence)+'%</div></div>';
       }).join(""):'<div class="algo-runempty">'+empty+'</div>';
-      var more=runs.length>6?'<div class="r-p" style="color:var(--faint);font-size:11px">and '+(runs.length-6)+' earlier</div>':'';
+      var more=runs.length>6?'<div class="r-p" style="color:var(--muted);font-size:calc(11px + var(--bump))">and '+(runs.length-6)+' earlier</div>':'';
       return '<div class="algo-runcol"><h4>'+title+'</h4>'+body+more+'</div>';
     }
     document.getElementById("algo-runs").innerHTML=
@@ -1515,7 +1518,7 @@
       rows.map(function(x){
         return '<tr><td>'+x.date+'</td><td>'+algoMoney(x.close,d.currency)+'</td>'+
           ['6M','1Y','2Y'].map(function(k){
-            return '<td>'+esc(algoRegimeWord(x.rg[k]))+' <span style="color:var(--faint)">'+algoPct(x.pr[k])+'</span></td>';
+            return '<td>'+esc(algoRegimeWord(x.rg[k]))+' <span style="color:var(--muted)">'+algoPct(x.pr[k])+'</span></td>';
           }).join("")+cell(x.e)+cell(x.f)+'</tr>';
       }).join("")+'</tbody>';
   }
@@ -1628,8 +1631,9 @@
       var totalStr=isUSD?" × "+tx.exchangeRate+" = €"+nfEur2.format(tx.amount):"";
       var typeLabel=tx.type==="sell"?"Sell":"Buy";
       var row=document.createElement("div"); row.className="usrow";
-      row.innerHTML='<span class="ud">'+stampLabel(tx.ts)+'</span><span class="um">'+esc(tx.ticker)+'</span><span class="um">'+tx.quantity+' shares</span><span class="um">'+amtStr+totalStr+'</span><span class="ub">'+typeLabel+'</span>'+
-        '<button class="ux" title="Delete" aria-label="Delete transaction">×</button>';
+      row.innerHTML='<div class="us-l1"><span class="ud">'+stampLabel(tx.ts)+'</span><span class="ub">'+typeLabel+'</span>'+
+        '<button class="ux" title="Delete" aria-label="Delete transaction">×</button></div>'+
+        '<div class="us-l2"><span class="um us-tk">'+esc(tx.ticker)+'</span><span class="um">'+tx.quantity+' shares</span><span class="um">'+amtStr+totalStr+'</span></div>';
       row.querySelector(".ux").addEventListener("click",function(){
         apiFetch("./api/transactions/"+tx.id,{method:"DELETE"}).then(function(){
           transactions=transactions.filter(function(t){return t.id!==tx.id;});
@@ -2187,7 +2191,7 @@
     if(count) count.textContent="("+WATCHLIST.length+")";
 
     if(!WATCHLIST.length){
-      list.innerHTML='<p style="color:var(--faint);font-size:13px">Nothing on the watchlist yet. '
+      list.innerHTML='<p style="color:var(--muted);font-size:calc(13px + var(--bump))">Nothing on the watchlist yet. '
         +'Add a ticker above and it starts getting prices tomorrow morning.</p>';
       // Removing the last stock has to empty the chart too, not leave the one
       // that was just deleted still drawn above the list.
@@ -2196,7 +2200,7 @@
       return;
     }
 
-    var head='<div class="wl-row wl-head" style="font-size:13.5px;font-weight:600;letter-spacing:.08em;'
+    var head='<div class="wl-row wl-head" style="font-size:calc(13.5px + var(--bump));font-weight:600;letter-spacing:.08em;'
       +'text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--hair);padding-bottom:8px">'
       +'<div>Ticker</div><div class="wl-num">Reference</div><div class="wl-num">Now</div>'
       +'<div class="wl-num">Change</div><div>Note</div><div></div></div>';
@@ -2218,9 +2222,9 @@
 
       var priceTxt=nowVal!=null
         ? fmtMoney(nowVal,cur)
-        : '<span style="color:var(--faint)">no price yet</span>';
+        : '<span style="color:var(--muted)">no price yet</span>';
       var refTxt=refVal==null
-        ? '<span style="color:var(--faint)">none</span>'
+        ? '<span style="color:var(--muted)">none</span>'
         : fmtMoney(refVal,cur);
 
       // Recomputed from the displayed pair rather than reusing the server's
@@ -2232,7 +2236,7 @@
       // A stock added today sits exactly on its own reference, so an arrow and a
       // colour would both be claiming a direction that has not happened yet.
       if(movePct!=null&&Math.abs(movePct)<0.05){
-        change='<span style="color:var(--faint)">—</span>';
+        change='<span style="color:var(--muted)">—</span>';
       } else if(movePct!=null){
         /* dropPct is positive when the price is below the reference, which is
          * the direction a dip rule cares about — and on a stock you are thinking
@@ -2248,7 +2252,7 @@
         change='<span style="color:'+(down?"var(--neg)":"var(--pos)")+'">'+(down?"↓":"↑")+" "
           +Math.abs(movePct).toFixed(1)+"%</span>";
       } else {
-        change='<span style="color:var(--faint)">—</span>';
+        change='<span style="color:var(--muted)">—</span>';
       }
 
       var alertTxt=w.alertCount
@@ -2641,7 +2645,7 @@
     var svg=alertSpark(ticker, s.costBased, s.trigger, s.avgCost);
     slot.innerHTML=svg
       ? svg+'<span class="cap">Six months of price \u00b7 <span style="color:var(--neg)">\u2014</span> the level that fires'
-            +(s.avgCost!=null?' \u00b7 <span style="color:var(--faint)">- -</span> your average cost':'')+'</span>'
+            +(s.avgCost!=null?' \u00b7 <span style="color:var(--muted)">- -</span> your average cost':'')+'</span>'
       : "";
   }
 
@@ -2933,7 +2937,7 @@
     var box=document.getElementById(M.p+"-tickers"); if(!box) return;
     var r=amTickerList(M), list=r.list, counts=r.counts;
     if(!list.length){
-      box.innerHTML='<span style="font-size:12.5px;color:var(--faint)">'
+      box.innerHTML='<span style="font-size:calc(12.5px + var(--bump));color:var(--muted)">'
         +(M.p==="wm"
           ? "Add a stock above and its price history will be drawn here."
           : "Register a transaction first — the map draws a holding you own.")
@@ -3179,9 +3183,9 @@
     svg.appendChild(hit);
 
     /* legend + one row per rule: what it fires at, how far away, how often it fired.
-       The Watchlist tab runs two points larger than the Alerts tab it shares this
-       renderer with, so the legend follows the map rather than the stylesheet. */
-    var lfs = M.p === "wm" ? "15.5px" : "12.5px";
+       The Watchlist was sized by hand (15.5px); every other tab grows by --bump
+       (#29), which lands the Alerts tab on the same 15.5px. */
+    var lfs = M.p === "wm" ? "15.5px" : "calc(12.5px + var(--bump))";
     lg.innerHTML='<span style="display:inline-flex;align-items:center;gap:7px;font-size:'+lfs+';color:var(--muted)"><i style="width:11px;height:11px;border-radius:3px;background:var(--ink)"></i>Price</span>'
       +(avgOn?'<span style="display:inline-flex;align-items:center;gap:7px;font-size:'+lfs+';color:var(--muted)"><i style="width:11px;height:2px;background:var(--muted)"></i>'+esc(refLabel)+'</span>':'');
 
@@ -3230,7 +3234,7 @@
     count.textContent="("+alerts.length+")";
 
     if(alerts.length===0){
-      list.innerHTML='<p style="color:var(--faint);font-size:13px">No alerts yet. Create one to get started.</p>';
+      list.innerHTML='<p style="color:var(--muted);font-size:calc(13px + var(--bump))">No alerts yet. Create one to get started.</p>';
       return;
     }
 
@@ -3498,12 +3502,12 @@
         var native=p.priceNative!=null?p.priceNative:p.priceUSD;
         return '<tr><td><b>'+esc(p.ticker)+'</b></td>'+
           '<td>'+fmtNative(native,cur)+'</td>'+
-          '<td>'+(cur==="EUR"?'<span style="color:var(--faint)">—</span>':'€ '+nfEur2.format(p.priceEUR))+'</td>'+
+          '<td>'+(cur==="EUR"?'<span style="color:var(--muted)">—</span>':'€ '+nfEur2.format(p.priceEUR))+'</td>'+
           '<td>'+new Date(p.date).toLocaleDateString()+'</td></tr>';
       }).join('');
 
     if(missingTickers.length>0){
-      html+='<tr style="background:var(--surface-2)"><td colspan="4" style="text-align:center;color:var(--faint);font-size:12px;padding:12px">⚠️ No price data for: '+missingTickers.join(', ')+'</td></tr>';
+      html+='<tr style="background:var(--surface-2)"><td colspan="4" style="text-align:center;color:var(--muted);font-size:calc(12px + var(--bump));padding:12px">⚠️ No price data for: '+missingTickers.join(', ')+'</td></tr>';
     }
 
     html+='</tbody>';
@@ -3814,7 +3818,7 @@
     var dips=findDips(ts,dev,DCA_DIP_THRESHOLD).sort(function(a,b){ return b.startIdx-a.startIdx; }).slice(0,10);
     var tbl=document.getElementById("dca-table");
     if(!dips.length){
-      tbl.innerHTML='<tbody><tr><td style="padding:12px;color:var(--faint)">No dip of '+Math.round(Math.abs(DCA_DIP_THRESHOLD)*100)+'%+ below average found in this window.</td></tr></tbody>';
+      tbl.innerHTML='<tbody><tr><td style="padding:12px;color:var(--muted)">No dip of '+Math.round(Math.abs(DCA_DIP_THRESHOLD)*100)+'%+ below average found in this window.</td></tr></tbody>';
     } else {
       tbl.innerHTML='<thead><tr><th>Period</th><th>Duration</th><th>Deepest discount</th><th>On</th></tr></thead><tbody>'+
         dips.map(function(d){
