@@ -1641,6 +1641,20 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
   }
 });
 
+// GET /api/journal - every trade with the alert before it, its effect on the
+// average cost and what the decision is worth now and a year on; plus the alerts
+// nobody acted on (#28, decision-journal.js)
+const { decisionJournal } = require('./decision-journal');
+app.get('/api/journal', (req, res) => {
+  try {
+    const ticker = typeof req.query.ticker === 'string' && req.query.ticker ? req.query.ticker.toUpperCase() : null;
+    res.json(decisionJournal(db, req.userId, { ticker }));
+  } catch (err) {
+    console.error('GET /api/journal error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
 // GET /api/avg-cost - average cost per share for each ticker currently held, with current price & dip vs. that cost
 app.get('/api/avg-cost', (req, res) => {
   try {

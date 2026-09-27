@@ -335,6 +335,21 @@ test('a profitable sale leaves the chart the cost of the shares still held', asy
   s.idb.close(); s.pdb.close();
 });
 
+test('the decision journal needs a session and returns only its owner\'s trades', async () => {
+  assert.strictEqual((await fetch(base + '/api/journal')).status, 401);
+  const s = signIn('journal@example.com');
+  const post = (quantity, amountEUR, ts) => fetch(base + '/api/transactions', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: 'JRNL', quantity, amountEUR, type: 'buy', ts })
+  });
+  assert.strictEqual((await post(10, 1000, Date.UTC(2026, 0, 10))).status, 200);
+  assert.strictEqual((await post(10, 800, Date.UTC(2026, 1, 10))).status, 200);
+
+  const j = await fetch(base + '/api/journal?ticker=jrnl', { headers: s.headers }).then(r => r.json());
+  assert.deepStrictEqual(j.holdings.map(h => h.ticker), ['JRNL']);
+  assert.strictEqual(j.holdings[0].trades[1].avgChangeEUR, -10);
+  s.idb.close(); s.pdb.close();
+});
+
 test('the database runs in WAL mode with a busy timeout', () => {
   // Both are required before a second worker is safe: WAL so readers do not block
   // on a writer, busy_timeout so a blocked writer waits rather than erroring.
