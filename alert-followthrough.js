@@ -7,6 +7,9 @@
  *   node alert-followthrough.js --all           # include alerts that never left
  *   node alert-followthrough.js --list          # every event, one per line
  *
+ * Counts episodes, not emails: a dip that holds for a week is reminded daily and
+ * is one decision (see alertEpisodes in alert-log.js).
+ *
  * Read the rate with the caveats attached, not on its own: a purchase after a
  * buy alert is correlation, a transaction's date is the one the user typed, and
  * a 'watch' rule counts a trade in either direction because the app was never
@@ -30,8 +33,9 @@ function main(argv) {
   const db = new Database(dbFile, { readonly: true });
   const rows = followThrough(db, { windowDays, onlyDelivered });
 
-  console.log(`\n${rows.length} alert(s) ${onlyDelivered ? 'delivered' : 'logged'}, `
-    + `follow-through measured over ${windowDays} day(s)\n`);
+  const reminders = rows.reduce((n, r) => n + r.reminders, 0);
+  console.log(`\n${rows.length} episode(s) from ${reminders} reminder(s) ${onlyDelivered ? 'delivered' : 'logged'}, `
+    + `follow-through measured over ${windowDays} day(s) after the last reminder\n`);
   if (!rows.length) {
     console.log('Nothing to score yet — the log starts the day this shipped.\n');
     return;
@@ -48,8 +52,9 @@ function main(argv) {
   if (argv.includes('--list')) {
     console.log('');
     for (const r of rows) {
-      console.log(`${String(r.fired_at).slice(0, 10)}  ${pad(r.ticker, 9)}${pad(r.alert_type, 22)}`
-        + `${pad(r.delivery, 10)}${r.followed ? `→ ${r.action} after ${r.daysToAction.toFixed(1)}d` : '(no trade)'}`);
+      const span = `${String(r.firstAt).slice(0, 10)} → ${String(r.lastAt).slice(5, 10)}`;
+      console.log(`${pad(span, 20)}${pad(r.ticker, 9)}${pad(r.alert_type, 22)}`
+        + `${pad(r.reminders + 'x', 6)}${r.followed ? `→ ${r.action} after ${r.daysToAction.toFixed(1)}d` : '(no trade)'}`);
     }
   }
   console.log('');

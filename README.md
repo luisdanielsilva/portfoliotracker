@@ -618,11 +618,17 @@ is a UNION of two shapes, one of which lacks the price the evaluation needs. `so
 which produced the row (`rule` / `algo`), `alert_type` carries the rule type or `algo`, and
 `alert_id` points back at the rule for the ones that have one.
 
-**A row is an email item, never a day the condition held.** A dip rule whose condition is true
-for nine days running is throttled to one email and is therefore *one* event; a very strong buy
-inside its 60-day cooldown is not an event at all. This is the distinction that decides whether
-the eventual follow-through rate means anything — counting nine throttled days as nine alerts
-would divide by the wrong number and flatter the result.
+**A row is an email item.** A hand-built rule sends at most once per 24 hours, so a dip that
+holds for nine days is **nine emails and nine rows**: a daily reminder, which is what the user
+wants (decided 2026-09-27, #27). An earlier version of this paragraph said the nine days were
+one email; `alert_events` showed VOW.DE's dip on every run from 19 to 27 September. The
+algorithm is different: a very strong buy inside its 60-day cooldown is not an event at all.
+
+**Anything that counts alerts groups them into episodes first.** Consecutive daily rows for the
+same rule on the same holding are one *episode*: one decision to make, reminded daily. Counting
+nine reminders as nine alerts would divide a follow-through rate by the wrong number and flatter
+it. `alertEpisodes()` in `alert-log.js` does the grouping; the follow-through report and the
+decision journal both read episodes.
 
 **Delivery is recorded, never assumed.** The row is written *before* the digest goes out, for
 the same reason the throttle is stamped early: a mail failure that left the log empty would

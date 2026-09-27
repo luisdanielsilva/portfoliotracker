@@ -11,7 +11,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { evaluateAlerts } = require('../price-fetch.js');
-const { followThrough, summariseFollowThrough, eventsFor, recordAlertEvent } = require('../alert-log.js');
+const { followThrough, summariseFollowThrough, eventsFor, recordAlertEvent, alertEpisodes } = require('../alert-log.js');
 const m = require('../db-migrations.js');
 const { migratedDb, addUser, addTx, addPrice, day } = require('./helpers.js');
 
@@ -71,7 +71,7 @@ test('the sell-side rules are recorded as selling, and a level rule as neither',
 
 /* ---------- one email, one row ---------- */
 
-test('a condition that stays true for days is one alert, not one a day', async () => {
+test('running again the same day does not send a second reminder', async () => {
   const db = migratedDb();
   dipping(db);
 
@@ -224,4 +224,50 @@ test('the algorithm cooldown reads the carried-forward history', () => {
   const since = daysSinceLastAlert(db, u, 'NVDA', new Date());
   assert.ok(since >= 9.9 && since <= 10.1,
     'otherwise the first boot after the change re-emails everything inside its quiet period');
+});
+
+/* ---------- episodes: daily reminders are one decision (#27) ---------- */
+
+const remind = (db, u, dayOffset, extra = {}) => recordAlertEvent(db, {
+  userId: u, ticker: 'ORCL', source: 'rule', alertType: 'dip_from_avg_cost', alertId: 7,
+  firedAt: new Date(Date.UTC(2026, 8, 19, 9) + dayOffset * 864e5).toISOString(), priceEur: 120 - dayOffset, ...extra
+});
+const allRows = db => db.prepare('SELECT * FROM alert_events ORDER BY fired_at, id').all();
+
+test('a week of daily reminders is one episode', () => {
+  const db = migratedDb(); const u = addUser(db, 'owner@example.com');
+  for (let d = 0; d < 7; d++) remind(db, u, d);
+  const eps = alertEpisodes(allRows(db));
+  assert.strictEqual(eps.length, 1);
+  assert.strictEqual(eps[0].reminders, 7);
+  assert.strictEqual(eps[0].price_eur, 120, 'the price the reader was first told');
+  assert.strictEqual(eps[0].lastPriceEur, 114);
+});
+
+test('a missed day does not split an episode; a long silence does', () => {
+  const db = migratedDb(); const u = addUser(db, 'owner@example.com');
+  [0, 1, 2, 3, 5, 6].forEach(d => remind(db, u, d));   // the real ORCL shape: the 23rd skipped
+  remind(db, u, 20);                                    // two weeks later: a new dip
+  const eps = alertEpisodes(allRows(db));
+  assert.deepStrictEqual(eps.map(e => e.reminders), [6, 1]);
+});
+
+test('two rules on one holding are two episodes, even on the same days', () => {
+  const db = migratedDb(); const u = addUser(db, 'owner@example.com');
+  for (let d = 0; d < 3; d++) { remind(db, u, d); remind(db, u, d, { alertId: 8 }); }
+  assert.strictEqual(alertEpisodes(allRows(db)).length, 2);
+});
+
+test('follow-through counts episodes, and a trade late in the reminders still answers it', () => {
+  const db = migratedDb(); const u = addUser(db, 'owner@example.com');
+  for (let d = 0; d < 9; d++) remind(db, u, d);
+  db.prepare("UPDATE alert_events SET delivery = 'sent'").run();
+  addTx(db, u, { ticker: 'ORCL', quantity: 2, amount: 230, ts: Date.UTC(2026, 8, 19, 9) + 7.5 * 864e5 });
+
+  const rows = followThrough(db, { windowDays: 0 });
+  assert.strictEqual(rows.length, 1, 'nine reminders, one alert');
+  assert.strictEqual(rows[0].followed, true, 'bought on day eight, while still being reminded');
+  assert.strictEqual(rows[0].daysToAction, 7.5, 'counted from when the reader first knew');
+  const [g] = summariseFollowThrough(rows);
+  assert.strictEqual(g.given, 1);
 });

@@ -15,13 +15,17 @@
  * records both, and `source` says which produced it.
  *
  * WHAT COUNTS AS AN EVENT. A row is written when an alert is put into somebody's
- * digest — not when a rule's condition is merely true. A rule whose condition
- * holds for nine days running is throttled to one email and is therefore one
- * event, not nine; a very strong buy inside its cooldown is not an event either.
- * That keeps "how often were you told" honest, which is the number the
- * follow-through rate is a fraction of. `delivery` then records what became of
+ * digest — not when a rule's condition is merely true. A hand-built rule sends at
+ * most once a day, so a condition that holds for nine days is nine rows: a daily
+ * reminder, which is what the user wants (#27). A very strong buy inside the
+ * algorithm's cooldown is not an event at all. `delivery` records what became of
  * the send, so a mail that never left is not counted as something the reader
  * ignored.
+ *
+ * WHAT COUNTS AS AN ALERT. Anything that counts — a follow-through rate, the
+ * decision journal — reads *episodes* (alertEpisodes below): consecutive
+ * reminders of one rule on one holding, one decision to make. Nine reminders
+ * counted as nine alerts would divide by the wrong number.
  *
  * PRIVACY. This lives on the financial side, keyed by the same opaque user key
  * as `transactions`. Nothing here can be turned back into a person without
@@ -128,7 +132,57 @@ function millisOf(stamp) {
 }
 
 /**
+ * Consecutive reminders of one rule, grouped into the decision they are about.
+ *
+ * A dip that holds for a week is emailed every morning (#27) — seven rows, one
+ * episode. Rows join an episode while each follows the last within `gapDays`
+ * (default 3), so a missed run or a day the price bobbed back over the line does
+ * not split one dip into two. ORCL's dip in September 2026 skipped the 23rd and
+ * carried on; that is one episode.
+ *
+ * "One rule" is the rule row for a hand-built alert (`alert_id`) and the alert
+ * type for the algorithm, which has no row. Two different dip rules on the same
+ * holding (15% and 25%) are two episodes: they are two thresholds the reader set.
+ *
+ * Takes rows oldest first (as read from alert_events, `detail` parsed or not) and
+ * returns episodes oldest first. Pure, so it can be argued with in a test.
+ */
+function alertEpisodes(rows, { gapDays = 3 } = {}) {
+  const gapMs = gapDays * 864e5;
+  const open = new Map();   // rule key -> episode still accepting reminders
+  const out = [];
+  for (const r of rows) {
+    const key = `${r.user_id}|${r.ticker}|${r.alert_type}|${r.alert_id ?? ''}`;
+    const at = millisOf(r.fired_at);
+    let ep = open.get(key);
+    if (!ep || at - ep.lastMs > gapMs) {
+      ep = {
+        ...r,                          // the first reminder's row: what the reader was first told
+        firstMs: at, lastMs: at,
+        firstAt: r.fired_at, lastAt: r.fired_at,
+        reminders: 0, eventIds: [],
+        lastPriceEur: null, lastPriceNative: null
+      };
+      open.set(key, ep);
+      out.push(ep);
+    }
+    ep.lastMs = at;
+    ep.lastAt = r.fired_at;
+    ep.reminders++;
+    ep.eventIds.push(r.id);
+    ep.lastPriceEur = r.price_eur ?? ep.lastPriceEur;
+    ep.lastPriceNative = r.price_native ?? ep.lastPriceNative;
+  }
+  return out;
+}
+
+/**
  * Did each alert get acted on, and how long did that take?
+ *
+ * Scored per *episode*, not per reminder (see alertEpisodes): a trade counts if
+ * it lands after the first reminder and within `windowDays` of the last one, in
+ * the direction the alert argued for. Days to act are counted from the first
+ * reminder, because that is when the reader first knew.
  *
  * Matched in JavaScript rather than SQL on purpose: the rule is a judgment
  * ("a trade in the same holding, in the direction the alert argued for, within
@@ -140,16 +194,16 @@ function millisOf(stamp) {
  * evidence of correlation, never of cause — the reader may have been buying
  * that week regardless.
  */
-function followThrough(db, { userId = null, windowDays = 30, onlyDelivered = true, since = null } = {}) {
+function followThrough(db, { userId = null, windowDays = 30, onlyDelivered = true, since = null, gapDays = 3 } = {}) {
   const where = [];
   const args = [];
   if (userId) { where.push('user_id = ?'); args.push(userId); }
   if (onlyDelivered) where.push("delivery = 'sent'");
   if (since) { where.push('date(fired_at) >= ?'); args.push(since); }
-  const events = db.prepare(
-    `SELECT * FROM alert_events${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY fired_at ASC`
+  const rows = db.prepare(
+    `SELECT * FROM alert_events${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY fired_at ASC, id ASC`
   ).all(...args).map(withDetail);
-  if (!events.length) return [];
+  if (!rows.length) return [];
 
   const txOf = new Map();  // "user|ticker" -> transactions, oldest first
   const txStmt = db.prepare(
@@ -157,23 +211,29 @@ function followThrough(db, { userId = null, windowDays = 30, onlyDelivered = tru
   );
   const windowMs = windowDays * 864e5;
 
-  return events.map(e => {
+  return alertEpisodes(rows, { gapDays }).map(e => {
     const key = `${e.user_id}|${e.ticker}`;
     if (!txOf.has(key)) txOf.set(key, txStmt.all(e.user_id, e.ticker));
-    const firedMs = millisOf(e.fired_at);
-    const wanted = e.direction === 'buy' ? 'buy' : e.direction === 'sell' ? 'sell' : null;
-    const hit = txOf.get(key).find(t =>
-      t.ts > firedMs && t.ts <= firedMs + windowMs && (wanted === null || t.tx_type === wanted));
+    const hit = matchTrade(txOf.get(key), e, windowMs);
     return {
       ...e,
       followed: Boolean(hit),
       action: hit ? hit.tx_type : null,
       actedAt: hit ? new Date(hit.ts).toISOString() : null,
-      daysToAction: hit ? (hit.ts - firedMs) / 864e5 : null,
+      transactionId: hit ? hit.id : null,
+      daysToAction: hit ? (hit.ts - e.firstMs) / 864e5 : null,
       quantity: hit ? hit.quantity : null,
       amountEur: hit ? hit.amount_eur : null
     };
   });
+}
+
+/** The first trade that answers an episode: right direction, after it began, inside the window. */
+function matchTrade(transactions, episode, windowMs) {
+  const wanted = episode.direction === 'buy' ? 'buy' : episode.direction === 'sell' ? 'sell' : null;
+  return transactions.find(t =>
+    t.ts > episode.firstMs && t.ts <= episode.lastMs + windowMs
+    && (wanted === null || t.tx_type === wanted)) || null;
 }
 
 /**
@@ -205,5 +265,5 @@ function summariseFollowThrough(rows) {
 
 module.exports = {
   recordAlertEvent, markDelivery, eventsFor, followThrough, summariseFollowThrough,
-  DIRECTION_OF
+  alertEpisodes, matchTrade, withDetail, millisOf, DIRECTION_OF
 };
