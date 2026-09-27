@@ -1848,6 +1848,12 @@
     });
     impState.securities=securities;
     impState.checks=null;
+    // Re-parsing (a new column mapping, a different date order) can change
+    // which ticker a row resolves to, so the split check is asked again — but
+    // which boxes a person already ticked survives, keyed by ticker+date
+    // rather than by row, since that choice is a decision about the stock.
+    impResetSplits();
+    if(!impState.splitChoices) impState.splitChoices={};
 
     impRender();
     impLookupSecurities();
@@ -1859,7 +1865,18 @@
       var s=impState.securities[k];
       return !s.ticker && (s.isin||s.name) && !s.candidates;
     });
-    if(!pending.length){ impCheckPrices(); return; }
+    if(!pending.length){ impCheckPrices(); impCheckSplits(); return; }
+
+    // Import must stay disabled for the rows that already resolved too: a
+    // second security in the same file, still waiting on its own ISIN
+    // lookup, can turn out to share a ticker already in the resolved set, and
+    // the split check above would then need asking again once it lands.
+    // `lookupsPending` gates Import independently of `splitsChecking`, which
+    // only covers the fetch to Yahoo itself.
+    impState.lookupsPending=true;
+    impRender();
+    impCheckPrices();
+    impCheckSplits();   // ask now for whatever is already resolved, rather than waiting on the rest
 
     var queue=pending.slice(0,12);   // a file with more new securities than that wants a person, not twelve lookups
     var done=0;
@@ -1878,7 +1895,12 @@
           }
         })
         .catch(function(){ /* the lookup is a convenience; typing the ticker is the fallback */ })
-        .then(function(){ if(++done===queue.length){ impRender(); impCheckPrices(); } });
+        .then(function(){
+          if(++done===queue.length){
+            if(impState) impState.lookupsPending=false;
+            impRender(); impCheckPrices(); impCheckSplits();
+          }
+        });
     });
   }
 
@@ -1891,8 +1913,112 @@
       body:JSON.stringify({rows:rows.map(function(r){ return {line:r.line,ticker:r.ticker,date:r.date,price:r.price}; })})
     })
       .then(function(r){ return r.ok?r.json():null; })
-      .then(function(d){ if(d&&d.checks){ impState.checks=d.checks; impState.checkThreshold=d.threshold||20; impRender(); } })
+      .then(function(d){ if(impState&&d&&d.checks){ impState.checks=d.checks; impState.checkThreshold=d.threshold||20; impRender(); } })
       .catch(function(){ /* without the check the preview is still usable, just quieter */ });
+  }
+
+  /**
+   * Clear split state together — `splits`, the row-payload key that guards
+   * against re-fetching, and any failure banner. Used for a full re-parse,
+   * where the file itself changed and any earlier split data is not to be
+   * trusted even for a display moment. Confirming a ticker does not need
+   * this: `impCheckSplits` below decides on its own, from the new key,
+   * whether anything actually needs asking again.
+   */
+  function impResetSplits(){
+    impState.splits=null;
+    impState.splitsKey=null;
+    impState.splitsWhole=null;
+    impState.splitsChecking=false;
+  }
+
+  /**
+   * Does any ticker in this file have a split Yahoo knows about that
+   * `stock_splits` does not — issue #9.
+   *
+   * Asked once per distinct set of *resolved rows* (ticker, date and price
+   * together — not just the set of tickers), so nothing is re-asked when
+   * nothing Yahoo would answer differently about has changed: confirming
+   * the security already picked, or re-parsing a file with no actual change,
+   * leaves this key the same and is a no-op. Anything that changes which
+   * rows resolve to which ticker on which date — a retype, a second security
+   * mapped onto a ticker already in the file, a different date order — is a
+   * new key and gets a fresh request, one round trip to Yahoo instead of
+   * spending a request (and a shared rate-limit slot) on every keystroke.
+   */
+  function impCheckSplits(){
+    if(!impState) return;
+    var rows=impResolvedRows();
+    if(!rows.length){ impState.splitsChecking=false; return; }   // nothing resolved to ask about; never leave Import stuck
+    var key=rows.map(function(r){ return r.ticker+"|"+r.date+"|"+r.price; }).sort().join(",");
+    if(impState.splitsKey===key) return;
+    impState.splitsKey=key;
+    impState.splits=null;        // the previous ticker set's rows no longer apply; don't show them while this fetches
+    impState.splitsWhole=null;   // a fresh attempt for this row set; clear any earlier failure banner
+    impState.splitsChecking=true;   // shows "Checking splits…" and holds Import until this settles
+
+    // A monotonic id, not the key, decides staleness: two requests can share
+    // a key only when neither has changed anything, so in practice this just
+    // means the latest request in flight is the one whose response counts —
+    // see the round-2 review's app.js:1949/1960 note.
+    var reqId=(impState.splitsReq=(impState.splitsReq||0)+1);
+
+    // The fetch is started before the render, not after: if the render ever
+    // threw, the fetch would still be on its way and this state would still
+    // clear when it settles, rather than Import staying disabled for good.
+    apiFetch("./api/import/splits",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({rows:rows.map(function(r){ return {line:r.line,ticker:r.ticker,date:r.date,price:r.price}; })})
+    })
+      .then(function(r){
+        return r.json().catch(function(){ return null; }).then(function(d){ return {ok:r.ok, d:d}; });
+      })
+      .then(function(res){
+        if(!impState||impState.splitsReq!==reqId) return;   // stale — a newer check is already in flight or done
+        impState.splitsChecking=false;
+        if(res.ok&&res.d&&res.d.splits){
+          impState.splits=res.d.splits;
+          impState.splitsWhole=null;
+          impRender();
+        } else {
+          impSplitsCheckFailed(key, reqId);
+        }
+      })
+      .catch(function(){
+        if(!impState||impState.splitsReq!==reqId) return;
+        impState.splitsChecking=false;
+        impSplitsCheckFailed(key, reqId);
+      });
+    impRender();
+  }
+
+  /**
+   * The whole split check failed (a 429, a 5xx, or the network) — not "no
+   * splits". Render that as its own state rather than leaving the block
+   * hidden, and clear `splitsKey` so the next `impCheckSplits` call (a
+   * preview change, or the "Try again" link) asks Yahoo again for this same
+   * row set instead of treating it as already checked.
+   */
+  function impSplitsCheckFailed(key, reqId){
+    if(impState.splitsReq===reqId&&impState.splitsKey===key) impState.splitsKey=null;
+    impState.splitsWhole="unavailable";
+    impState.splitsChecking=false;
+    impRender();
+  }
+
+  /** Unrecorded, clean split events for one ticker, dated after `afterDate`. */
+  function impSplitsAffecting(ticker, afterDate){
+    return (impState.splits||[]).filter(function(sp){
+      return sp.ticker===ticker && sp.status!=="unavailable" && sp.date>afterDate;
+    });
+  }
+
+  /** The events a person has actually asked to have recorded, checkbox and all. */
+  function impCheckedSplits(){
+    return (impState.splits||[]).filter(function(sp){
+      return sp.status!=="unavailable" && sp.clean && !sp.recorded
+        && impState.splitChoices && impState.splitChoices[sp.ticker+"|"+sp.date];
+    });
   }
 
   /** Candidate rows with a ticker chosen for them. */
@@ -1987,13 +2113,84 @@
         +'<span class="imp-flag">'+(s.ticker?"":"needed")+"</span>"+alts+"</div>";
     }).join("");
 
+    /* ---- stock splits ---- */
+    var splits=impState.splits||[];
+    var splitsWhole=impState.splitsWhole;
+    // A security still waiting on its ISIN lookup can turn out to share a
+    // ticker already resolved in this file, which would change the split
+    // check's answer — so Import stays held, and the same "Checking…" line
+    // is shown, until the lookups are in too.
+    var splitsChecking=!!impState.splitsChecking||!!impState.lookupsPending;
+    impEl("imp-splits-wrap").hidden=!splits.length&&!splitsWhole&&!splitsChecking;
+    var wholeHtml=splitsChecking
+      ? '<div class="imp-split imp-split-checking">Checking splits…</div>'
+      : splitsWhole==="unavailable"
+      ? '<div class="imp-split imp-split-unavail">Split check couldn’t run — quantities for rows before an unrecorded split may be wrong. '
+        +'<a href="#" data-imp-splits-retry>Try again</a></div>'
+      : "";
+    impEl("imp-splits").innerHTML=wholeHtml+splits.map(function(sp){
+      if(sp.status==="unavailable"){
+        return '<div class="imp-split imp-split-unavail">Could not check splits for '+esc(sp.ticker)+".</div>";
+      }
+      if(sp.recorded) return "";   // recorded events are not listed
+      var ratioLabel=esc(sp.numerator)+"-for-"+esc(sp.denominator);
+      if(!sp.clean){
+        return '<div class="imp-split imp-split-info">'+esc(sp.ticker)+": Yahoo's prices are adjusted for a "
+          +esc(sp.numerator)+":"+esc(sp.denominator)+" event on "+esc(sp.date)
+          +", usually a spin-off. It is not a split and is not recorded.</div>";
+      }
+      var key=sp.ticker+"|"+sp.date;
+      if(!(key in impState.splitChoices)) impState.splitChoices[key]=(sp.evidence==="as-traded");
+      var checked=impState.splitChoices[key];
+      var warn=sp.evidence==="restated"
+        ? "This file's prices already look split-adjusted. Recording this would multiply these rows again — left unchecked unless you know otherwise."
+        : sp.evidence==="unknown"
+          ? "Could not tell from this file's prices whether they are as-traded or already adjusted — check your broker statement."
+          : "";
+      return '<div class="imp-split">'
+        +'<label><input type="checkbox" data-imp-split-key="'+esc(key)+'"'+(checked?" checked":"")+"> "
+        +esc(sp.ticker)+" split "+ratioLabel+" on "+esc(sp.date)+", not recorded. "
+        +sp.rowsBefore+" row"+(sp.rowsBefore===1?"":"s")+" in this file "+(sp.rowsBefore===1?"is":"are")+" from before it.</label>"
+        +(warn?'<div class="imp-flag">'+esc(warn)+"</div>":"")+"</div>";
+    }).join("");
+
     /* ---- preview ---- */
     var threshold=impState.checkThreshold||20;
     var warnings=0;
     var body=resolved.map(function(row){
       var check=impCheckFor(row.line);
       var flags=[];
-      if(check&&check.status==="checked"&&Math.abs(check.deviationPct)>threshold){
+      var rowSplits=impSplitsAffecting(row.ticker,row.date).filter(function(sp){
+        return sp.status!=="unavailable"&&!sp.recorded;
+      });
+      var cleanSplits=rowSplits.filter(function(sp){ return sp.clean; });
+      var nonCleanSplits=rowSplits.filter(function(sp){ return !sp.clean; });
+      cleanSplits.forEach(function(sp){
+        var verb=row.type==="sell"?"sold":"bought";
+        flags.push(verb+" before the "+sp.numerator+"-for-"+sp.denominator+" split on "+sp.date+", which is not recorded");
+      });
+
+      // A row bought before more than one still-unrecorded split — TSLA's two
+      // are the real example — needs *all* of them multiplied together before
+      // the file's price and Yahoo's split-adjusted close agree; scaling by
+      // only one of the two still leaves the deviation looking unexplained.
+      var priceNoteExplained=false;
+      if(check&&check.status==="checked"&&cleanSplits.length){
+        var combinedRatio=cleanSplits.reduce(function(a,sp){ return a*sp.ratio; },1);
+        var rescaled=check.expected*combinedRatio;
+        if(Math.abs(100*(row.price-rescaled)/rescaled)<=threshold) priceNoteExplained=true;
+      }
+      if(check&&check.status==="checked"&&!priceNoteExplained&&nonCleanSplits.length){
+        var otherRatio=cleanSplits.reduce(function(a,sp){ return a*sp.ratio; },1);
+        nonCleanSplits.forEach(function(sp){
+          var rescaled2=check.expected*otherRatio*sp.ratio;
+          if(Math.abs(100*(row.price-rescaled2)/rescaled2)<=threshold){
+            priceNoteExplained=true;
+            flags.push("adjusted for a "+sp.numerator+":"+sp.denominator+" spin-off on "+sp.date+", not a split");
+          }
+        });
+      }
+      if(check&&check.status==="checked"&&Math.abs(check.deviationPct)>threshold&&!priceNoteExplained){
         flags.push("price is "+(check.deviationPct>0?"+":"")+check.deviationPct+"% against the "+check.closeDate+" close"
           +(check.splitFactor!==1?" (split-adjusted)":""));
       }
@@ -2023,7 +2220,7 @@
       return "<div>Line "+s.line+" — "+esc(s.reason)+"</div>";
     }).join("");
 
-    impEl("imp-go").disabled=!resolved.length;
+    impEl("imp-go").disabled=!resolved.length||splitsChecking;
     impEl("imp-go").textContent=resolved.length?("Import "+resolved.length+" transaction"+(resolved.length===1?"":"s")):"Import";
   }
 
@@ -2039,34 +2236,117 @@
     })
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
       .then(function(res){
-        impEl("imp-go").disabled=false;
         if(!res.ok){
-          note.className="frm-note err";
+          impEl("imp-go").disabled=false;   // only the error paths hand control back; success keeps it disabled
+          note.className="frm-note err";    // until impShow("done") replaces the whole view (see impFinishImport)
           note.textContent=res.d.error||"That import was refused.";
           return;
         }
+        if(!impState) return;   // Cancel ran while this request was in flight; there is nothing left to update
         var d=res.d;
-        impState.batchId=d.batchId;
+        // A null batchId (every row a duplicate) must never overwrite a real
+        // one — that would strand "Undo this import" for rows that did land
+        // from an earlier response. It can only happen from a genuine repeat
+        // request, which this function's disabled button should prevent, but
+        // the guard is kept as the backstop that actually matters.
+        if(d.batchId||!impState.batchId) impState.batchId=d.batchId;
         var parts=["<b>"+d.imported+" transaction"+(d.imported===1?"":"s")+" imported.</b>"];
         if(d.duplicates&&d.duplicates.length) parts.push(d.duplicates.length+" were already imported from an earlier file and were left alone.");
         if(d.skipped&&d.skipped.length) parts.push(d.skipped.length+" row"+(d.skipped.length===1?"":"s")+" the server refused: "
           +esc(d.skipped.slice(0,3).map(function(s){ return "line "+s.line+", "+s.reason; }).join("; "))+".");
         if(d.newTickers&&d.newTickers.length) parts.push("New here: "+esc(d.newTickers.join(", "))
           +". Their price history is loading — the charts fill in as it arrives.");
-        impEl("imp-done-msg").innerHTML=parts.join(" ");
-        impEl("imp-undo").hidden=!d.batchId;
-        impShow("done");
-        showSuccess(d.imported+" imported");
 
-        loadTransactions();
-        if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
-        refreshPortfolio();
-        impBackfill(d.newTickers||[], rows);
+        // The split can only be recorded now, not before the import: the
+        // server's ownership check (criterion 5) needs the transaction to
+        // already be there. A failure here does not undo the import — the
+        // rows are correct as typed, only the split is missing — so it is
+        // reported and offered a retry rather than rolled back.
+        impFinishImport(d, parts, rows);
       })
       .catch(function(e){
         impEl("imp-go").disabled=false;
         note.className="frm-note err"; note.textContent="Server error: "+e.message;
       });
+  }
+
+  /** POST /api/stock-splits for one checked event; never throws, resolves to a result either way. */
+  function impRecordOneSplit(sp){
+    return apiFetch("./api/stock-splits",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ticker:sp.ticker, date:sp.date})
+    })
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d,sp:sp}; }); })
+      .catch(function(e){ return {ok:false,d:{error:e.message},sp:sp}; });
+  }
+
+  /** One at a time, not in parallel — recordSplit() is a write against a table every account shares. */
+  function impRecordSplits(list){
+    var results=[];
+    return list.reduce(function(chain,sp){
+      return chain.then(function(){ return impRecordOneSplit(sp); }).then(function(res){ results.push(res); });
+    }, Promise.resolve()).then(function(){ return results; });
+  }
+
+  /** Finish the done message with what happened to any split checked in the preview, then reveal it. */
+  function impFinishImport(d, parts, rows){
+    var checked=impCheckedSplits();
+    impRecordSplits(checked).then(function(results){
+      if(!impState){   // Cancel ran while the splits were recording; the import view is gone, but the work still happened
+        loadTransactions();
+        if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
+        refreshPortfolio();
+        impBackfill(d.newTickers||[], rows);
+        return;
+      }
+      var failed=[];
+      results.forEach(function(res){
+        var ratioLabel=esc(res.sp.numerator)+"-for-"+esc(res.sp.denominator);
+        if(res.ok){
+          parts.push("Recorded: "+esc(res.sp.ticker)+" "+ratioLabel+" ("+esc(res.sp.date)+").");
+        } else {
+          failed.push(res.sp);
+          parts.push("The "+esc(res.sp.ticker)+" split could not be recorded ("
+            +esc((res.d&&res.d.error)||"an error")+"). Quantities for "+esc(res.sp.ticker)+" are wrong until it is.");
+        }
+      });
+      impState.failedSplits=failed;
+      var retry=impEl("imp-splits-retry");
+      if(retry) retry.hidden=!failed.length;
+
+      impEl("imp-done-msg").innerHTML=parts.join(" ");
+      impEl("imp-undo").hidden=!d.batchId;
+      impShow("done");
+      showSuccess(d.imported+" imported");
+
+      loadTransactions();
+      if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
+      refreshPortfolio();
+      impBackfill(d.newTickers||[], rows);
+    });
+  }
+
+  /** The "Try again" button on a split that failed to record after a successful import. */
+  function impRetrySplits(){
+    var list=impState.failedSplits||[];
+    if(!list.length) return;
+    var retryBtn=impEl("imp-splits-retry");
+    if(retryBtn) retryBtn.disabled=true;   // one retry in flight at a time; each click is a limiter slot spent
+    impRecordSplits(list).then(function(results){
+      if(!impState) return;   // Undo ran while the retry was in flight; nothing left to report against
+      var stillFailed=[];
+      var msg=[];
+      results.forEach(function(res){
+        var ratioLabel=esc(res.sp.numerator)+"-for-"+esc(res.sp.denominator);
+        if(res.ok) msg.push("Recorded: "+esc(res.sp.ticker)+" "+ratioLabel+" ("+esc(res.sp.date)+").");
+        else{ stillFailed.push(res.sp); msg.push("The "+esc(res.sp.ticker)+" split still could not be recorded ("+esc((res.d&&res.d.error)||"an error")+")."); }
+      });
+      impState.failedSplits=stillFailed;
+      var retry=impEl("imp-splits-retry");
+      if(retry){ retry.hidden=!stillFailed.length; retry.disabled=false; }
+      impEl("imp-done-msg").innerHTML += " "+msg.join(" ");
+      if(!stillFailed.length) refreshPortfolio();
+    });
   }
 
   /**
@@ -2105,10 +2385,18 @@
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
       .then(function(res){
         if(!res.ok){ showError(res.d.error||"That import could not be undone."); return; }
-        impState.batchId=null;
-        impEl("imp-done-msg").innerHTML="<b>Import undone.</b> "+res.d.removed+" transaction"
-          +(res.d.removed===1?"":"s")+" removed. Any price history that was loaded is kept.";
-        impEl("imp-undo").hidden=true;
+        if(impState){   // Cancel/"import another" ran while the undo was in flight; the overlay is gone but the undo still happened
+          impState.batchId=null;
+          impEl("imp-done-msg").innerHTML="<b>Import undone.</b> "+res.d.removed+" transaction"
+            +(res.d.removed===1?"":"s")+" removed. Any price history that was loaded is kept. "
+            +"Any split that was recorded is kept, since it is a fact about the stock, not about this file.";
+          impEl("imp-undo").hidden=true;
+          // Retrying a split from a batch that no longer exists fails the
+          // server's ownership check, so the button has nothing left to do.
+          impState.failedSplits=[];
+          var retry=impEl("imp-splits-retry");
+          if(retry) retry.hidden=true;
+        }
         showSuccess(res.d.removed+" removed");
         // Said before the refresh, not after: undoing an import that took the
         // portfolio back to empty ends in refreshPortfolio() reloading the page
@@ -2137,6 +2425,8 @@
     impEl("imp-cancel").addEventListener("click",impReset);
     impEl("imp-another").addEventListener("click",impReset);
     impEl("imp-undo").addEventListener("click",impUndo);
+    var retry=impEl("imp-splits-retry");
+    if(retry) retry.addEventListener("click",impRetrySplits);
 
     // One listener per card rather than per control: the mapping, the format
     // pickers and the securities list are all redrawn on every change.
@@ -2154,15 +2444,27 @@
       } else if(t.id==="imp-defcur"){ impParse({defaultCurrency:t.value});
       } else if(t.dataset&&t.dataset.impTicker){
         var sec=impState.securities[t.dataset.impTicker];
-        if(sec){ sec.ticker=(t.value||"").toUpperCase().trim(); sec.source="typed"; impState.checks=null; impRender(); impCheckPrices(); }
+        if(sec){ sec.ticker=(t.value||"").toUpperCase().trim(); sec.source="typed"; impState.checks=null; impRender(); impCheckPrices(); impCheckSplits(); }
+      } else if(t.dataset&&t.dataset.impSplitKey){
+        // Persisted by key rather than re-derived on every render, so a
+        // person's choice survives the next unrelated re-render (a column
+        // remapped, another security confirmed) rather than resetting to
+        // whatever the evidence defaults to.
+        impState.splitChoices[t.dataset.impSplitKey]=t.checked;
       }
     });
 
     impEl("imp-card").addEventListener("click",function(e){
+      var retryLink=e.target.closest?e.target.closest("[data-imp-splits-retry]"):null;
+      if(retryLink){
+        e.preventDefault();
+        if(impState&&!impState.splitsChecking){ impState.splitsKey=null; impCheckSplits(); }
+        return;
+      }
       var btn=e.target.closest?e.target.closest("[data-imp-pick]"):null;
       if(!btn||!impState) return;
       var sec=impState.securities[btn.dataset.impPick];
-      if(sec){ sec.ticker=btn.dataset.impSymbol; sec.source="typed"; impState.checks=null; impRender(); impCheckPrices(); }
+      if(sec){ sec.ticker=btn.dataset.impSymbol; sec.source="typed"; impState.checks=null; impRender(); impCheckPrices(); impCheckSplits(); }
     });
   })();
 

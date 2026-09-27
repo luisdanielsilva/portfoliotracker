@@ -131,6 +131,7 @@ require('./db-migrations').ensureAlgorithmAlertSettings(db);
 require('./db-migrations').ensureAlertEventLog(db);
 require('./db-migrations').ensureWatchlist(db);
 require('./db-migrations').ensureTransactionImports(db);
+require('./db-migrations').ensureStockSplitAudit(db);
 require('./db-migrations').ensureDataVersion(db);
 
 // Migration: stop the same rule being saved twice. Nothing prevented it, and one
@@ -769,8 +770,12 @@ app.use('/api', authMiddleware);
  * from counting twice. A doubled version would be harmless, since only the change
  * matters, and confusing to read in a log.
  */
+// Both are POST only because they carry a body, not because they write anything —
+// exempting them here is one cache miss avoided per preview, nothing more.
+const READ_ONLY_POST_PATHS = new Set(['/import/check', '/import/splits']);
+
 app.use('/api', (req, res, next) => {
-  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  if (req.method === 'GET' || req.method === 'HEAD' || READ_ONLY_POST_PATHS.has(req.path)) return next();
 
   let bumped = false;
   const bumpOnce = () => {
@@ -1245,6 +1250,101 @@ app.post('/api/import/check', (req, res) => {
     res.json({ checks, threshold: 20 });
   } catch (err) {
     console.error('POST /api/import/check error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+const { fetchSplits, diffAgainstRecorded, evidenceFor, recordSplit } = require('./split-check');
+const MAX_SPLIT_CHECK_TICKERS = 20;
+
+/**
+ * POST /api/import/splits — for each ticker in a file being imported, has
+ * Yahoo recorded a split this database has not.
+ *
+ * Read-only and Yahoo-facing, one ticker after another with a pause between
+ * them — the same pacing `backfill-history.js` uses, and for the same
+ * reason: this reaches the same rate-limited source everything else depends
+ * on for daily prices. Only events dated after a ticker's oldest row in this
+ * file are relevant; a split from before anyone's first trade cannot explain
+ * anything in it.
+ */
+app.post('/api/import/splits', backfillLimiter, async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, MAX_IMPORT_ROWS) : [];
+    const byTicker = new Map();
+    for (const raw of rows) {
+      const ticker = String(raw.ticker || '').toUpperCase().trim();
+      const date = String(raw.date || '');
+      if (!TICKER_RE.test(ticker) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      const price = positive(raw.price, 1e9);
+      if (!byTicker.has(ticker)) byTicker.set(ticker, []);
+      byTicker.get(ticker).push({ line: raw.line, date, price });
+    }
+
+    const tickers = [...byTicker.keys()].slice(0, MAX_SPLIT_CHECK_TICKERS);
+    const recordedStmt = db.prepare('SELECT split_date AS date FROM stock_splits WHERE ticker = ?');
+    const YahooFinance = require('yahoo-finance2').default;
+    const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+
+    const splits = [];
+    for (let i = 0; i < tickers.length; i++) {
+      const ticker = tickers[i];
+      const tickerRows = byTicker.get(ticker);
+      const oldest = tickerRows.reduce((a, r) => (!a || r.date < a ? r.date : a), null);
+
+      try {
+        const { events, months } = await fetchSplits(yf, ticker);
+        const marked = diffAgainstRecorded(events, recordedStmt.all(ticker))
+          .filter(e => e.date > oldest);
+
+        for (const event of marked) {
+          const rowsBefore = tickerRows.filter(r => r.date < event.date).length;
+          const evidence = (event.clean && !event.recorded)
+            ? evidenceFor(tickerRows, events, months, event) : null;
+          splits.push({
+            ticker, date: event.date, numerator: event.numerator, denominator: event.denominator,
+            ratio: event.ratio, clean: event.clean, recorded: event.recorded, rowsBefore, evidence
+          });
+        }
+      } catch (err) {
+        console.error(`POST /api/import/splits: fetchSplits(${ticker}) failed:`, err.message);
+        splits.push({ ticker, status: 'unavailable' });
+      }
+
+      if (i < tickers.length - 1) await new Promise(r => setTimeout(r, 250));
+    }
+
+    res.json({ splits });
+  } catch (err) {
+    console.error('POST /api/import/splits error:', err.message);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
+/**
+ * POST /api/stock-splits {ticker, date} — record a split named during an
+ * import preview.
+ *
+ * A thin wrapper over recordSplit(), which is where the actual rule lives:
+ * the ratio and the stored date always come from Yahoo, never from this
+ * body — see split-check.js. `stock_splits` is global, so this is the one
+ * write in the app where "the caller is allowed to do this" is not enough;
+ * it also has to be true.
+ */
+app.post('/api/stock-splits', backfillLimiter, async (req, res) => {
+  try {
+    const YahooFinance = require('yahoo-finance2').default;
+    const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+    const result = await recordSplit(db, yf, req.userId, req.body && req.body.ticker, req.body && req.body.date);
+
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    if (result.alreadyRecorded) return res.status(200).json({ alreadyRecorded: true });
+    res.status(201).json({
+      success: true, ticker: result.ticker, date: result.date,
+      numerator: result.numerator, denominator: result.denominator, ratio: result.ratio
+    });
+  } catch (err) {
+    console.error('POST /api/stock-splits error:', err.message);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });

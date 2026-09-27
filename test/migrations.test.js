@@ -14,11 +14,11 @@ const cols = (db, t) => m.columnNames(db, t).sort().join(',');
 
 test('every migration is idempotent — running twice changes nothing', () => {
   const db = freshDb();
-  const run = () => { m.ensurePriceCurrencyColumns(db); m.ensureAlertCurrency(db); m.ensureGainRuleType(db); m.ensureDropFromHighRuleType(db); };
+  const run = () => { m.ensurePriceCurrencyColumns(db); m.ensureAlertCurrency(db); m.ensureGainRuleType(db); m.ensureDropFromHighRuleType(db); m.ensureStockSplitAudit(db); };
   run();
-  const after1 = { tables: tables(db).join(','), prices: cols(db, 'prices'), alerts: cols(db, 'alerts') };
+  const after1 = { tables: tables(db).join(','), prices: cols(db, 'prices'), alerts: cols(db, 'alerts'), splits: cols(db, 'stock_splits') };
   run();
-  const after2 = { tables: tables(db).join(','), prices: cols(db, 'prices'), alerts: cols(db, 'alerts') };
+  const after2 = { tables: tables(db).join(','), prices: cols(db, 'prices'), alerts: cols(db, 'alerts'), splits: cols(db, 'stock_splits') };
   assert.deepEqual(after2, after1);
 });
 
@@ -92,6 +92,39 @@ test('recentHigh reads the highest close inside the window and ignores what is o
   addPrice(db, { ticker: 'X', date: ago(1),   eur: 300, native: 300 });
   assert.equal(m.recentHigh(db, 'X').peak, 500);
   assert.equal(m.recentHigh(db, 'NOPE'), null);
+});
+
+/** stock_splits as it shipped before the audit columns (source/added_by/added_at). */
+function withLegacySplits(db) {
+  db.exec(`
+    DROP TABLE IF EXISTS stock_splits;
+    CREATE TABLE stock_splits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      split_date DATE NOT NULL,
+      ratio REAL NOT NULL,
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS unique_split ON stock_splits(ticker, split_date);
+  `);
+  return db;
+}
+
+test('ensureStockSplitAudit adds the audit columns and leaves existing rows as manual, unattributed', () => {
+  const db = withLegacySplits(freshDb());
+  db.prepare("INSERT INTO stock_splits (ticker, split_date, ratio, description) VALUES ('TSLA','2020-08-31',5,'5-for-1')").run();
+
+  m.ensureStockSplitAudit(db);
+  const row = db.prepare('SELECT * FROM stock_splits WHERE ticker = ?').get('TSLA');
+  assert.equal(row.source, 'manual', 'a pre-existing row is not reclassified as a Yahoo-confirmed one');
+  assert.equal(row.added_by, null, 'no account made this row, so none is invented for it');
+  assert.equal(cols(db, 'stock_splits'), 'added_at,added_by,created_at,description,id,ratio,source,split_date,ticker');
+
+  // running it again on an already-migrated table changes nothing
+  const before = db.prepare('SELECT * FROM stock_splits').all();
+  m.ensureStockSplitAudit(db);
+  assert.deepEqual(db.prepare('SELECT * FROM stock_splits').all(), before);
 });
 
 test('a EUR-quoted holding is not converted a second time', () => {

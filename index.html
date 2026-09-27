@@ -379,6 +379,10 @@
   .imp-table tr.note td{white-space:normal;border-top:0;padding-top:0;line-height:1.5}
   .imp-flag{font-size:calc(10px + var(--bump));color:var(--warn)}
   .imp-skips{font-size:calc(11px + var(--bump));color:var(--muted);line-height:1.7;margin-top:8px;max-height:180px;overflow-y:auto}
+  .imp-splits{display:grid;gap:8px}
+  .imp-split{font-size:calc(11.5px + var(--bump));color:var(--ink);border:1px solid var(--hair);border-radius:8px;padding:8px 10px;background:var(--surface-2)}
+  .imp-split label{display:flex;gap:6px;align-items:baseline}
+  .imp-split-info,.imp-split-unavail,.imp-split-checking{color:var(--muted)}
   .imp-done-msg{font-size:calc(12.5px + var(--bump));color:var(--ink);line-height:1.6}
   @media (max-width:520px){ .imp-sec{grid-template-columns:1fr 100px} .imp-sec>button{grid-column:2} }
   /* the same picture the alert list draws, at the size the panel has room for: six months
@@ -1733,6 +1737,12 @@
             <div class="imp-secs" id="imp-secs"></div>
           </div>
 
+          <div id="imp-splits-wrap" hidden>
+            <h4 class="imp-h">Stock splits</h4>
+            <p class="imp-note">Checked against Yahoo. A split recorded here is a fact about the stock, so it also fixes this holding for anyone else here who owns it.</p>
+            <div class="imp-splits" id="imp-splits"></div>
+          </div>
+
           <h4 class="imp-h">Preview <span class="imp-sum" id="imp-prev-sum"></span></h4>
           <div class="imp-table-wrap"><table class="imp-table" id="imp-preview"></table></div>
 
@@ -1751,6 +1761,7 @@
         <div id="imp-done" hidden>
           <div class="imp-done-msg" id="imp-done-msg"></div>
           <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn" id="imp-splits-retry" hidden>Try recording the split again</button>
             <button type="button" class="btn" id="imp-undo">Undo this import</button>
             <button type="button" class="btn" id="imp-another">Import another file</button>
           </div>

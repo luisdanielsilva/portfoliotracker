@@ -453,9 +453,38 @@ function ensureTransactionImports(db) {
   `);
 }
 
+/**
+ * Who put a stock split in the table, and how they know it happened.
+ *
+ * The table used to have no answer to "who added this and why should it be
+ * believed" beyond a pm2 log line. `source` says whether a row is one of the
+ * two hand-entered at launch ('manual') or one the server confirmed against
+ * Yahoo during an import ('yahoo'); `added_by` is the user key for the latter
+ * and NULL for the former, since no account did it. Existing rows are
+ * backfilled as 'manual' with a NULL `added_by` — that is what they are: this
+ * does not invent an author for them, only a category.
+ */
+function ensureStockSplitAudit(db) {
+  const cols = columnNames(db, 'stock_splits');
+  if (!cols.includes('source')) {
+    db.exec("ALTER TABLE stock_splits ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+  }
+  if (!cols.includes('added_by')) {
+    db.exec('ALTER TABLE stock_splits ADD COLUMN added_by TEXT');
+  }
+  if (!cols.includes('added_at')) {
+    // No DEFAULT CURRENT_TIMESTAMP here: SQLite refuses that default on an ADD
+    // COLUMN once the table already has rows (it allows it on CREATE TABLE,
+    // which is why schema.sqlite.sql can still declare one for a fresh
+    // database). recordSplit() sets this column explicitly on every insert,
+    // so nothing depends on a column default to be right.
+    db.exec('ALTER TABLE stock_splits ADD COLUMN added_at DATETIME');
+  }
+}
+
 module.exports = {
   ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
   ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureAlertEventLog, ensureDataVersion,
-  ensureWatchlist, ensureTransactionImports,
+  ensureWatchlist, ensureTransactionImports, ensureStockSplitAudit,
   recentHigh, HIGH_WINDOW_DAYS, WATCH_HISTORY_DAYS, columnNames
 };

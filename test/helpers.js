@@ -57,9 +57,10 @@ function addPrice(db, { ticker, date, eur, native = null, currency = 'USD' }) {
   ).run(ticker, eur, null, native === null ? eur : native, currency, date);
 }
 
-function addSplit(db, { ticker, date, ratio }) {
-  db.prepare('INSERT INTO stock_splits (ticker, split_date, ratio, description) VALUES (?, ?, ?, ?)')
-    .run(ticker, date, ratio, `${ratio}-for-1`);
+function addSplit(db, { ticker, date, ratio, source = 'manual', addedBy = null }) {
+  db.prepare(
+    'INSERT INTO stock_splits (ticker, split_date, ratio, description, source, added_by) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(ticker, date, ratio, `${ratio}-for-1`, source, addedBy);
 }
 
 const day = n => new Date(Date.UTC(2026, 0, n)).getTime();
@@ -82,6 +83,7 @@ function migratedDb() {
   m.ensureAlertEventLog(db);
   m.ensureWatchlist(db);
   m.ensureTransactionImports(db);
+  m.ensureStockSplitAudit(db);
   return db;
 }
 

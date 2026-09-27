@@ -115,12 +115,20 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS unique_rate ON exchange_rates(from_currency, to_currency, date);
 
+-- source/added_by/added_at are the audit trail for who put a row here: 'manual'
+-- for the hand-entered rows this table started with (added_by NULL, since no
+-- account did it), 'yahoo' for one confirmed during an import (added_by the
+-- user's key). See db-migrations.js ensureStockSplitAudit for the migration
+-- that adds these columns to a database that predates them.
 CREATE TABLE IF NOT EXISTS stock_splits (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticker TEXT NOT NULL,
   split_date DATE NOT NULL,
   ratio REAL NOT NULL,
   description TEXT,
+  source TEXT NOT NULL DEFAULT 'manual',
+  added_by TEXT,
+  added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX IF NOT EXISTS unique_split ON stock_splits(ticker, split_date);

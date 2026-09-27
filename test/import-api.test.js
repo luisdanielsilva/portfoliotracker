@@ -273,6 +273,87 @@ test('a file that only names its securities is remembered too', () => {
   })();
 });
 
+/* ---------------------------------------------------------- stock-splits API
+ *
+ * Only the paths that never reach Yahoo: a spawned server has no fake `yf` to
+ * inject, so every case here is refused before fetchSplits() would be called.
+ */
+
+test('POST /api/stock-splits requires a session', async () => {
+  const res = await fetch(base + '/api/stock-splits', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticker: 'NVDA', date: '2021-07-20' })
+  });
+  assert.equal(res.status, 401);
+});
+
+test('POST /api/stock-splits refuses a bad ticker or date before anything else', async () => {
+  const s = signIn('badsplit@example.com');
+  const badTicker = await fetch(base + '/api/stock-splits', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: '../nope', date: '2021-07-20' })
+  });
+  assert.equal(badTicker.status, 400);
+
+  const badDate = await fetch(base + '/api/stock-splits', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: 'NVDA', date: 'yesterday' })
+  });
+  assert.equal(badDate.status, 400);
+});
+
+test('POST /api/stock-splits refuses a user with no pre-split transaction in that ticker', async () => {
+  const s = signIn('nopresplit@example.com');
+  const res = await fetch(base + '/api/stock-splits', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: 'NVDA', date: '2021-07-20' })
+  });
+  assert.equal(res.status, 409);
+});
+
+test('POST /api/stock-splits returns alreadyRecorded without needing Yahoo', async () => {
+  const s = signIn('already@example.com');
+  storeRate(s.pdb, '2020-01-01', 0.9);
+  await post(s, [row({ ticker: 'TSLA', date: '2020-01-02' })]);
+  s.pdb.prepare(
+    "INSERT INTO stock_splits (ticker, split_date, ratio, description, source) VALUES ('TSLA','2020-08-31',5,'5-for-1','manual')"
+  ).run();
+
+  const res = await fetch(base + '/api/stock-splits', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: 'TSLA', date: '2020-09-01' })
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).alreadyRecorded, true);
+});
+
+test('POST /api/import/splits with no valid rows returns an empty list and never reaches Yahoo', async () => {
+  const s = signIn('nosplitrows@example.com');
+  const res = await fetch(base + '/api/import/splits', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ rows: [{ line: 2, ticker: '', date: 'nope', price: 1 }] })
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.splits, []);
+});
+
+test('POST /api/import/check and POST /api/import/splits do not bump the cache version', async () => {
+  const s = signIn('nobump@example.com');
+  const versionOf = () => s.pdb.prepare('SELECT version FROM data_version WHERE id = 1').get().version;
+  const before = versionOf();
+
+  await fetch(base + '/api/import/check', { method: 'POST', headers: s.headers, body: JSON.stringify({ rows: [] }) });
+  await fetch(base + '/api/import/splits', { method: 'POST', headers: s.headers, body: JSON.stringify({ rows: [] }) });
+
+  assert.equal(versionOf(), before, 'a read-only preview call must not retire every cached view');
+});
+
+test('a non-exempt POST still bumps data_version, next to the exemption above', async () => {
+  const s = signIn('bump@example.com');
+  storeRate(s.pdb, '2025-01-30', 0.9);
+  const versionOf = () => s.pdb.prepare('SELECT version FROM data_version WHERE id = 1').get().version;
+  const before = versionOf();
+
+  await post(s, [row()]);
+  assert.equal(versionOf(), before + 1, 'a real write must still retire the cached views');
+});
+
 test('a remembered name never collides with a real ISIN', async () => {
   const s = signIn('collide@example.com');
   storeRate(s.pdb, '2025-01-30', 0.9);

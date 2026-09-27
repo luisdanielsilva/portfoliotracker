@@ -908,8 +908,122 @@ oldest imported trade, because firing six ten-year requests at Yahoo at once is 
 throttled and the daily job everything depends on breaks.
 
 **Not covered, deliberately:** `.xlsx` (save as CSV — a parser dependency for a format every
-broker also exports as CSV), currencies beyond EUR and USD, fees, and corporate actions. A split
-row in a file is flagged and skipped, not applied; `stock_splits` is still maintained by hand.
+broker also exports as CSV), currencies beyond EUR and USD, fees, and reading a split row out of
+the file itself. A split row in a file is still flagged and skipped, not applied. What changed
+below is that `stock_splits` is no longer maintained by hand alone — a *missing* split can now be
+named during an import and recorded from Yahoo, the one corporate action this app has anywhere to
+put.
+
+### 🔀 Naming a missing stock split during import, and recording it — 2026-09-27 (issue #9)
+
+`stock_splits` had exactly two rows, typed in by hand when TSLA's history stopped lining up. That
+does not scale — the next split of any held ticker would silently overstate quantity and understate
+average cost until someone noticed and typed a third row — and there was no way to tell a genuine
+split from a corporate action that only looks like one. This closes that gap for the one case in
+scope: **a ticker already in the file being imported.** Checking a ticker that is merely held (not
+in this file) is a deliberate follow-up, not done here — issue #31.
+
+**`stock_splits` is global, so the write is guarded, not gated on the client.** The table has no
+`user_id` — the same as `prices` — because a split is a fact about the ticker, not about an
+account: one row changes quantity and average cost for *every* user holding it. That is exactly why
+`POST /api/stock-splits` takes only `{ticker, date}` and computes everything else itself:
+
+1. the ticker and date are well-formed;
+2. no row already exists for that ticker within **±7 days** (the unique index is
+   `(ticker, split_date)`, so a one-day-off duplicate would be accepted and applied a second time —
+   this is checked first and, if it matches, nothing calls Yahoo at all);
+3. the caller holds a transaction in that ticker **dated before** the split — someone who never
+   held it, or only bought after, cannot record anything;
+4. Yahoo (the server's own fetch, 12h-cached) reports a split for that ticker within **±3 days**;
+5. the ratio, reduced to lowest terms, is **"clean"** (below).
+
+The ratio and the stored date are always Yahoo's own — `recordSplit()` in `split-check.js` has no
+parameter for a ratio, so there is no way for a client to supply one. Only step 5 is a judgement
+call; everything else is a fact the server checks itself. Every insert also writes one `console.log`
+line (ticker, date, ratio, the user key) as a pm2-log audit trail, on top of the `source`/`added_by`
+columns below.
+
+**Yahoo calls a spin-off a split, and the ratio is how this tells them apart.** Probing
+`yf.chart(ticker, {interval:'1mo', events:'split'})` against 6 of the 15 tickers this account has
+held (TSLA, NVDA, T, LHA.DE, AIR.PA, VOW.DE) turned up a genuine third case, not a hypothetical one:
+**AT&T's WarnerMedia spin-off on
+2022-04-11 comes back as a "1324:1000 split."** It is not one — holders' share counts did not
+change that day — and recording it would corrupt any T position held across that date. The
+distinguishing feature is the ratio itself: reduced by its gcd, a real split is small and round
+(5:1, 3:2, 10:1, 1:10), while 1324:1000 reduces to 331:250. `isCleanSplit()` in `split-check.js`
+requires both reduced terms to be integers no larger than **`CLEAN_MAX = 20`** (generous enough for
+Amazon's and Alphabet's 20-for-1 splits in 2022) and the ratio to actually change anything (rejecting 1:1 and 0:1, which
+Yahoo has also been seen to report). A non-clean event is still named in the preview — *"Yahoo's
+prices are adjusted for a 1324:1000 event on 2022-04-11, usually a spin-off. It is not a split and
+is not recorded"* — with no checkbox, and the server refuses to insert one even if asked directly
+(422). Measured the same session: **NVDA has two unrecorded splits, 4:1 (2021-07-20) and 10:1
+(2024-06-10)** — real, clean, and simply never entered, because the live account's NVDA holding was
+bought in 2025 and is unaffected either way.
+
+**Whether the file's prices are as-traded or already restated decides the checkbox's default, not
+whether the split is offered.** A broker's export can come two ways: the true as-traded price paid
+on the day (TSLA in 2019 reads about $250 there), or a history the broker has already restated to
+the split-adjusted figure (that same trade would read about $17). Recording a split multiplies
+every pre-split row's quantity by the ratio — right for the first file, silently wrong for the
+second, because it would adjust rows that were already adjusted. `evidenceFor()` weighs this from
+the same monthly bars fetched for the split check: for each qualifying row it compares the file's
+price, in log distance, against two reconstructions of what a Yahoo monthly bar implies for that
+date — one multiplying back in *every* split since (as-traded), one leaving the split being judged
+out of that product (restated) — and takes whichever the rows agree on. The checkbox is
+pre-checked only when the evidence says **as-traded**; **restated** shows unchecked with a warning
+that recording it would double-adjust the file; **unknown** (no qualifying row, or the rows
+disagree) is offered unchecked with "could not tell — check your broker statement." A row bought
+before more than one still-unrecorded split — TSLA's real two, stacked — needs *both* ratios
+multiplied together before the file's price and Yahoo's history agree; the preview combines every
+applicable split before deciding whether the existing price-deviation warning on that row is
+explained (and drops it only then), rather than testing one split at a time.
+
+**Audit columns, added by migration.** `stock_splits` gained `source` (`'manual'` for the two rows
+that were already there, `'yahoo'` for anything this feature inserts), `added_by` (the user key,
+NULL for the pre-existing rows — no account made them, so none is invented), and `added_at`.
+`db-migrations.js`'s `ensureStockSplitAudit()` adds the columns to a database that predates them and
+leaves existing rows exactly as `manual` / unattributed; `schema.sqlite.sql` carries them for a
+fresh database. (One implementation note: SQLite refuses `ALTER TABLE ... ADD COLUMN ...
+DEFAULT CURRENT_TIMESTAMP` once a table already has rows — an empty table is allowed. The migration
+adds `added_at` with no default instead, and `recordSplit()` sets it explicitly on every insert.)
+
+There is no admin UI for `stock_splits` — out of scope, not built anywhere in this app — so a bad
+row — a real, clean Yahoo split that turns out wrong for someone's restated history — can only be
+found and removed with SQL: `SELECT * FROM stock_splits WHERE source='yahoo' AND added_by=?` to find
+what one account recorded, then, for the specific row,
+
+```sql
+DELETE FROM stock_splits WHERE ticker=? AND split_date=? AND source='yahoo';
+UPDATE data_version SET version = version + 1 WHERE id = 1;
+```
+
+The `source='yahoo'` guard keeps a mistyped date from taking out one of the hand-entered rows
+instead — if a manual row genuinely has to go, that should be its own deliberate edit. The second
+statement is not optional: a direct SQL write does not bump `data_version` on its own, and both pm2
+workers cache `/api/snapshots` and `/api/algorithm` against that counter, so without it they keep
+serving the old, pre-split quantities until the next unrelated write happens to bump it. The same
+applies to adding a manual row.
+
+**Measured before this was called done:** the live user's TSLA history (26 transactions, two real
+splits) was re-imported into a scratch copy with both split rows deleted from the copy's table.
+The preview named both — *"TSLA split 5-for-1 on 2020-08-31"* and *"3-for-1 on 2022-08-25"* — both
+`as-traded` and checked by default, with the price-deviation warning correctly absent from every
+affected row. After import and recording, the scratch holding read **235 shares at €108.9011** —
+the same figure, to the decimal, as the live account. `verify-portfolio.js` was clean against the
+scratch copy afterwards and, read-only, against the live database throughout.
+
+**What is not here.** `POST /api/import/splits` only checks tickers already in the file; a stock
+already held but absent from this import (a "check my splits" link) is a follow-up issue, not this
+one. `verify-portfolio.js` stays offline and read-only, so it cannot notice a split Yahoo has
+recorded and this database has not — an optional `--check-splits` flag is a separate follow-up
+rather than a silent change to what "clean" currently means for that script. Undoing an import does
+**not** remove a split it recorded, for the same reason undoing an import has never touched price
+history: a split is a fact about the stock, not about the file that happened to reveal it.
+
+`split-check.js` (new — `isCleanSplit`, `fetchSplits`, `diffAgainstRecorded`, `evidenceFor`,
+`recordSplit`), `POST /api/import/splits`, `POST /api/stock-splits`, the "Stock splits" block in the
+import preview, and 28 tests across `test/split-check.test.js`, `test/migrations.test.js` and
+`test/import-api.test.js` (228 before this issue, 256 after).
 
 ### 📈 The landing page's charts are real prices now — 2026-09-26
 
@@ -2004,7 +2118,7 @@ other's way.
 
 ### 👨‍💻 Development
 
-**Edit directly in production directory:**
+**Connecting to the dev session:**
 ```bash
 # Connect to dev session (runs on Hetzner, accessed via Tailscale)
 dev              # attach tmux session "dev"
@@ -2013,7 +2127,10 @@ dev status       # check if running
 dev stop         # kill it
 ```
 
-Server auto-restarts when you edit `server.js`, `schema.sqlite.sql`, or `.env` (hot-reload).
+Server auto-restarts when you edit `server.js`, `schema.sqlite.sql`, or `.env` (hot-reload). This
+is the live database, not a test copy — pm2 watches those three files in the deployed checkout, so
+saving one of them restarts the server and runs migrations against the live DB immediately.
+Anything still in progress belongs in a separate worktree until it is ready for that.
 
 **Manual server start:**
 ```bash
@@ -2118,6 +2235,8 @@ Environment variables in `.env`:
 - `GET /api/prices` — Latest known price per ticker
 - `GET /api/price-history/:ticker` — Historical prices for one ticker
 - `GET /api/stock-splits` — Known stock splits
+- `POST /api/import/splits` — For each ticker in a file being imported, has Yahoo recorded a split this database has not (read-only; does not bump the cache version)
+- `POST /api/stock-splits` — Record a split named during an import preview, `{ticker, date}` only — the ratio and date always come from Yahoo
 - `GET /api/avg-cost` — Average cost basis per ticker
 - `GET /api/algorithm?ticker=X&period=2y` — Position-timing signal: both lanes for every day, notable runs, tile counts, and today's position-gated call
 - `GET /api/alerts` — List user's price alerts with current prices
