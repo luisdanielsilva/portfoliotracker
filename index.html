@@ -61,7 +61,7 @@
   /* Three points larger on every tab (#29). The Watchlist is not in this list:
      it was sized by hand first, reviewed as it is, and its own rules below
      already carry the extra three points. */
-  #view-total,#view-dca,#view-algo,#view-alerts,#view-add{--bump:3px}
+  #view-total,#view-dca,#view-algo,#view-alerts,#view-journal,#view-add{--bump:3px}
 
   *{box-sizing:border-box}
   body{background:var(--ground);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased}
@@ -427,6 +427,37 @@
   /* beside the pie on a wide screen; under it, two columns across the card */
   .pie-legend{flex:0 0 160px;display:flex;flex-direction:column;gap:4px}
   @media (max-width:780px){ .pie-legend{flex:1 1 100%;display:grid;grid-template-columns:1fr 1fr;gap:6px} }
+  /* ---- decision journal (#28) ---- */
+  .jr-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 8px;font-size:calc(12.5px + var(--bump));color:var(--muted)}
+  .jr-legend span{display:inline-flex;align-items:center;gap:7px}
+  .jr-legend i{display:inline-block;flex:none}
+  .jr-row{display:grid;grid-template-columns:minmax(96px,.8fr) minmax(150px,1.2fr) minmax(170px,1.3fr) minmax(150px,1.2fr) minmax(104px,.8fr) minmax(104px,.8fr);
+          gap:12px;align-items:start;padding:12px 4px;border-bottom:1px solid var(--hair);font-size:calc(12.5px + var(--bump))}
+  .jr-row > *{min-width:0}
+  .jr-row.jr-head{font-size:calc(10.5px + var(--bump));font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-top:4px;padding-bottom:8px}
+  .jr-row.jr-alert{background:var(--surface-2);border-radius:8px;border-bottom-color:transparent;margin:4px 0;padding-left:10px;padding-right:10px}
+  .jr-date{font-weight:500;color:var(--ink);white-space:nowrap}
+  .jr-sub{display:block;color:var(--muted);font-size:calc(11.5px + var(--bump));margin-top:2px}
+  .jr-num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;text-align:right}
+  .jr-num b{white-space:nowrap}
+  .jr-num .jr-sub,.jr-num .jr-when{font-family:"IBM Plex Sans",sans-serif}
+  .jr-when{color:var(--muted);font-size:calc(11.5px + var(--bump))}
+  .jr-num b{font-weight:600}
+  .jr-tag{display:inline-block;font-size:calc(9.5px + var(--bump));font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:2px 6px;margin-right:7px;vertical-align:1px}
+  .jr-tag.buy{color:var(--pos);background:rgba(63,143,91,.13)}
+  .jr-tag.sell{color:var(--neg);background:rgba(192,71,62,.12)}
+  .jr-tag.watch{color:var(--accent);background:var(--accent-soft)}
+  .jr-avg{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .jr-empty{color:var(--muted);padding:12px 4px}
+  .jr-lane{cursor:help}
+  @media (max-width:900px){
+    .jr-row.jr-head{display:none}
+    .jr-row{grid-template-columns:1fr 1fr;gap:6px 14px;padding:14px 4px}
+    .jr-row .jr-c-trade,.jr-row .jr-c-avg,.jr-row .jr-c-alert{grid-column:1/-1}
+    .jr-num{text-align:left}
+    .jr-num::before{content:attr(data-l);display:block;font-family:"IBM Plex Sans",sans-serif;font-size:calc(10px + var(--bump));
+                    text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  }
   .usrow.editing{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
   /* Five fields do not fit on one line of a half-width column at the tabs' type
      size (#29) — the date broke over three lines. So every row reads as two: the
@@ -1372,6 +1403,7 @@
     <button id="tab-algo" role="tab" aria-selected="false">Algorithm</button>
     <button id="tab-alerts" role="tab" aria-selected="false">Alerts</button>
     <button id="tab-watch" role="tab" aria-selected="false">Watchlist</button>
+    <button id="tab-journal" role="tab" aria-selected="false">Journal</button>
     <button id="tab-add" role="tab" aria-selected="false">Transactions</button>
   </div>
 </div>
@@ -1492,6 +1524,34 @@
       <h3 class="ind-h">Notable dips</h3>
       <p class="microcopy" style="margin:0 0 12px">The deepest below-average stretches in the window, most recent first. This table is deliberately one-sided &mdash; it is the buying-opportunity log. For the other direction, the alert map under <b>Alerts</b> shows where a target or trailing rule would have fired.</p>
       <div class="tablewrap"><table id="dca-table"></table></div>
+    </div>
+  </section>
+
+  <!-- ===== DECISION JOURNAL (#28) ===== -->
+  <section id="view-journal" hidden>
+    <div class="panel">
+      <p class="microcopy" style="margin:0 0 14px">Every trade you registered, what it did to your average cost, the alert that came before it, and what each decision is worth: today, and one year after you made it. <b>Positive always means the decision was good</b>: a buy is worth more than it cost, a sale fetched more than those shares are worth.</p>
+      <div class="kpi-grid jr-kpis" id="jr-kpi"></div>
+      <h3 class="ind-h" id="jr-h1">Average cost and alerts over time</h3>
+      <div class="picker" role="group" aria-label="Select stock" id="jr-tickers" style="margin-bottom:10px"></div>
+      <div class="jr-legend" id="jr-legend"></div>
+      <div class="chartbox">
+        <svg class="chart" id="jr-chart" viewBox="0 0 960 360" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Price and average cost over time, with your trades and the alerts sent"></svg>
+        <div class="tip" id="jr-tip"></div>
+      </div>
+      <h3 class="ind-h" id="jr-h2">Decisions</h3>
+      <div id="jr-list"></div>
+      <details class="algo-method">
+        <summary>How a decision is scored, and what this cannot tell you</summary>
+        <h4>The score</h4>
+        <p>A buy is scored as what those shares are worth minus what they cost. A sale is scored as what it fetched minus what the same shares would be worth. Each is valued twice: at the latest close, and at the last close on or before the day one year after the trade. Share counts are in today&rsquo;s units and prices are split-adjusted, so a 2019 trade is compared like for like. Everything is in euros at each day&rsquo;s own rate, because a cost basis is euros.</p>
+        <h4>The average cost</h4>
+        <p>A buy adds its shares and what they cost. A sale takes shares out at the average, so it never moves the average of what is left; the profit on it is realised gain. A position sold down to nothing starts again from nothing. This is the same figure your dip and target alerts fire against.</p>
+        <h4>The alert before a trade</h4>
+        <p>An alert that holds is emailed once a day, so a week-long dip is one alert reminded seven times. A trade answers it when it lands after the first reminder and within 30 days of the last, in the direction the alert argued for. Only emails that actually left count.</p>
+        <h4>What this cannot tell you</h4>
+        <p>A trade after an alert is correlation, not cause: you may have been buying that week anyway. The date is the one you typed. And a sale is scored against the shares, not against whatever the money did next &mdash; the app cannot see that.</p>
+      </details>
     </div>
   </section>
 

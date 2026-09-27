@@ -1267,6 +1267,52 @@ The pie now scales to its column, and the legend becomes two columns under it on
 The sweep ends with **no element past its card on any tab at any of the five widths**. Before
 today, five places failed it.
 
+### 📓 The decision journal — 2026-09-27
+
+Closes #28. Asked for in the user's words: *"later in time, I want to look back and be able to
+understand if my decisions to buy or sell were good and how much I earned/not lost with those or
+not"*, with each purchase tied to the alert that preceded it and to what it did to the average cost.
+
+A **Journal** tab, between Watchlist and Transactions:
+
+- **Four tiles:** buys valued today (with the one-year figure under it), sales against holding
+  (likewise), how many buys lowered the average, and how many alerts were acted on.
+- **One chart per holding:** price and your average cost on one euro axis, every buy and sale at
+  the price paid, and an alert lane under it with one bar per alert episode. The axis turns
+  logarithmic, and says so, when the range passes 8×. On a linear axis all of TSLA's trades
+  before 2020 (sixteen of them) lay flat along the floor.
+- **The decisions, newest first:** for each trade, the average before → after and by how much,
+  the alert before it (with how many daily emails, and the days from the first email to the
+  trade), and the score **today** and **a year on**. Alerts nobody acted on sit between the trades,
+  with what the price did since.
+
+**How a decision is scored**, as the user chose, both ways. Positive always means the decision
+was good:
+
+| | Score | Today | A year on |
+|---|---|--:|--:|
+| 44 buys | worth − cost | **+€278,321** | +€41,251 (32 are a year old) |
+| 5 sales | proceeds − what those shares are worth | **−€212,600** | −€88,836 |
+
+The sales number is the honest one and it stays visible: TSLA's December 2019 sales fetched
+€19.95 and €23.76 a share, for shares worth €326.38 today. A year on they read −€45,283 and
+−€42,939. An ignored alert is coloured by the same rule: green when *not* acting was right, so a
+sell alert the price then rose from is green.
+
+**One calculation.** `decision-journal.js` reads `replayPosition().steps` (#26) for the averages
+and `alertEpisodes()` (#27) for the alerts, the same functions the alerts and the follow-through
+report use. `GET /api/journal[?ticker=]`. 8 tests in `test/decision-journal.test.js`, plus one
+HTTP test.
+
+**Today it has no link to show.** The alert log began on 2026-09-17 and the last trade was
+2026-07-29, so 0 of the 5 alert episodes has a trade after it. The link column fills from the next
+trade on. Reconstructing signals for older trades is possible (prices go back to 2014) but would
+have to be marked as never sent; it is left out.
+
+**What it cannot tell you**, which the page's own disclosure says too: a trade after an alert is
+correlation, not cause; the date is the one you typed; a sale is scored against the shares, not
+against whatever the money did next.
+
 ### ⏳ Open Items / Backlog
 
 **Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**

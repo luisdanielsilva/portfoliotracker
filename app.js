@@ -1552,7 +1552,7 @@
   /* ================= tabs ================= */
   // Portfolio-over-time and Portfolio-in-detail were one subject behind two clicks; they are
   // one view now, chart first. Transactions sits last because it is the tab you visit least.
-  var TABS=[["tab-total","view-total"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-alerts","view-alerts"],["tab-watch","view-watch"],["tab-add","view-add"]];
+  var TABS=[["tab-total","view-total"],["tab-dca","view-dca"],["tab-algo","view-algo"],["tab-alerts","view-alerts"],["tab-watch","view-watch"],["tab-journal","view-journal"],["tab-add","view-add"]];
   TABS.forEach(function(pair){
     document.getElementById(pair[0]).addEventListener("click",function(){
       TABS.forEach(function(p){
@@ -1566,6 +1566,7 @@
       if(btn.scrollIntoView) btn.scrollIntoView({block:"nearest",inline:"nearest",behavior:"smooth"});
       if(pair[0]==="tab-dca") loadAndRenderDCA();
       if(pair[0]==="tab-algo") loadAndRenderAlgo();
+      if(pair[0]==="tab-journal") loadAndRenderJournal();
       if(pair[0]==="tab-watch"){
         /* The watchlist chart draws alert lines, so it needs the alerts.
          *
@@ -3931,6 +3932,7 @@
      registering or deleting a transaction left the chart a page-reload behind the very
      list it sits next to. Re-fetch, then rebuild. */
   function refreshPortfolio(){
+    JOURNAL=null;   // a trade changed: the journal is stale
     return loadSnapshotsFromAPI().then(function(rows){
       if(rows && rows.length){ rebuild(); return; }
       // No snapshots and no transactions means the last holding was just deleted.
@@ -3938,6 +3940,295 @@
       // that state properly, so hand back to it rather than special-casing every chart.
       if(!transactions.length) location.reload();
     });
+  }
+
+  /* ================= decision journal (#28) =================
+   *
+   * Every trade with the average before and after it, the alert episode that
+   * came before it, and what the decision is worth today and a year on. All of
+   * the arithmetic is server-side (decision-journal.js), in the same functions
+   * the alerts use; this only draws it. */
+  var JOURNAL=null, JR_HISTORY={}, jrSelected=null;
+  var JR_ALERT_NAME={dip_from_avg_cost:"Dip", gain_from_avg_cost:"Target", drop_from_high:"Trailing",
+                     price_above:"Price above", price_below:"Price below", algo:"Algorithm"};
+
+  function loadAndRenderJournal(){
+    var p=JOURNAL?Promise.resolve(JOURNAL):apiFetch("./api/journal").then(function(r){ return r.json(); });
+    return p.then(function(j){ JOURNAL=j; renderJournalSummary(); renderJournalTickers(); })
+      .catch(function(){ document.getElementById("jr-list").innerHTML='<p class="jr-empty">Could not load the journal. Try again in a moment.</p>'; });
+  }
+
+  function jrSigned(v){ return v==null?"—":d0(v); }
+  function jrTone(v){ return v==null?"":(v>=0?"pos":"neg"); }
+  function jrDay(iso){ return fmtDayY.format(new Date(String(iso).length===10?iso+"T12:00:00":iso)); }
+
+  function renderJournalSummary(){
+    var hs=JOURNAL.holdings, T={b:0,s:0,bT:0,sT:0,b1:0,s1:0,bAged:0,sAged:0,lowered:0,after:0,eps:0,epsAns:0};
+    hs.forEach(function(h){
+      var t=h.totals; T.b+=t.buys; T.s+=t.sells; T.bT+=t.buysToday; T.sT+=t.sellsToday;
+      T.b1+=t.buysOneYear; T.s1+=t.sellsOneYear; T.lowered+=t.lowered; T.after+=t.afterAlert;
+      h.trades.forEach(function(x){ if(x.oneYear){ if(x.type==="buy") T.bAged++; else T.sAged++; } T.epsAns+=x.alerts.length; });
+      T.eps+=h.ignored.length;
+    });
+    T.eps+=T.epsAns;
+    function kpi(k){ return '<div class="kpi"><div class="k-label">'+k.l+'</div><div class="k-val '+(k.c||"")+'">'+k.v+'</div><div class="k-sub">'+k.s+'</div></div>'; }
+    document.getElementById("jr-kpi").innerHTML=[
+      {l:"Buys, valued today", v:jrSigned(T.bT), c:jrTone(T.bT),
+       s:"a year on: "+jrSigned(T.b1)+" · "+T.b+" buys"+(T.bAged<T.b?", "+T.bAged+" a year old":"")},
+      {l:"Sales, against holding", v:jrSigned(T.sT), c:jrTone(T.sT),
+       s:"a year on: "+jrSigned(T.s1)+" · "+T.s+" sale"+(T.s===1?"":"s")},
+      {l:"Buys that lowered the average", v:T.lowered+" of "+T.b, s:"the rest were bought above the average of the time"},
+      {l:"Alerts acted on", v:T.epsAns+" of "+T.eps, s:"alerts, not emails: a reminder a day is one alert"}
+    ].map(kpi).join("");
+  }
+
+  function jrLatest(h){
+    var last=0;
+    h.trades.forEach(function(x){ last=Math.max(last,x.ts); });
+    h.ignored.forEach(function(e){ last=Math.max(last,Date.parse(e.lastAt)); });
+    return last;
+  }
+
+  function renderJournalTickers(){
+    var hs=JOURNAL.holdings.filter(function(h){ return h.trades.length||h.ignored.length; });
+    var box=document.getElementById("jr-tickers");
+    if(!hs.length){
+      box.innerHTML='<span class="lbl" style="padding:6px 10px">Register a transaction first &mdash; the journal is a history of your own decisions</span>';
+      drawEmptyChart(document.getElementById("jr-chart"),"Your average cost over time, with each buy and sale and the alerts that came before them.",false);
+      document.getElementById("jr-list").innerHTML="";
+      return;
+    }
+    clearEmptyChart(document.getElementById("jr-chart"));
+    // start on whatever happened most recently: that is the decision you came to look at
+    if(!jrSelected || !hs.some(function(h){ return h.ticker===jrSelected; }))
+      jrSelected=hs.slice().sort(function(a,b){ return jrLatest(b)-jrLatest(a); })[0].ticker;
+    box.innerHTML=hs.map(function(h){
+      return '<button type="button" class="chip" data-ticker="'+esc(h.ticker)+'"'+chipTitle(h.ticker)
+        +' aria-pressed="'+(h.ticker===jrSelected?"true":"false")+'">'+esc(h.ticker)
+        +(h.quantity>0?"":' <span style="color:var(--muted)">(sold)</span>')+'</button>';
+    }).join("");
+    Array.prototype.forEach.call(box.querySelectorAll("button"),function(b){
+      b.addEventListener("click",function(){
+        jrSelected=b.dataset.ticker;
+        Array.prototype.forEach.call(box.querySelectorAll("button"),function(x){ x.setAttribute("aria-pressed", x===b?"true":"false"); });
+        renderJournalHolding();
+      });
+    });
+    renderJournalHolding();
+  }
+
+  function renderJournalHolding(){
+    var h=JOURNAL.holdings.filter(function(x){ return x.ticker===jrSelected; })[0]; if(!h) return;
+    renderJournalList(h);
+    var t=h.ticker;
+    (JR_HISTORY[t]?Promise.resolve():apiFetch("./api/price-history/"+t).then(function(r){ return r.ok?r.json():{history:[]}; })
+      .then(function(d){ JR_HISTORY[t]=(d.history||[]).filter(function(x){ return x.priceEUR!=null; })
+        .map(function(x){ return {date:x.date, ts:new Date(x.date+"T12:00:00").getTime(), eur:x.priceEUR}; }); })
+    ).then(function(){ if(jrSelected===t) drawJournalChart(h, JR_HISTORY[t]); });
+  }
+
+  function jrAlertText(a){
+    var nm=JR_ALERT_NAME[a.alertType]||a.alertType;
+    var days=a.reminders===1?"1 email":a.reminders+" daily emails";
+    return nm+" alert · "+days;
+  }
+
+  function renderJournalList(h){
+    document.getElementById("jr-h2").textContent="Decisions · "+tickerLabel(h.ticker);
+    var rows=[];
+    h.trades.forEach(function(x){ rows.push({ts:x.ts, trade:x}); });
+    h.ignored.forEach(function(e){ rows.push({ts:Date.parse(e.firstAt), ep:e}); });
+    rows.sort(function(a,b){ return b.ts-a.ts; });
+
+    var head='<div class="jr-row jr-head"><div>Date</div><div>Trade</div><div>Average cost</div><div>Alert before it</div>'
+      +'<div class="jr-num">Today</div><div class="jr-num">A year on</div></div>';
+    var body=rows.map(function(r){
+      if(r.trade){
+        var x=r.trade, sell=x.type==="sell";
+        var qty=(Math.round(x.quantity*1000)/1000);
+        var trade='<span class="jr-tag '+x.type+'">'+(sell?"Sale":"Buy")+'</span>'+comma(qty)+' @ '+eur(x.pricePerShareEUR)
+          +'<span class="jr-sub">'+eur(x.amountEUR)+(sell&&x.realisedGain!=null?' · realised '+jrSigned(x.realisedGain):'')+'</span>';
+        var avg;
+        if(x.avgBefore==null) avg='<span class="jr-avg">'+eur(x.avgAfter)+'</span><span class="jr-sub">opened the position</span>';
+        else if(x.avgAfter==null) avg='<span class="jr-avg">'+eur(x.avgBefore)+'</span><span class="jr-sub">sold out &mdash; the position closed</span>';
+        else if(sell) avg='<span class="jr-avg">'+eur(x.avgAfter)+'</span><span class="jr-sub">unchanged: a sale leaves the average alone</span>';
+        else {
+          var ch=x.avgChangeEUR;
+          avg='<span class="jr-avg">'+eur(x.avgBefore)+' → '+eur(x.avgAfter)+'</span><span class="jr-sub '+(ch<0?"pos":"neg")+'">'
+            +(ch<0?"lowered by ":"raised by ")+eur(Math.abs(ch))+'</span>';
+        }
+        var al=x.alerts.length
+          ? x.alerts.map(function(a){ return '<span class="jr-tag '+a.direction+'">'+esc(JR_ALERT_NAME[a.alertType]||a.alertType)+'</span>'
+              +(a.reminders===1?"1 email":a.reminders+" daily emails")
+              +'<span class="jr-sub">'+(a.daysToTrade<1?"traded the same day":"traded "+Math.round(a.daysToTrade)+" day"+(Math.round(a.daysToTrade)===1?"":"s")+" after the first")+'</span>'; }).join("")
+          : '<span style="color:var(--muted)">no alert</span>';
+        var yr=x.oneYear
+          ? '<b class="'+jrTone(x.oneYear.resultEur)+'">'+jrSigned(x.oneYear.resultEur)+'</b><span class="jr-sub">'+dp(x.oneYear.resultPct)+'</span>'
+          : '<span class="jr-when">from '+jrDay(x.oneYearDate)+'</span>';
+        var td=x.today
+          ? '<b class="'+jrTone(x.today.resultEur)+'">'+jrSigned(x.today.resultEur)+'</b><span class="jr-sub">'+dp(x.today.resultPct)+'</span>'
+          : '—';
+        return '<div class="jr-row"><div class="jr-date">'+jrDay(x.date)+'</div><div class="jr-c-trade">'+trade+'</div>'
+          +'<div class="jr-c-avg">'+avg+'</div><div class="jr-c-alert">'+al+'</div>'
+          +'<div class="jr-num" data-l="Today">'+td+'</div><div class="jr-num" data-l="A year on">'+yr+'</div></div>';
+      }
+      var e=r.ep, cur=h.currency==="EUR"?eur:usd;
+      var span=jrDay(e.firstAt)+(e.reminders>1?" – "+jrDay(e.lastAt):"");
+      var said=e.direction==="buy"?"said buy":e.direction==="sell"?"said sell":"a level you set";
+      /* green means not acting was right, the page's one rule: a buy alert the price
+         then fell from was worth ignoring; a sell alert it then rose from, too */
+      var right=e.direction==="buy"?e.changeSincePct<0:e.direction==="sell"?e.changeSincePct>0:null;
+      var move=e.changeSincePct==null?"":'<b class="'+(right==null?"":right?"pos":"neg")+'">'+dp(e.changeSincePct)+'</b><span class="jr-sub">'
+        +(right==null?"since the first email":right?"since: not acting was right":"since: acting would have paid")+'</span>';
+      return '<div class="jr-row jr-alert"><div class="jr-date">'+jrDay(e.firstAt)+'</div>'
+        +'<div class="jr-c-trade"><span class="jr-tag '+e.direction+'">'+esc(JR_ALERT_NAME[e.alertType]||e.alertType)+'</span>'
+        +(e.open?"no trade yet":"no trade")+'<span class="jr-sub">'+span+'</span></div>'
+        +'<div class="jr-c-avg"><span class="jr-avg">'+(e.priceNative!=null?cur(e.priceNative):"")+' → '+(e.priceNowNative!=null?cur(e.priceNowNative):"")+'</span>'
+        +'<span class="jr-sub">price at the first email → now</span></div>'
+        +'<div class="jr-c-alert">'+(e.reminders===1?"1 email":e.reminders+" daily emails")+' · '+said
+        +'<span class="jr-sub">'+(e.open?"still being reminded, or was in the last 30 days":"not acted on within 30 days")+'</span></div>'
+        +'<div class="jr-num" data-l="Price since">'+move+'</div><div class="jr-num"></div></div>';
+    }).join("");
+    document.getElementById("jr-list").innerHTML=rows.length?head+body:'<p class="jr-empty">Nothing yet.</p>';
+  }
+
+  function drawJournalChart(h, hist){
+    var svg=document.getElementById("jr-chart");
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    var tip=document.getElementById("jr-tip"), box=svg.parentNode;
+    var eps=[];
+    h.trades.forEach(function(x){ x.alerts.forEach(function(a){ eps.push(a); }); });
+    h.ignored.forEach(function(e){ eps.push(e); });
+    if(!hist.length){ drawEmptyChart(svg,"No stored prices for "+h.ticker+" yet.",false); return; }
+    // the window: from a little before the first thing that happened to today
+    var first=Math.min.apply(null,h.trades.map(function(x){ return x.ts; }).concat(eps.map(function(e){ return Date.parse(e.firstAt); })));
+    var t0=Math.max(hist[0].ts, first-60*864e5), t1=Math.max(hist[hist.length-1].ts, Date.now()-864e5);
+    var pts=hist.filter(function(p){ return p.ts>=t0; });
+    if(pts.length<2) pts=hist.slice(-2);
+    t0=pts[0].ts;
+
+    // the average as a step: it holds from one trade to the next, and is absent while nothing is held
+    var steps=h.trades.map(function(x){ return {ts:x.ts, v:x.avgAfter}; });
+    function avgAt(ts){ var v=null; for(var i=0;i<steps.length;i++){ if(steps[i].ts<=ts) v=steps[i].v; else break; } return v; }
+
+    var vals=pts.map(function(p){ return p.eur; });
+    steps.forEach(function(s){ if(s.v!=null && s.ts>=t0) vals.push(s.v); });
+    h.trades.forEach(function(x){ if(x.ts>=t0) vals.push(x.pricePerShareEUR); });
+    var vmax=Math.max.apply(null,vals), vmin=Math.min.apply(null,vals);
+    var W=960,H=360,r=112,tp=16,lane=16,laneGap=10,bt=30,pH=H-tp-bt-lane-laneGap;
+    /* Eleven years of TSLA runs from €15 to €450: on a linear axis every trade
+       before 2020, sixteen of them, lay flat along the floor. Past an 8x range
+       the axis is logarithmic, where equal distances are equal percentage moves,
+       and it says so. */
+    var logScale=vmin>0 && vmax/vmin>8, tks, ylo, yhi;
+    if(logScale){
+      ylo=vmin*0.9; yhi=vmax*1.1; tks=[];
+      for(var mag=Math.pow(10,Math.floor(Math.log(ylo)/Math.LN10)); mag<=yhi; mag*=10)
+        [1,2,5].forEach(function(k){ var v=k*mag; if(v>=ylo && v<=yhi) tks.push(v); });
+    } else {
+      tks=yTicksFor(svg,vmin*0.97,vmax*1.03,pH);
+      ylo=Math.min(tks[0],vmin*0.97); yhi=Math.max(tks[tks.length-1],vmax*1.03);
+    }
+    var l=axisGutter(svg,eur(yhi),66), pW=W-l-r;
+    function X(ts){ return l+(ts-t0)/((t1-t0)||1)*pW; }
+    function Y(v){
+      if(logScale) return tp+(1-(Math.log(v)-Math.log(ylo))/((Math.log(yhi)-Math.log(ylo))||1))*pH;
+      return tp+(1-(v-ylo)/((yhi-ylo)||1))*pH;
+    }
+    tks.forEach(function(t){ var y=Y(t);
+      svg.appendChild(el("line",{class:"gridline",x1:l,x2:W-r,y1:y,y2:y}));
+      var lb=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:y+3.5}); lb.textContent=eur(t); svg.appendChild(lb);
+    });
+    var laneY=tp+pH+laneGap;
+    xTicksFor(svg,t0,t1,pW).forEach(function(tk){
+      var lb=el("text",{class:"xlbl",x:X(tk.t),y:H-8}); lb.textContent=tk.lab; svg.appendChild(lb);
+    });
+
+    // price
+    var d=pts.map(function(p,i){ return (i?"L":"M")+X(p.ts).toFixed(1)+" "+Y(p.eur).toFixed(1); }).join(" ");
+    svg.appendChild(el("path",{class:"serieline",d:d,stroke:"var(--accent)"}));
+    // average cost, as steps with gaps where nothing was held
+    var ad="", prev=null;
+    steps.forEach(function(s,i){
+      var next=i+1<steps.length?steps[i+1].ts:t1;
+      if(s.v==null || next<t0){ prev=null; return; }
+      var xa=X(Math.max(s.ts,t0)), xb=X(next), y=Y(s.v);
+      ad+=(prev!=null?" L"+xa.toFixed(1)+" "+y.toFixed(1):" M"+xa.toFixed(1)+" "+y.toFixed(1))+" L"+xb.toFixed(1)+" "+y.toFixed(1);
+      prev=y;
+    });
+    if(ad) svg.appendChild(el("path",{class:"serieline",d:ad,stroke:"var(--ink)","stroke-width":2,"stroke-dasharray":"5 3"}));
+    var last=pts[pts.length-1], avgNow=avgAt(t1);
+    placeEndLabels(svg,W-r+8,[{y:Y(last.eur),fill:"var(--accent)",text:"Price "+eur(last.eur)}]
+      .concat(avgNow!=null?[{y:Y(avgNow),fill:"var(--ink)",text:"Avg "+eur(avgNow)}]:[]));
+
+    // alert lane
+    svg.appendChild(el("rect",{x:l,y:laneY,width:pW,height:lane,rx:3,fill:"var(--surface-2)"}));
+    var lab=el("text",{class:"axislbl","text-anchor":"end",x:l-10,y:laneY+lane/2+3.5}); lab.textContent="Alerts"; svg.appendChild(lab);
+
+    function showTip(html,x,y){
+      tip.innerHTML=html; tip.classList.add("on");
+      var relX=x/W*box.clientWidth, tw=tip.offsetWidth;
+      tip.style.left=Math.max(tw/2+4,Math.min(box.clientWidth-tw/2-4,relX))+"px";
+      tip.style.top=Math.max(0,y/H*box.clientHeight-tip.offsetHeight-12)+"px";
+    }
+    function hideTip(){ tip.classList.remove("on"); }
+    function row(lab,v,col){ return '<div class="row"><span class="lab">'+(col?'<i style="background:'+col+'"></i>':'')+lab+'</span><span class="v">'+v+'</span></div>'; }
+    var COL={buy:"var(--pos)",sell:"var(--neg)",watch:"var(--accent)"};
+
+    eps.forEach(function(e){
+      var a=Date.parse(e.firstAt), b=Date.parse(e.lastAt);
+      if(b<t0) return;
+      var xa=X(Math.max(a,t0)), wd=Math.max(4,X(b)-xa);
+      var rc=el("rect",{class:"jr-lane",x:xa,y:laneY+2,width:wd,height:lane-4,rx:2,fill:COL[e.direction]||COL.watch});
+      rc.addEventListener("pointerenter",function(){
+        showTip('<div class="th">'+esc(jrAlertText(e))+'</div>'
+          +row("First",jrDay(e.firstAt))+(e.reminders>1?row("Last",jrDay(e.lastAt)):"")
+          +row("Argued for",e.direction==="watch"?"a level you set":e.direction), xa+wd/2, laneY);
+      });
+      rc.addEventListener("pointerleave",hideTip);
+      svg.appendChild(rc);
+    });
+
+    // crosshair over the plot: the date, the price and the average in force that day
+    var cross=el("line",{class:"crosshair",x1:0,x2:0,y1:tp,y2:tp+pH,style:"opacity:0"});
+    svg.appendChild(cross);
+    var hit=el("rect",{x:l,y:tp,width:pW,height:pH,fill:"transparent"});
+    hit.addEventListener("pointermove",function(ev){
+      var bb=svg.getBoundingClientRect(), x=(ev.clientX-bb.left)/bb.width*W;
+      var ts=t0+(x-l)/pW*(t1-t0), i=0;
+      while(i+1<pts.length && pts[i+1].ts<=ts) i++;
+      var p=pts[i], av=avgAt(p.ts);
+      cross.setAttribute("x1",X(p.ts)); cross.setAttribute("x2",X(p.ts)); cross.style.opacity=1;
+      showTip('<div class="th">'+jrDay(p.date)+'</div>'+row("Price",eur(p.eur),"var(--accent)")
+        +(av!=null?row("Average cost",eur(av),"var(--ink)")+row("Price vs average",dp(p.eur/av-1)):row("Average cost","nothing held")), X(p.ts), Y(p.eur));
+    });
+    hit.addEventListener("pointerleave",function(){ cross.style.opacity=0; hideTip(); });
+    svg.appendChild(hit);
+
+    // trades on top: a surface ring so a marker reads against the line under it
+    h.trades.forEach(function(x){
+      if(x.ts<t0) return;
+      var sell=x.type==="sell", cx=X(x.ts), cy=Y(x.pricePerShareEUR);
+      var c=el("circle",{cx:cx.toFixed(1),cy:cy.toFixed(1),r:6,fill:sell?"var(--neg)":"var(--pos)",stroke:"var(--surface)","stroke-width":2,style:"cursor:pointer"});
+      c.addEventListener("pointerenter",function(){
+        showTip('<div class="th">'+(sell?"Sale":"Buy")+" · "+jrDay(x.date)+'</div>'
+          +row("Price",eur(x.pricePerShareEUR))
+          +(x.avgBefore!=null&&x.avgAfter!=null&&!sell?row("Average",eur(x.avgBefore)+" → "+eur(x.avgAfter)):"")
+          +(x.today?row("Today",jrSigned(x.today.resultEur)):"")
+          +(x.alerts.length?row("After",jrAlertText(x.alerts[0])):""), cx, cy);
+      });
+      c.addEventListener("pointerleave",hideTip);
+      svg.appendChild(c);
+    });
+    fitXLabels(svg,l,W-r);
+
+    document.getElementById("jr-legend").innerHTML=
+      '<span><i style="width:16px;height:2px;background:var(--accent)"></i>Price (€'+(logScale?', log scale':'')+')</span>'
+      +'<span><i style="width:16px;height:0;border-top:2px dashed var(--ink)"></i>Your average cost</span>'
+      +'<span><i style="width:10px;height:10px;border-radius:50%;background:var(--pos)"></i>Buy</span>'
+      +'<span><i style="width:10px;height:10px;border-radius:50%;background:var(--neg)"></i>Sale</span>'
+      +'<span><i style="width:14px;height:8px;border-radius:2px;background:var(--pos)"></i>Alert to buy</span>'
+      +'<span><i style="width:14px;height:8px;border-radius:2px;background:var(--neg)"></i>Alert to sell</span>';
   }
 
   /* ================= fetch stock splits from API ================= */
