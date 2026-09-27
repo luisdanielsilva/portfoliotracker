@@ -1859,10 +1859,23 @@
     impLookupSecurities();
   }
 
-  /** Ask the server which ticker each unresolved ISIN belongs to. */
+  /**
+   * Ask the server which ticker each unresolved ISIN belongs to.
+   *
+   * `st` is captured once, at dispatch, and every continuation below acts
+   * only if `impState===st` still holds when it settles — otherwise this
+   * batch belongs to a file (or an earlier re-parse of the same file) that
+   * is no longer current, and must not touch the current state. `lookupGen`
+   * is the same idea within one `impState`: a re-parse of the same file
+   * (a date-order or decimal change) bumps it, so an older, still-in-flight
+   * batch for that same object can finish without wrongly clearing
+   * `lookupsPending` out from under the newer batch it was superseded by.
+   */
   function impLookupSecurities(){
-    var pending=Object.keys(impState.securities).filter(function(k){
-      var s=impState.securities[k];
+    if(!impState) return;
+    var st=impState;
+    var pending=Object.keys(st.securities).filter(function(k){
+      var s=st.securities[k];
       return !s.ticker && (s.isin||s.name) && !s.candidates;
     });
     if(!pending.length){ impCheckPrices(); impCheckSplits(); return; }
@@ -1873,7 +1886,8 @@
     // the split check above would then need asking again once it lands.
     // `lookupsPending` gates Import independently of `splitsChecking`, which
     // only covers the fetch to Yahoo itself.
-    impState.lookupsPending=true;
+    st.lookupsPending=true;
+    var gen=(st.lookupGen=(st.lookupGen||0)+1);
     impRender();
     impCheckPrices();
     impCheckSplits();   // ask now for whatever is already resolved, rather than waiting on the rest
@@ -1881,7 +1895,7 @@
     var queue=pending.slice(0,12);   // a file with more new securities than that wants a person, not twelve lookups
     var done=0;
     queue.forEach(function(key){
-      var s=impState.securities[key];
+      var s=st.securities[key];
       var q=s.isin?("isin="+encodeURIComponent(s.isin)):("name="+encodeURIComponent(s.name||""));
       apiFetch("./api/securities/lookup?"+q)
         .then(function(r){ return r.ok?r.json():null; })
@@ -1896,8 +1910,8 @@
         })
         .catch(function(){ /* the lookup is a convenience; typing the ticker is the fallback */ })
         .then(function(){
-          if(++done===queue.length){
-            if(impState) impState.lookupsPending=false;
+          if(++done===queue.length && impState===st && st.lookupGen===gen){
+            st.lookupsPending=false;
             impRender(); impCheckPrices(); impCheckSplits();
           }
         });
@@ -1906,6 +1920,8 @@
 
   /** Does each row's price resemble what that share cost that day. */
   function impCheckPrices(){
+    if(!impState) return;
+    var st=impState;
     var rows=impResolvedRows();
     if(!rows.length) return;
     apiFetch("./api/import/check",{
@@ -1913,7 +1929,7 @@
       body:JSON.stringify({rows:rows.map(function(r){ return {line:r.line,ticker:r.ticker,date:r.date,price:r.price}; })})
     })
       .then(function(r){ return r.ok?r.json():null; })
-      .then(function(d){ if(impState&&d&&d.checks){ impState.checks=d.checks; impState.checkThreshold=d.threshold||20; impRender(); } })
+      .then(function(d){ if(impState===st&&d&&d.checks){ st.checks=d.checks; st.checkThreshold=d.threshold||20; impRender(); } })
       .catch(function(){ /* without the check the preview is still usable, just quieter */ });
   }
 
@@ -1948,20 +1964,34 @@
    */
   function impCheckSplits(){
     if(!impState) return;
+    var st=impState;
     var rows=impResolvedRows();
-    if(!rows.length){ impState.splitsChecking=false; return; }   // nothing resolved to ask about; never leave Import stuck
+    if(!rows.length){
+      // Nothing resolved to ask about. A check for the previous key can
+      // still be in flight (the field was just cleared); drop it by
+      // clearing the key too and bumping the request id, so it cannot land
+      // here, and so a retype of the same ticker dispatches a fresh check
+      // rather than being treated as already answered.
+      st.splitsChecking=false;
+      st.splitsKey=null;
+      st.splitsReq=(st.splitsReq||0)+1;
+      return;
+    }
     var key=rows.map(function(r){ return r.ticker+"|"+r.date+"|"+r.price; }).sort().join(",");
-    if(impState.splitsKey===key) return;
-    impState.splitsKey=key;
-    impState.splits=null;        // the previous ticker set's rows no longer apply; don't show them while this fetches
-    impState.splitsWhole=null;   // a fresh attempt for this row set; clear any earlier failure banner
-    impState.splitsChecking=true;   // shows "Checking splits…" and holds Import until this settles
+    if(st.splitsKey===key) return;
+    st.splitsKey=key;
+    st.splits=null;        // the previous ticker set's rows no longer apply; don't show them while this fetches
+    st.splitsWhole=null;   // a fresh attempt for this row set; clear any earlier failure banner
+    st.splitsChecking=true;   // shows "Checking splits…" and holds Import until this settles
 
-    // A monotonic id, not the key, decides staleness: two requests can share
-    // a key only when neither has changed anything, so in practice this just
-    // means the latest request in flight is the one whose response counts —
-    // see the round-2 review's app.js:1949/1960 note.
-    var reqId=(impState.splitsReq=(impState.splitsReq||0)+1);
+    // `st` (captured above) plus a monotonic id decide staleness together.
+    // The id alone is not enough: it lives on `impState`, and after Cancel a
+    // new file gets a fresh `impState` whose id also starts from its own
+    // last value — a response from the old file could otherwise pass the
+    // guard against the new file's counter. Requiring `impState===st` too
+    // closes that gap; the id still catches a superseded request against
+    // the *same* file's state (round-2 review's app.js:1949/1960 note).
+    var reqId=(st.splitsReq=(st.splitsReq||0)+1);
 
     // The fetch is started before the render, not after: if the render ever
     // threw, the fetch would still be on its way and this state would still
@@ -1974,20 +2004,20 @@
         return r.json().catch(function(){ return null; }).then(function(d){ return {ok:r.ok, d:d}; });
       })
       .then(function(res){
-        if(!impState||impState.splitsReq!==reqId) return;   // stale — a newer check is already in flight or done
-        impState.splitsChecking=false;
+        if(impState!==st||st.splitsReq!==reqId) return;   // stale — a newer check is already in flight or done
+        st.splitsChecking=false;
         if(res.ok&&res.d&&res.d.splits){
-          impState.splits=res.d.splits;
-          impState.splitsWhole=null;
+          st.splits=res.d.splits;
+          st.splitsWhole=null;
           impRender();
         } else {
-          impSplitsCheckFailed(key, reqId);
+          impSplitsCheckFailed(st, key, reqId);
         }
       })
       .catch(function(){
-        if(!impState||impState.splitsReq!==reqId) return;
-        impState.splitsChecking=false;
-        impSplitsCheckFailed(key, reqId);
+        if(impState!==st||st.splitsReq!==reqId) return;
+        st.splitsChecking=false;
+        impSplitsCheckFailed(st, key, reqId);
       });
     impRender();
   }
@@ -1999,10 +2029,10 @@
    * preview change, or the "Try again" link) asks Yahoo again for this same
    * row set instead of treating it as already checked.
    */
-  function impSplitsCheckFailed(key, reqId){
-    if(impState.splitsReq===reqId&&impState.splitsKey===key) impState.splitsKey=null;
-    impState.splitsWhole="unavailable";
-    impState.splitsChecking=false;
+  function impSplitsCheckFailed(st, key, reqId){
+    if(st.splitsReq===reqId&&st.splitsKey===key) st.splitsKey=null;
+    st.splitsWhole="unavailable";
+    st.splitsChecking=false;
     impRender();
   }
 
@@ -2225,6 +2255,7 @@
   }
 
   function impRun(){
+    var st=impState;
     var rows=impResolvedRows();
     if(!rows.length) return;
     var note=impEl("imp-note");
@@ -2237,19 +2268,32 @@
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
       .then(function(res){
         if(!res.ok){
-          impEl("imp-go").disabled=false;   // only the error paths hand control back; success keeps it disabled
-          note.className="frm-note err";    // until impShow("done") replaces the whole view (see impFinishImport)
-          note.textContent=res.d.error||"That import was refused.";
+          if(impState===st){
+            impEl("imp-go").disabled=false;   // only the error paths hand control back; success keeps it disabled
+            note.className="frm-note err";    // until impShow("done") replaces the whole view (see impFinishImport)
+            note.textContent=res.d.error||"That import was refused.";
+          }
           return;
         }
-        if(!impState) return;   // Cancel ran while this request was in flight; there is nothing left to update
         var d=res.d;
+        if(impState!==st){
+          // Cancel ran while this request was in flight. The rows landed
+          // server-side regardless, so the view still needs the same
+          // refresh impFinishImport's own Cancel branch gives it — only the
+          // split recording, which needs the (gone) preview state, is
+          // skipped here.
+          loadTransactions();
+          if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
+          refreshPortfolio();
+          impBackfill(d.newTickers||[], rows);
+          return;
+        }
         // A null batchId (every row a duplicate) must never overwrite a real
         // one — that would strand "Undo this import" for rows that did land
         // from an earlier response. It can only happen from a genuine repeat
         // request, which this function's disabled button should prevent, but
         // the guard is kept as the backstop that actually matters.
-        if(d.batchId||!impState.batchId) impState.batchId=d.batchId;
+        if(d.batchId||!st.batchId) st.batchId=d.batchId;
         var parts=["<b>"+d.imported+" transaction"+(d.imported===1?"":"s")+" imported.</b>"];
         if(d.duplicates&&d.duplicates.length) parts.push(d.duplicates.length+" were already imported from an earlier file and were left alone.");
         if(d.skipped&&d.skipped.length) parts.push(d.skipped.length+" row"+(d.skipped.length===1?"":"s")+" the server refused: "
@@ -2262,11 +2306,13 @@
         // already be there. A failure here does not undo the import — the
         // rows are correct as typed, only the split is missing — so it is
         // reported and offered a retry rather than rolled back.
-        impFinishImport(d, parts, rows);
+        impFinishImport(st, d, parts, rows);
       })
       .catch(function(e){
-        impEl("imp-go").disabled=false;
-        note.className="frm-note err"; note.textContent="Server error: "+e.message;
+        if(impState===st){
+          impEl("imp-go").disabled=false;
+          note.className="frm-note err"; note.textContent="Server error: "+e.message;
+        }
       });
   }
 
@@ -2289,10 +2335,10 @@
   }
 
   /** Finish the done message with what happened to any split checked in the preview, then reveal it. */
-  function impFinishImport(d, parts, rows){
+  function impFinishImport(st, d, parts, rows){
     var checked=impCheckedSplits();
     impRecordSplits(checked).then(function(results){
-      if(!impState){   // Cancel ran while the splits were recording; the import view is gone, but the work still happened
+      if(impState!==st){   // Cancel ran while the splits were recording; the import view is gone, but the work still happened
         loadTransactions();
         if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
         refreshPortfolio();
@@ -2310,9 +2356,13 @@
             +esc((res.d&&res.d.error)||"an error")+"). Quantities for "+esc(res.sp.ticker)+" are wrong until it is.");
         }
       });
-      impState.failedSplits=failed;
+      st.failedSplits=failed;
       var retry=impEl("imp-splits-retry");
-      if(retry) retry.hidden=!failed.length;
+      // Reset `disabled` here too, not only `hidden`: a Cancel mid-retry
+      // (impRetrySplits, below) leaves the button disabled with no
+      // continuation left to re-enable it, and the next import whose split
+      // fails would otherwise show it stuck.
+      if(retry){ retry.hidden=!failed.length; retry.disabled=false; }
 
       impEl("imp-done-msg").innerHTML=parts.join(" ");
       impEl("imp-undo").hidden=!d.batchId;
@@ -2328,12 +2378,14 @@
 
   /** The "Try again" button on a split that failed to record after a successful import. */
   function impRetrySplits(){
-    var list=impState.failedSplits||[];
+    if(!impState) return;
+    var st=impState;
+    var list=st.failedSplits||[];
     if(!list.length) return;
     var retryBtn=impEl("imp-splits-retry");
     if(retryBtn) retryBtn.disabled=true;   // one retry in flight at a time; each click is a limiter slot spent
     impRecordSplits(list).then(function(results){
-      if(!impState) return;   // Undo ran while the retry was in flight; nothing left to report against
+      if(impState!==st) return;   // Cancel/"import another"/Undo ran while the retry was in flight; nothing left to report against
       var stillFailed=[];
       var msg=[];
       results.forEach(function(res){
@@ -2341,7 +2393,7 @@
         if(res.ok) msg.push("Recorded: "+esc(res.sp.ticker)+" "+ratioLabel+" ("+esc(res.sp.date)+").");
         else{ stillFailed.push(res.sp); msg.push("The "+esc(res.sp.ticker)+" split still could not be recorded ("+esc((res.d&&res.d.error)||"an error")+")."); }
       });
-      impState.failedSplits=stillFailed;
+      st.failedSplits=stillFailed;
       var retry=impEl("imp-splits-retry");
       if(retry){ retry.hidden=!stillFailed.length; retry.disabled=false; }
       impEl("imp-done-msg").innerHTML += " "+msg.join(" ");
@@ -2381,19 +2433,20 @@
 
   function impUndo(){
     if(!impState||!impState.batchId) return;
-    apiFetch("./api/transactions/import/"+encodeURIComponent(impState.batchId),{method:"DELETE"})
+    var st=impState;
+    apiFetch("./api/transactions/import/"+encodeURIComponent(st.batchId),{method:"DELETE"})
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
       .then(function(res){
         if(!res.ok){ showError(res.d.error||"That import could not be undone."); return; }
-        if(impState){   // Cancel/"import another" ran while the undo was in flight; the overlay is gone but the undo still happened
-          impState.batchId=null;
+        if(impState===st){   // Cancel/"import another" ran while the undo was in flight; the overlay is gone but the undo still happened
+          st.batchId=null;
           impEl("imp-done-msg").innerHTML="<b>Import undone.</b> "+res.d.removed+" transaction"
             +(res.d.removed===1?"":"s")+" removed. Any price history that was loaded is kept. "
             +"Any split that was recorded is kept, since it is a fact about the stock, not about this file.";
           impEl("imp-undo").hidden=true;
           // Retrying a split from a batch that no longer exists fails the
           // server's ownership check, so the button has nothing left to do.
-          impState.failedSplits=[];
+          st.failedSplits=[];
           var retry=impEl("imp-splits-retry");
           if(retry) retry.hidden=true;
         }
