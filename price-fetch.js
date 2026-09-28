@@ -375,7 +375,6 @@ function renderAlertDigestText(items, standings = []) {
  * Yahoo quotes FX as tickers: EURUSD=X is euros-per-... no — it is how many USD
  * one EUR buys (1.1641). The multiplier this code wants is the inverse.
  */
-const FALLBACK_USD_TO_EUR = 0.92;
 
 /**
  * One rate per currency per day, rewritten if the day's rate is fetched again.
@@ -396,6 +395,21 @@ const RATE_UPSERT_SQL = `
     DO UPDATE SET rate = excluded.rate
 `;
 
+/**
+ * Fetches today's rate for each currency and stores it. The returned `rates`
+ * map is no longer consulted to price anything written: since issue #12 every
+ * price row goes through `backfillTicker`, which converts each bar with
+ * `makeRateLookup` reading straight from `exchange_rates` for the bar's own
+ * date (carrying the most recent earlier rate forward, or writing nothing if
+ * there is truly no rate at all — "better nothing than a guess"). There used
+ * to be a fallback constant here (`FALLBACK_USD_TO_EUR`) for when Yahoo's FX
+ * quote failed. It never reached `exchange_rates`, but the old quote path
+ * priced rows with `rates[currency]`, so on a day with no rate it did decide
+ * `price_eur`. That path is gone and nothing reads `rates` any more, so the
+ * constant was removed: a missing rate now means no row rather than a row
+ * priced at a guess. The log lines below are the only thing this loop is
+ * now for.
+ */
 async function fetchExchangeRates(yahooFinance, db, currencies) {
   const rates = { EUR: 1 };
   const upsert = db.prepare(RATE_UPSERT_SQL);
@@ -421,9 +435,9 @@ async function fetchExchangeRates(yahooFinance, db, currencies) {
       log(`  💱 1 ${currency} = €${toEur.toFixed(4)}`);
     } catch (err) {
       const prev = lastKnown.get(currency);
-      rates[currency] = prev ? prev.rate : (currency === 'USD' ? FALLBACK_USD_TO_EUR : null);
+      rates[currency] = prev ? prev.rate : null;
       log(`  ⚠ ${currency} rate unavailable (${err.message}); `
-        + (prev ? `using last known €${prev.rate.toFixed(4)}` : 'using fallback'));
+        + (prev ? `last known rate is €${prev.rate.toFixed(4)} (unchanged, not rewritten today)` : 'no rate stored for this currency yet'));
     }
     await new Promise(r => setTimeout(r, 150));
   }
@@ -970,7 +984,21 @@ function fetchUniverse(db) {
   };
 }
 
-/** Whole days between the newest stored price and now; Infinity if there is none. */
+/**
+ * Whole days between the newest stored price and now; Infinity if there is none.
+ *
+ * Since issue #12 the newest row is the previous *completed* session, not
+ * today's — so this is naturally about a day bigger than it used to be, and a
+ * Monday run reads roughly "3 days behind" (Friday's close, seen on Monday)
+ * for every ticker, which used to be within the same-day cadence and is now
+ * routed through `plan.range`'s "filled N day(s)" log line. That is noisier
+ * than before, but it is accurate — those tickers really are catching up a
+ * completed session they did not have — and both the job and backfill write
+ * through the same `backfillTicker` path either way, so it has no effect on
+ * what gets stored. Left as-is deliberately: this function's job is an
+ * accurate gap, not a quiet Monday; the tier thresholds it feeds
+ * (`tickerTier`, `HOT_SEEN_DAYS`, `COLD_INTERVAL_DAYS`) are unchanged.
+ */
 function priceGapDays(db, ticker, now) {
   const row = db.prepare(
     'SELECT MAX(price_date) AS d FROM prices WHERE ticker = ? AND price_native IS NOT NULL'
@@ -1075,86 +1103,56 @@ async function fetchPrices() {
     ensureWatchlist(db);
     ensureDataVersion(db);
 
-    const upsertStmt = db.prepare(`
-      INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)
-      VALUES (?, ?, ?, ?, ?, DATE('now'), 'yahoo_finance')
-      ON CONFLICT(ticker, price_date) DO UPDATE SET
-        price_eur = excluded.price_eur,
-        price_usd = excluded.price_usd,
-        price_native = excluded.price_native,
-        currency = excluded.currency,
-        updated_at = CURRENT_TIMESTAMP
-    `);
+    // Rates before bars, not after: `backfillTicker` converts each bar at the
+    // rate recorded *for that bar's own date* (see backfill-history.js), so a
+    // same-day completed session (an evening manual run) needs today's rate
+    // already sitting in `exchange_rates` before a single price is written.
+    // The set of currencies to fetch a rate for comes from what these tickers
+    // are already stored in — new tickers default to USD, same as before.
+    const { backfillTicker } = require('./backfill-history');
+    const currencyOfStmt = db.prepare(
+      'SELECT currency FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1'
+    );
+    const neededCurrencies = [...new Set(tickers.map(t => (currencyOfStmt.get(t) || {}).currency || 'USD'))];
+    await fetchExchangeRates(yahooFinance, db, neededCurrencies);
 
-    // Quotes first, then rates, then write. The set of currencies to convert is
-    // only known once the quotes are in, and a price should never be stored with
-    // a rate fetched for a different currency.
-    // A hot ticker with a gap is filled with one ranged request, which writes
-    // every missing trading day rather than only today.
-    if (plan.range.length) {
-      const { backfillTicker } = require('./backfill-history');
-      for (const { ticker, gap } of plan.range) {
-        try {
-          const years = Math.min(Math.max((gap + 3) / 365.25, 0.02), 1);
-          const r = await backfillTicker(db, yahooFinance, ticker, years);
-          log(`  ↻ ${ticker}: filled ${r.added} day(s) (${gap === Infinity ? 'no history' : Math.round(gap) + ' behind'})`);
-          successCount++;
-        } catch (err) {
-          log(`  ❌ ${ticker}: catch-up failed — ${err.message}`);
-          failureCount++;
-        }
-      }
-    }
+    // One writer for every ticker: the job and backfill-history.js both go
+    // through backfillTicker, so they can never disagree about a price or its
+    // date — see issue #12. A "quote" ticker (hot, already up to date) asks for
+    // a short ~10-day window rather than one day, so a bar dropped for not
+    // being final yet is still picked up without a hole opening in the table.
+    const QUOTE_WINDOW_YEARS = 10 / 365.25;
+    const requests = [
+      ...plan.quote.map(p => ({ ticker: p.ticker, years: QUOTE_WINDOW_YEARS })),
+      ...plan.range.map(p => ({ ticker: p.ticker, years: Math.min(Math.max((p.gap + 3) / 365.25, 0.02), 1), gap: p.gap }))
+    ];
 
-    const quotes = [];
-    for (const { ticker } of plan.quote) {
+    for (const { ticker, years, gap } of requests) {
       try {
-        log(`  Fetching ${ticker}...`);
-        const quoteData = await yahooFinance.quote(ticker);
-
-        if (!quoteData || quoteData.regularMarketPrice === undefined) {
-          log(`    ⚠ No price data for ${ticker}`);
+        const r = await backfillTicker(db, yahooFinance, ticker, years, { source: 'yahoo_finance', now });
+        if (r.last) {
+          log(`    ✓ ${ticker}: ${fmtNative(r.last.native, r.last.currency)} (${r.last.date})`
+            + (gap !== undefined ? ` — filled ${r.added} day(s), ${gap === Infinity ? 'no history' : Math.round(gap) + ' behind'}` : '')
+            + (r.droppedOpen ? `, ${r.droppedOpen} open bar not final yet` : ''));
+          successCount++;
+          results.push({ ticker, ok: true, priceNative: r.last.native, currency: r.last.currency, priceEur: r.last.eur, date: r.last.date });
+        } else {
+          // `r.note` is only set when Yahoo returned nothing at all. A ticker
+          // with real bars that were all skipped for want of an FX rate has no
+          // note, and reporting "no final bar" / "no price data" there points
+          // an operator at the wrong system — say what actually happened.
+          const reason = r.note
+            || (r.skipped > 0 ? `missing FX rate for ${r.skippedDate || 'this ticker'} (${r.currency})` : 'no final bar to store');
+          log(`    ⚠ ${ticker}: ${reason}`);
           failureCount++;
-          results.push({ ticker, ok: false, error: 'no price data (check the symbol)' });
-          continue;
+          results.push({ ticker, ok: false, error: reason });
         }
-
-        // Take the currency Yahoo reports rather than assuming USD: a European
-        // listing is quoted in EUR already, and converting it would scale a
-        // correct figure by the USD rate.
-        quotes.push({
-          ticker,
-          priceNative: quoteData.regularMarketPrice,
-          currency: quoteData.currency || 'USD'
-        });
       } catch (err) {
         log(`    ❌ Error fetching ${ticker}: ${err.message}`);
         failureCount++;
         results.push({ ticker, ok: false, error: err.message });
       }
       await new Promise(resolve => setTimeout(resolve, 200));
-    }
-
-    const neededCurrencies = [...new Set(quotes.map(q => q.currency))];
-    const rates = await fetchExchangeRates(yahooFinance, db, neededCurrencies);
-
-    for (const q of quotes) {
-      const rate = rates[q.currency];
-      if (rate == null) {
-        log(`    ⚠ ${q.ticker}: no ${q.currency}→EUR rate, not storing a euro value we cannot justify`);
-        failureCount++;
-        results.push({ ticker: q.ticker, ok: false, error: `no ${q.currency} rate` });
-        continue;
-      }
-      const priceEur = parseFloat((q.priceNative * rate).toFixed(4));
-      const priceUsd = q.currency === 'USD' ? q.priceNative : null;
-
-      log(`    ✓ ${q.ticker}: ${fmtNative(q.priceNative, q.currency)}`
-        + (q.currency === 'EUR' ? '' : ` → €${priceEur.toFixed(2)}`));
-
-      upsertStmt.run(q.ticker, priceEur, priceUsd, q.priceNative, q.currency);
-      successCount++;
-      results.push({ ticker: q.ticker, ok: true, priceNative: q.priceNative, currency: q.currency, priceEur });
     }
 
     // New prices change every computed view. The web process caches those by a
@@ -1167,7 +1165,11 @@ async function fetchPrices() {
     // Log summary
     log(`\n✅ Price fetch complete: ${successCount} succeeded, ${failureCount} failed`);
 
-    // Show sample of prices stored
+    // Show sample of prices stored. Since issue #12 a "quote" ticker's window is
+    // ~10 days (not 1), so `updated_at DESC` now tends to surface whichever
+    // tickers' 10-day rewrite happened to run last, rather than only the
+    // tickers that actually moved — cosmetic only, this is a log line, not
+    // something anything reads back.
     const sampleStmt = db.prepare(
       'SELECT ticker, price_eur, price_date FROM prices ORDER BY updated_at DESC LIMIT 5'
     );

@@ -354,6 +354,41 @@ test('a non-exempt POST still bumps data_version, next to the exemption above', 
   assert.equal(versionOf(), before + 1, 'a real write must still retire the cached views');
 });
 
+/* ---------------------------------------------------------- issue #12 ---
+ * With bar-dated rows, /api/import/check compares against the close of the
+ * trade's own date on a trading day, and the prior session's close on a
+ * weekend date — never a row dated later than the trade.
+ */
+test('closeDate equals the trade date on a trading day', async () => {
+  const s = signIn('closedate@example.com');
+  s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
+                 VALUES ('AAA', 90, 100, 'USD', '2025-01-30', 'yahoo_finance')`).run();
+
+  const res = await fetch(base + '/api/import/check', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ rows: [{ line: 2, ticker: 'AAA', date: '2025-01-30', price: 101 }] })
+  });
+  const body = await res.json();
+  assert.equal(body.checks[0].status, 'checked');
+  assert.equal(body.checks[0].closeDate, '2025-01-30');
+});
+
+test('closeDate is the prior session on a weekend trade date', async () => {
+  const s = signIn('closedate2@example.com');
+  // 2025-01-31 is a Friday; 2025-02-01/02 is the weekend; no row exists for the weekend
+  // because bar-dated rows are never written for a non-session day.
+  s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
+                 VALUES ('AAA', 90, 100, 'USD', '2025-01-31', 'yahoo_finance')`).run();
+
+  const res = await fetch(base + '/api/import/check', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ rows: [{ line: 2, ticker: 'AAA', date: '2025-02-01', price: 101 }] })
+  });
+  const body = await res.json();
+  assert.equal(body.checks[0].status, 'checked');
+  assert.equal(body.checks[0].closeDate, '2025-01-31', 'the newest row on or before the weekend date is Friday\'s close');
+});
+
 test('a remembered name never collides with a real ISIN', async () => {
   const s = signIn('collide@example.com');
   storeRate(s.pdb, '2025-01-30', 0.9);

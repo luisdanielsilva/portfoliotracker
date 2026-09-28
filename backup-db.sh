@@ -65,13 +65,41 @@ restore_backup() {
   " 2>/dev/null || true
   cp "$DB_PATH" "$safety"
 
+  # gunzip into a temp file first, then mv it over $DB_PATH — never redirect
+  # gunzip's stdout straight at the live file. `gunzip -c "$src" > "$DB_PATH"`
+  # opens (and truncates) $DB_PATH before gunzip has read a single byte, so a
+  # bad or non-gzip $src (issue #12 review, B2 follow-up) left the target at
+  # 0 bytes with the safety copy the only thing standing between that and data
+  # loss. A temp file plus `mv` (same filesystem, so it is a rename, not a
+  # copy) means a failed gunzip leaves $DB_PATH exactly as it was.
+  local tmp="$DB_PATH.restoring-$$"
+  if ! gunzip -c "$src" > "$tmp"; then
+    rm -f "$tmp"
+    echo "Restore failed: $src is not a valid gzip file — $DB_PATH was left untouched." >&2
+    exit 1
+  fi
+  # A valid gzip is not necessarily a database. Check the unpacked file the same
+  # way a fresh snapshot is checked before anything is replaced.
+  if ! node -e "
+    const D=require('$APP_DIR/node_modules/better-sqlite3');
+    const db=new D('$tmp', { readonly: true, fileMustExist: true });
+    const ok=db.pragma('integrity_check')[0].integrity_check;
+    db.close();
+    if (ok !== 'ok') { console.error(ok); process.exit(1); }
+  "; then
+    rm -f "$tmp"
+    echo "Restore failed: $src does not unpack to a sound SQLite database — $DB_PATH was left untouched." >&2
+    exit 1
+  fi
+  chmod --reference="$DB_PATH" "$tmp"
+
   # Replacing the file while the old -wal and -shm are still beside it is the way
   # to corrupt a restore: SQLite finds a write-ahead log belonging to a different
   # database and replays it onto the new one. Remove them with the file they
-  # describe.
+  # describe — only now, so a restore that fails above leaves them (and any rows
+  # still in the WAL) where they were.
   rm -f "$DB_PATH-wal" "$DB_PATH-shm"
-  gunzip -c "$src" > "$DB_PATH"
-  rm -f "$DB_PATH-wal" "$DB_PATH-shm"
+  mv "$tmp" "$DB_PATH"
   echo "Restored. Previous database kept at $safety"
   echo "Restart the app so it reopens the file:  pm2 restart portfolio-api"
 }

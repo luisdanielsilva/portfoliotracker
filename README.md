@@ -1503,42 +1503,140 @@ every user checked instead of one. The existing `--user` validation messages (mi
 value that looks like another flag, or a key that matches nobody) are unchanged. Brings the suite
 to 286 tests.
 
+### 📅 One meaning for a price's date — 2026-09-28 (issue #12)
+
+Two writers used to disagree about what `prices.price_date` meant. `price-fetch.js` ran at 09:00
+local, before the US session it was reporting on had even opened, and stored the previous close
+under **the date the job ran**. `backfill-history.js` stored each bar under **its own trading
+date**. Checked against Yahoo, ORCL's row for 2026-09-16 held the 09-15 close, 09-17 held 09-16's,
+and so on — a day late, every day, for every ticker the job (not backfill) had touched recently.
+A second, smaller bug rode along: a backfill run while a European market was open wrote that
+morning's first-hour intraday print as if it were the day's close — up to 4.5% off, because the
+09:00 Lisbon timer is the first hour of Euronext/XETRA's session, not the end of it.
+
+**The convention now:** a row holds the final close of the trading session it is dated by, dated in
+**the exchange's own timezone** (`meta.exchangeTimezoneName` from Yahoo, never a UTC slice of the
+clock — see `tradingDate()` in `backfill-history.js`). A bar dated today is written only once it is
+*final*: `meta.currentTradingPeriod.regular` must name today as the current session, and the clock
+must be at least 30 minutes past that session's close (`isBarFinal()`) — the grace covers closing
+auctions and late prints. Missing metadata means "not final"; the bar is picked up next run rather
+than guessed at. There is exactly one writer for every price now: `price-fetch.js` no longer calls
+`quote()` or writes under `DATE('now')` — every ticker it fetches goes through the same
+`backfillTicker()` that `backfill-history.js` always used, so the job and a manual backfill cannot
+disagree, because they are the same code. Rows on a weekend or holiday are not written and, on
+migration, are deleted rather than kept as carried-forward copies — every reader already carries
+the newest row forward on or before a date, so nothing a reader shows changes.
+
+**The migration — `redate-prices.js`.** A one-off, reviewable, reversible reconciliation, separate
+from the code change: for every ticker already in `prices` it re-fetches Yahoo's bars over that
+ticker's stored range, keeps only the final ones, and diffs them against what is actually stored —
+never by classifying who wrote a row (`source` records who last *inserted* a row, not who last
+wrote its values, so it cannot be trusted for this). A difference becomes an **update** (the row's
+own date holds the wrong close), a **delete** (a date Yahoo has no session for, with sessions
+confirmed on both sides of it — never at the open edge, where a "no session yet" might simply mean
+tomorrow hasn't happened), or an **insert** (a session missing from the DB, but never outside
+`[min, max]` of that ticker's existing rows — extending coverage is `backfill-history.js`'s job, not
+this one's). A delete is only ever labelled "not a trading session (weekend/holiday)" when the date
+really is a weekend or one of a small hand-maintained set of US/Euronext/XETRA holidays; a real
+weekday Yahoo simply has no bar for (a data gap, not a non-trading day) is flagged distinctly as
+`DELETE (weekday gap — Yahoo has no bar)`, with its own count in the summary line, so the one human
+review this migration gets does not wave through a data gap by mistake. A row whose stored currency
+no longer matches Yahoo's for that ticker (a redenomination, e.g. GBp vs GBP) is left untouched and
+reported separately rather than converted at a rate for the wrong currency. A difference dated before
+`--since` (default: seven days before the earliest row a job — not a backfill — is known to have
+written) is reported as **OUT OF WINDOW** and refuses to apply, on the theory that Yahoo restating old
+history needs a human, not a script.
+
+```bash
+DB_PATH=/path/to/portfolio.db node redate-prices.js                 # dry run (default): report only
+DB_PATH=/path/to/portfolio.db node redate-prices.js --apply         # backup, then apply in one transaction
+DB_PATH=/path/to/portfolio.db node redate-prices.js --rollback <changes.json>
+```
+
+`DB_PATH` is required — there is no default, so this can never create or silently hit the wrong
+database. `--apply` refuses if `portfolio-price-fetch.service` looks active — checked with
+`systemctl show -p ActiveState --value`, which (unlike `systemctl is-active`) correctly reports the
+`activating` state the fetch service's `Type=oneshot` unit is in while it runs, best effort and
+skipped if `systemctl` is not present — takes a `.backup()` of the whole file first and gzips it under
+`backup-db.sh`'s own naming (`portfolio.db.pre-redate-<stamp>.gz`, `--backup-dir` default
+`~/backups/portfoliotracker`), so the same `backup-db.sh --restore` used everywhere else works as the
+last-resort recovery path here too, without ever handing `gunzip` an uncompressed file. The change
+log, with every row's full before-and-after, is written *before* the transaction runs, as
+`"status": "pending"` — a pending log describes exactly what the plan is about to do, and the
+transaction is all-or-nothing, so that is also exactly what gets applied if it commits — then
+rewritten `"status": "applied"` once the commit is durable. A crash between those two writes leaves a
+`"pending"` log that still describes a real, committed migration; `--rollback` checks the database
+itself before trusting a pending log, so it works either way, and refuses outright ("nothing to roll
+back") for a log whose transaction never committed at all. Each changed row is re-read immediately
+before it is written and must still equal the value the plan was built from — a run of the daily job
+or a manual backfill in between throws and rolls back everything rather than applying half a
+reconciliation. `--rollback <changes.json>` reverses the log the same way, refusing if a row no longer
+matches what the migration itself last wrote there. Re-running the dry run after `--apply` reports
+zero changes — the same code path the job and backfill now share cannot disagree with itself.
+
+A fictional worked example — a Tuesday run that finds a job-dated row and a stale weekend copy:
+
+```
+Plan: 1 update(s), 1 delete(s), 0 insert(s)
+  UPDATE AAA 2026-09-22: 100/91.0 -> 105/95.55 (holds the wrong close for its own date)
+  DELETE AAA 2026-09-19: was 100/91.0 (not a trading session (weekend/holiday))
+```
+
+`AAA`'s Tuesday row had been holding Monday's close (100) under Tuesday's date; the migration
+replaces it with Tuesday's own close (105) at Tuesday's own rate. The Saturday copy carrying
+Friday's close forward is removed outright — `/api/snapshots` and every other by-date reader
+already fall back to the newest row on or before a date, so a Saturday portfolio value is unchanged
+by the row's absence.
+
+**"Portfolio effect" and the open edge.** Every dry run also prints, per user, how the migration
+changes the value of *that user's actual holdings* — not one share of every ticker the run touched,
+which would count tickers nobody owns and answer a question no reader actually asks. For each
+ticker a user still holds (`quantity > 0`, from `replayPosition` in `portfolio.js`, so every split
+since the trade is already applied — the same arithmetic the app uses for average cost), the
+migration compares the row a reader sees *today* against the corrected row for that ticker's latest
+**Yahoo-confirmed-final** session, splits the EUR delta into a rate-date effect (the same native
+close, only the rate/date it is converted at moves) and a close-changed effect (the close itself was
+wrong), weights both by the user's quantity, and sums across their held tickers — with any rounding
+left over reported as a residual rather than hidden. The comparison is deliberately against each
+ticker's latest **Yahoo-confirmed-final** session, not the DB's raw `MAX(price_date)` row: while a
+session is still open that row is one of the trailing rows the bracket guard correctly leaves alone
+(no Yahoo session exists on both sides of it yet), and comparing against it used to make every
+affected ticker misreport as `+0.00 / +0.00`, reading as "nothing to see here" rather than "this run
+was too early to judge." A user is skipped entirely if they hold nothing at all; a user who holds
+something but none of it was touched by this run gets an explicit "no effect" line instead of
+silence. The user is named by their masked email when an identity database is available
+(`IDENTITY_DB_PATH`, same convention as `verify-portfolio.js`), or by the first 8 characters of their
+opaque key otherwise — a fictional example:
+
+```
+Portfolio effect, user ab***@x.com (7 held tickers): total -18.42 = rate-date -21.90 + close-changed +3.48 (residual +0.00)
+```
+
+Whenever rows are left at the open edge, the dry run still says so explicitly, independent of any
+user's holdings:
+
+```
+⚠ 12 row(s) on or after 2026-10-05 left untouched because the latest session is not final yet;
+re-run after all sessions have closed (the runbook's 22:30–07:30 Lisbon window)
+```
+
+with the count folded into the summary line too, so a partial run (some sessions still open) can
+never be mistaken for a complete one. See *Re-dating price history* in `DEPLOYMENT.md` for the
+window this is asking for.
+
+**Applying to the real database is a separate, deliberate step** — merge and deploy the code
+*before* migrating (and before the next scheduled run, or the old job re-creates a job-dated row
+the following morning), run in a window well clear of the daily timer, review the dry run with a
+human, then `--apply` and confirm `verify-portfolio.js` is clean and a second dry run reports zero
+changes. Not something this script, or this repo, does on its own.
+
+**What did not change:** `areMarketsClosedForFetch`'s daily on/off window (redundant now that
+`isBarFinal` does the real work per-bar, but left alone — a cleanup for later); the run-report email
+and the alert digest, both untouched by this issue; and `exchange_rates`, which still stores a rate
+under the day it was fetched rather than the day it is a rate *for* — the same class of problem,
+filed separately as a follow-up rather than folded in here.
+
 ### ⏳ Open Items / Backlog
-
-**Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**
-
-`price-fetch.js` runs at 09:00 local, before the US session it is reporting on has opened, so the
-close it fetches belongs to the *previous* session — and it stores it under **the date the job
-ran**. `backfill-history.js` stores each bar under **its own trading date**. Both are reasonable in
-isolation; together they put the same close on two different dates.
-
-Checked against Yahoo the same afternoon:
-
-| ticker | row | holds | |
-|---|---|---|---|
-| ORCL | 2026-09-16 | the 09-15 close | a day late |
-| ORCL | 2026-09-17 | the 09-16 close | a day late |
-| ORCL | 2026-09-18 | the 09-17 close | a day late |
-| TSLA | 2026-09-17 | the 09-17 close | on its own date |
-
-TSLA reads correctly only because a backfill that morning rewrote its recent rows; ORCL was left
-alone and still carries the job's dating. **So the two conventions now coexist inside one
-portfolio, and two holdings on the same chart can be a session apart.**
-
-**What it does and does not break.** Every total, average cost, gain and alert is computed from the
-*latest* price, so none of them is wrong — the newest row is the newest close whatever it is called.
-What is wrong is anything read *by date*: comparing a point on the chart against an external chart,
-or reading two holdings against each other across a day the job ran.
-
-**A second, smaller thing the same morning:** a backfill run while a market is open writes that
-day's *intraday* price as though it were a close. TSLA's 09-18 row holds 363.525 against a 363.60
-close. Harmless once the next day's row lands, but it is not a close and is labelled as one.
-
-**The fix is a decision plus a migration**, which is why it is here and not done: settle on the
-bar's own trading date, have `price-fetch.js` date each close by the session it belongs to rather
-than by the clock, re-date the rows the job has already written, and refuse to write a bar for a
-market that is still open. Doing that carelessly would restate history, so it wants its own change
-with its own before-and-after — not a line slipped into an import.
 
 **Support address is a gmail one — change it when the new domain is in place.** The app already
 *sends* from `singleuseapps.com` (`ALERT_EMAIL_FROM`, `AUTH_EMAIL_FROM` in `.env`); what is still
@@ -1847,9 +1945,11 @@ change to "Where things stand" when nothing else is in the email.
 
 Implementation notes worth keeping: `fired_at` is stamped from the **injected clock**, not
 `CURRENT_TIMESTAMP`, so the function is deterministic under test — the same principle as
-`areMarketsClosedForFetch(when)`. A price file older than `MAX_PRICE_AGE_DAYS` (5) is not
-scored at all, which also means a cooldown shorter than that cannot be observed without the
-prices moving too. `test/helpers.js` gained `migratedDb()` because `schema.sqlite.sql` alone
+`areMarketsClosedForFetch(when)`. A price file older than `MAX_PRICE_AGE_DAYS` (7 — since issue #12
+the newest row is the previous completed session rather than today's, and a 4-day exchange closure
+such as Good Friday + Easter Monday, or Christmas Eve/Day, needs the extra headroom so it is not
+mistaken for staleness) is not scored at all, which also means a cooldown shorter than that cannot be
+observed without the prices moving too. `test/helpers.js` gained `migratedDb()` because `schema.sqlite.sql` alone
 lacks anything added by an ALTER, `prices.price_native` included.
 
 **Testing — 283 tests, in CI since 2026-09-12.**
@@ -2346,6 +2446,8 @@ Environment variables in `.env`:
 - Fetches closing prices from Yahoo Finance
 - Stores in SQLite
 - Evaluates price alerts and sends one digest email per user via Resend
+- Fetches the latest **completed** session for each ticker, dated by that session (issue #12) —
+  never "today", and never a bar that has not closed yet (`isBarFinal()`, 30-minute grace)
 - Managed by `portfolio-price-fetch.timer` / `.service` under `/etc/systemd/system/` — the only
   timer for this job since 2026-09-18, when a duplicate was removed
 - Check it is actually armed: `systemctl list-timers portfolio-price-fetch.timer` — an empty
@@ -2366,13 +2468,20 @@ the live rate for each currency actually held — Yahoo quotes FX as tickers, so
 euros-per-unit and the stored multiplier is its inverse — and writes it to `exchange_rates`
 (`from_currency` → `EUR`, one row per day).
 
-- Rates are fetched **after** the quotes, because the set of currencies is only known once the
-  quotes are in; a price is never stored using a rate fetched for a different currency.
-- If a rate cannot be fetched, the **most recent stored rate** is used rather than a constant from
-  months ago. If there is no stored rate and no fallback, the price is skipped rather than
-  recording a euro figure that cannot be justified.
-- Only USD had a hard-coded fallback (0.92); any other currency with no rate is simply not
-  converted.
+- Since issue #12, rates are fetched **before** the day's bars, not after: every price now goes
+  through `backfillTicker`, which converts each bar with the rate recorded **for that bar's own
+  date**, carrying the most recent earlier rate forward (`makeRateLookup` in
+  `backfill-history.js`) — so a same-day completed session (a manual evening run) needs today's
+  rate already sitting in `exchange_rates` before a single price is written.
+- If a rate cannot be fetched today, `fetchExchangeRates`'s own log line still says so and shows
+  the most recent stored rate rather than a constant from months ago — but that value is no
+  longer what prices are written with; `makeRateLookup` reads `exchange_rates` directly and
+  carries the same most-recent-earlier-rate forward there too. If there is truly no rate at all
+  for a currency, the price is skipped rather than recording a euro figure that cannot be
+  justified — "better nothing than a guess."
+- The old hard-coded USD fallback (0.92) never reached `exchange_rates` even before this change
+  (only a successful fetch wrote a row), so it could not affect anything written; it has been
+  removed as dead code rather than kept as a false sense of a safety net.
 
 **History was recomputed on 2026-09-09** (`recompute-eur.js`). Euro values had been produced two
 different ways, neither of them real FX:
@@ -2398,6 +2507,11 @@ node recompute-eur.js             # apply (take a backup first)
 
 Re-running it is safe and idempotent: it recomputes from `price_native` every time, so it does
 not compound. It would be the tool to use if a rate source were ever found to be wrong.
+
+**`redate-prices.js` is the sibling one-off for dates rather than rates** — see *One meaning for a
+price's date* above for what it fixes and how, and `--rollback` for undoing it. Like
+`recompute-eur.js`, it takes a backup before writing, is safe to preview with a dry run first
+(the default), and requiring the module never runs it.
 
 ### 🔭 Monitoring
 

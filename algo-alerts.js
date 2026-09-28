@@ -28,8 +28,21 @@ const { recordAlertEvent } = require('./alert-log');
 const ALERT_TIER = 'VeryStrong';
 const ALERT_DIRECTION = 'Buy';
 
-/** A signal computed off a stale price file is not a signal. */
-const MAX_PRICE_AGE_DAYS = 5;
+/**
+ * A signal computed off a stale price file is not a signal.
+ *
+ * Since issue #12 the newest row is the *previous* completed session, not
+ * today's — so the gap between "now" and the newest row is already a day
+ * bigger than it used to be, before any holiday is involved. A 4-day
+ * European closure (Good Friday + Easter Monday, or Christmas Eve/Day) then
+ * pushes it further: an 08:00 UTC run on Easter Tuesday sees Maundy Thursday
+ * as newest (5.3 days old), and a run on 2026-12-28 sees XETRA's 2026-12-23
+ * close (5 days old). `MAX_PRICE_AGE_DAYS = 5` silently skipped both. 7
+ * covers a 4-day exchange closure plus the one-day "previous session" shift
+ * with a day to spare, without meaningfully loosening the check for the
+ * common case (a normal weekend is 2-3 days old).
+ */
+const MAX_PRICE_AGE_DAYS = 7;
 
 function heldTickers(db, userId) {
   return db.prepare('SELECT DISTINCT ticker FROM transactions WHERE user_id = ? ORDER BY ticker').all(userId);

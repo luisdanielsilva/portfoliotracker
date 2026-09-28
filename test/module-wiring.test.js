@@ -62,7 +62,7 @@ test('the web app sends only through the guarded helpers', () => {
  * want of a file argument or emails the database as an attachment. Either one takes its
  * caller down with it, which is why a missing guard here fails the whole run.
  */
-const SCRIPTS = ['check-job-health', 'send-backup', 'recompute-eur', 'split-databases'];
+const SCRIPTS = ['check-job-health', 'send-backup', 'recompute-eur', 'split-databases', 'redate-prices'];
 
 test('requiring an operational script does not run it', () => {
   for (const name of SCRIPTS) {

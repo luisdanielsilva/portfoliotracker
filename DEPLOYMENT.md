@@ -9,7 +9,7 @@ Everything runs on one Hetzner VPS, in one directory, as the `deploy` user.
 | Process | pm2 app `portfolio-api` on port 3000 |
 | Public URL | https://www.singleuseapps.com/portfoliotracker/ |
 | Nginx vhost | `/etc/nginx/sites-available/singleuseapps-com` proxies `/portfoliotracker/` → `localhost:3000` |
-| Database | `/var/www/portfoliotracker/data.db` — **untracked**, backed up nightly |
+| Database | `/var/www/portfoliotracker/portfolio.db` (+ `identity.db`) — **untracked**, backed up nightly |
 | Repo | `luisdanielsilva/portfoliotracker` — **private, and must stay private** |
 
 ---
@@ -79,13 +79,119 @@ all.
 
 ```bash
 ./backup-db.sh --list
-./backup-db.sh --restore ~/backups/portfoliotracker/data.db.YYYYMMDD-HHMMSS.gz
+./backup-db.sh --restore ~/backups/portfoliotracker/portfolio.db.YYYYMMDD-HHMMSS.gz
 pm2 restart portfolio-api      # the app must reopen the file
 ```
 
-Restore keeps the database it replaced as `data.db.replaced-<timestamp>`, so a wrong restore is
+(Identity data restores the same way, from an `identity.db.YYYYMMDD-HHMMSS.gz` snapshot — `restore_backup`
+derives the destination from the snapshot's own name, so passing an `identity.db.*` file there is safe and
+never touches `portfolio.db`.)
+
+Restore keeps the database it replaced as `portfolio.db.replaced-<timestamp>`, so a wrong restore is
 itself reversible. Snapshots are taken with SQLite's online backup API (not `cp`) and are
 integrity-checked before they count.
+
+---
+
+## Re-dating price history (`redate-prices.js`, issue #12)
+
+A one-off, not part of a normal deploy — run only when a human has decided to. See *One meaning
+for a price's date* in `README.md` for what it fixes.
+
+Every command below pins `--since 2026-08-28` explicitly (S3): `redate-prices.js`'s own default for
+`--since` is `MIN(price_date) WHERE source='yahoo_finance'` minus 7 days, and this deploy's job is what
+relabels every row it rewrites as `yahoo_finance`. Deploying the new code (step 1) *before* migrating
+means that label starts moving the moment the job next runs — a range-path ticker can have a gap of up
+to a year, which would pull that `MIN` back and silently widen the window, weakening the OUT-OF-WINDOW
+guard against a Yahoo restatement. `2026-08-28` is the value measured when this was written; if a lot of
+time has passed, ask whoever last ran this rather than trusting the tool's own default.
+
+1. **Deploy the code first**, and before the next scheduled price-fetch run. The old job re-creates
+   a job-dated row the very next morning if it is still the one running — `server.js` also caches
+   `backfill-history.js` lazily, so `/api/backfill` and watchlist backfills keep the old code until
+   `pm2 restart portfolio-api`. Restart after deploying.
+2. **Pick the window: 22:30–07:30 Lisbon, on a Monday–Friday night** (so the US session that just
+   closed has one to judge against), and never while the 09:00 timer might be running —
+   `systemctl list-timers portfolio-price-fetch.timer` should show nothing due before you finish.
+   It must be a weeknight, not a Friday/Saturday or Saturday/Sunday night: over a weekend the
+   trailing Friday/weekend rows cannot be bracketed until Monday's close, so the dry run's
+   `⚠ ... left untouched because the latest session is not final yet` (the "open edge") fires and
+   those rows are simply skipped rather than corrected. In the stated window on a weeknight, expect
+   **no** open-edge warning at all; if one appears anyway, re-run once every relevant session has
+   actually closed.
+
+   Also run, right before `--apply` (step 4), a direct look at the unit itself — the best-effort
+   check inside `redate-prices.js` is not a substitute for looking:
+   ```bash
+   systemctl status portfolio-price-fetch.service
+   ```
+3. **Dry run, and read it**:
+   ```bash
+   cd /var/www/portfoliotracker
+   DB_PATH=/var/www/portfoliotracker/portfolio.db node redate-prices.js --since 2026-08-28
+   ```
+   Review the counts and every changed row with a human before going further. `OUT OF WINDOW`
+   entries (if any) mean Yahoo has restated history — stop and decide by hand, do not `--apply`.
+   A `DELETE (weekday gap — Yahoo has no bar)` line is not a weekend or a known holiday — it means
+   Yahoo has no session at all for a real trading weekday, which is a data gap, not the pattern this
+   migration exists to clean up. Review those by hand before applying; do not assume they are safe
+   just because they are outnumbered by ordinary weekend/holiday deletes.
+   A `⚠ N row(s) on or after <date> left untouched because the latest session is not final yet`
+   line means step 2's window was missed — a session this run needed to judge is still open. It is
+   safe to `--apply` anyway (those rows are simply left alone, not misapplied), but re-run once
+   every relevant session has actually closed so nothing is left dangling.
+
+   The dry run also prints one `Portfolio effect` line per user — the change to *that user's actual
+   holdings*, quantity-weighted, not one share of every ticker touched (see *"Portfolio effect" and
+   the open edge* in `README.md`). A fictional example:
+   ```
+   Portfolio effect, user ab***@x.com (7 held tickers): total -18.42 = rate-date -21.90 + close-changed +3.48 (residual +0.00)
+   ```
+   `IDENTITY_DB_PATH` (default `identity.db` next to the price database) is what lets it show a
+   masked email instead of a raw user key.
+4. **Apply**:
+   ```bash
+   DB_PATH=/var/www/portfoliotracker/portfolio.db node redate-prices.js --apply --since 2026-08-28
+   ```
+   Takes a `.backup()` of the database, gzips it under `backup-db.sh`'s own naming
+   (`portfolio.db.pre-redate-<stamp>.gz`) and writes a change log to `~/backups/portfoliotracker/`
+   *before* the transaction runs (as `"status": "pending"`, rewritten `"applied"` once the commit is
+   durable — so a crash can never leave the database migrated with nothing recorded). Applies in one
+   transaction and bumps `data_version` (no restart needed — the app reads prices per request). If it
+   ever prints a line starting `✗✗✗ THE DATABASE WAS MIGRATED`, the transaction **did** commit even
+   though the last step failed — do not re-run; go straight to *Verify*, and fix whatever the message
+   says before touching the log file.
+5. **Verify**:
+   ```bash
+   node verify-portfolio.js                # expect exit 0
+   DB_PATH=/var/www/portfoliotracker/portfolio.db node redate-prices.js --since 2026-08-28   # dry run again — expect 0 changes
+   ```
+   Then eyeball the Portfolio chart for one US and one EU holding against Yahoo's own chart for a
+   mid-history date.
+6. **Rollback**, if needed:
+   ```bash
+   DB_PATH=/var/www/portfoliotracker/portfolio.db node redate-prices.js --rollback <backup-dir>/redate-prices-<stamp>.json
+   ```
+   Refuses if any row no longer matches what the migration itself last wrote there — it accepts both a
+   `"pending"` log left by a crash right after the commit (it checks the database itself before
+   trusting it) and a normal `"applied"` one, and refuses outright on an `"aborted"` log ("nothing to
+   roll back"), since there is nothing in the database to undo. It also takes its own backup first.
+
+   **Last resort — only if the change log is gone or `--rollback` itself refuses:** since the backup
+   `--apply` wrote is gzipped under `backup-db.sh`'s own naming, its `--restore` now works directly and
+   is the preferred path:
+   ```bash
+   ./backup-db.sh --restore ~/backups/portfoliotracker/portfolio.db.pre-redate-<stamp>.gz
+   pm2 restart portfolio-api
+   ```
+   with the timer not running and pm2 stopped first (see *Rolling back → Database* above). Do **not**
+   hand `--restore` a `.pre-redate-<stamp>` file with no `.gz` — a version of this script from before
+   the issue #12 review wrote its backup uncompressed, and `--restore`'s `gunzip` truncates the target
+   file before failing on anything that is not actually gzip. If, for any reason, an old uncompressed
+   backup is all that exists, restore it manually instead: stop the timer
+   (`sudo systemctl disable --now portfolio-price-fetch.timer`), `pm2 stop portfolio-api`, remove
+   `portfolio.db-wal`/`portfolio.db-shm`, `cp <backup> portfolio.db`, then `pm2 start portfolio-api` and
+   re-enable the timer.
 
 ---
 
@@ -184,11 +290,15 @@ the old copies stay readable only with the old one.
 **Restore**
 
 ```bash
-gpg -d data.db.<stamp>.gz.gpg > data.db.gz
-gunzip data.db.gz
-sqlite3 data.db "PRAGMA integrity_check;"    # expect: ok
+gpg -d portfolio.db.<stamp>.gz.gpg > portfolio.db.gz
+gunzip portfolio.db.gz
+sqlite3 portfolio.db "PRAGMA integrity_check;"    # expect: ok
+# and the same for identity.db.<stamp>.gz.gpg -> identity.db, if that side is what needs restoring
 ```
 
-Then put `data.db` in the application directory and `pm2 restart portfolio-api`. The script
-refuses to ship anything it cannot decrypt back to a valid gzip, so a copy that reaches
+(Snapshots from before the 2026-09-14 split are a single `data.db.<stamp>.gz.gpg` — that legacy name is
+still handled by the pruning logic, but nothing this old should still be the most recent copy.)
+
+Then put `portfolio.db` (and/or `identity.db`) in the application directory and `pm2 restart portfolio-api`.
+The script refuses to ship anything it cannot decrypt back to a valid gzip, so a copy that reaches
 either destination has already been proven to round-trip once.

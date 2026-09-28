@@ -135,6 +135,23 @@ test('a stale price file is not scored', () => {
   assert.strictEqual(A.evaluateAlgorithmSignals(db, late).size, 0);
 });
 
+test('a 4-day exchange closure (holiday weekend) does not falsely mark prices stale', () => {
+  // Since issue #12 the newest row is the previous completed session, and a
+  // 4-day closure (Good Friday + Easter Monday, or a Christmas break) can
+  // leave it several days old even on a normal run. MAX_PRICE_AGE_DAYS = 5
+  // used to skip this case (5.33 days > 5); it must not with the fix.
+  const db = migratedDb();
+  const u = addUser(db, 'owner@example.com');
+  addTx(db, u, { ticker: 'DIP', quantity: 10, amount: 1000, ts: day(1) });
+  const thursday = buildCheap(db, 'DIP', 800, Date.UTC(2026, 3, 2)); // a Thursday close
+  // The following Tuesday at 08:00 UTC (the timer's slot): 5 days + 8h later.
+  const tuesday = new Date(thursday.getTime() + 5 * 864e5 + 8 * 3600e3);
+  assert.ok((tuesday.getTime() - thursday.getTime()) / 864e5 > 5, 'precondition: the gap exceeds the old limit');
+  const result = A.evaluateAlgorithmSignals(db, tuesday);
+  assert.strictEqual(result.get('owner@example.com')?.length, 1,
+    'a 4-day holiday closure must not be treated as stale prices');
+});
+
 test('a holding with almost no history is skipped rather than guessed at', () => {
   const db = migratedDb();
   const u = addUser(db, 'owner@example.com');
