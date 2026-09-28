@@ -4305,7 +4305,7 @@
    * the alerts use; this only draws it. */
   var JOURNAL=null, JR_HISTORY={}, jrSelected=null;
   var JR_ALERT_NAME={dip_from_avg_cost:"Dip", gain_from_avg_cost:"Target", drop_from_high:"Trailing",
-                     price_above:"Price above", price_below:"Price below", algo:"Algorithm"};
+                     price_above:"Price above", price_below:"Price below", algo:"Position Timing Signal"};
 
   function loadAndRenderJournal(){
     var p=JOURNAL?Promise.resolve(JOURNAL):apiFetch("./api/journal").then(function(r){ return r.json(); });

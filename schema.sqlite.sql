@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
   user_id TEXT PRIMARY KEY,
   algo_alerts_enabled INTEGER NOT NULL DEFAULT 1,
   algo_hold_days INTEGER NOT NULL DEFAULT 3,
-  algo_cooldown_days INTEGER NOT NULL DEFAULT 60
+  algo_cooldown_days INTEGER NOT NULL DEFAULT 30
 );
 
 -- SUPERSEDED by alert_events, which records the algorithm's emails alongside

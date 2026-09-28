@@ -28,7 +28,7 @@ a holding has moved far enough from its own normal to be worth a look.
 - **Watches in both directions.** Most tools only ever suggest buying more. This one also
   tells you when a holding is unusually expensive by its own history.
 - **Emails you, sparingly.** Alerts you write yourself, plus one fixed signal from the
-  Algorithm tab that works out to a handful of emails a year.
+  Position Timing Signal tab that works out to a handful of emails a year.
 
 ## How to use it
 
@@ -55,7 +55,7 @@ The other tabs — *Portfolio*, *DCA* — are ways of looking at the same data.
 - **Currency is handled honestly.** Euros for what you paid, the market's own currency for what
   a share costs, and real historical exchange rates for past dates.
 - **It explains itself.** Every chart says what it measures and what it cannot tell you. The
-  Algorithm tab shows the percentile behind each reading rather than a verdict.
+  Position Timing Signal tab shows the percentile behind each reading rather than a verdict.
 - **It is quiet by design.** The one automatic alert is deliberately rare, and there is no
   sell alert at all, because the underlying reading is true too often to be worth an email.
 - **Your data stays yours.** No ads, no analytics, no third-party trackers, nothing sold. The
@@ -72,7 +72,7 @@ Worth reading before trusting it with anything:
   broken, and no arrangement of these numbers separates the two.
 - **The signal has a known bias.** Ranking a *price level* means a stock in a long uptrend sits
   near its own top almost permanently, so the sell side reads "expensive" most of the time for
-  a winner. This is measured and documented rather than hidden — see *Algorithm tab* below.
+  a winner. This is measured and documented rather than hidden — see *Position Timing Signal tab* below.
 - **Transactions are typed in by hand.** There is no broker connection, so the records are only
   as good as what you enter. A reconciliation script exists because mistakes happen.
 - **Prices come from an unofficial source.** Yahoo Finance via a community library. It is
@@ -105,11 +105,11 @@ suite. Everything below this line is the engineering record for the deployment a
 - **Transactions tab:** the register form, the transaction list, and **import from a broker
   CSV** — read in the browser, confirmed row by row, undoable. See *Import from a broker file*.
 - **Alerts tab:** one form for all four rule types (dip, target, trailing, price level), the
-  alert map and the alert list. The Algorithm tab has its own alert, which is deliberately *not* here — see
+  alert map and the alert list. The Position Timing Signal tab has its own alert, which is deliberately *not* here — see
   *Algorithm alerts* below.
-- **Algorithm tab:** the position-timing signal — every holding's close ranked against its own
+- **Position Timing Signal tab:** every holding's close ranked against its own
   trailing 6M/1Y/2Y history, with two signal lanes (Early / Confirmed), notable runs, a full data
-  table and a position-gated recommendation. Rules in `algorithm.js`, details under *Algorithm tab*.
+  table and a position-gated recommendation. Rules in `algorithm.js`, details under *Position Timing Signal tab*.
 - **DCA tab:** analyses any holding against its own trailing average and Bollinger bands.
   The selector lists what you hold, taken from `/api/avg-cost`. It used to be driven by the
   chart's universe, whose keys are the short names this app started with (`asml`, `vw`, `spy`)
@@ -622,7 +622,7 @@ which produced the row (`rule` / `algo`), `alert_type` carries the rule type or 
 holds for nine days is **nine emails and nine rows**: a daily reminder, which is what the user
 wants (decided 2026-09-27, #27). An earlier version of this paragraph said the nine days were
 one email; `alert_events` showed VOW.DE's dip on every run from 19 to 27 September. The
-algorithm is different: a very strong buy inside its 60-day cooldown is not an event at all.
+algorithm is different: a very strong buy inside its cooldown is not an event at all.
 
 **Anything that counts alerts groups them into episodes first.** Consecutive daily rows for the
 same rule on the same holding are one *episode*: one decision to make, reminded daily. Counting
@@ -672,7 +672,7 @@ with a dip's. With a handful of events per type this is a description of what ha
 measurement of whether alerts work. The log starts empty on 2026-09-17; there is no history to
 backfill, because none was ever kept.
 
-Covered by `test/alert-log.test.js` (13 tests), and the Algorithm tab's timeline now reads
+Covered by `test/alert-log.test.js` (13 tests), and the Position Timing Signal tab's timeline now reads
 `alert_events` — an alert the mailer refused shows there as *Alert raised, email not sent*
 rather than silently looking like an email that arrived.
 
@@ -1740,7 +1740,7 @@ delayed.
 
 **Two traps, both now pinned by tests.** An alert exists for somebody who is *not* logging in,
 so dormancy must never be allowed to silence it — that is why an enabled alert forces daily. And
-the Algorithm tab's alert is on by default for every account, so counting it would make every
+the Position Timing Signal tab's alert is on by default for every account, so counting it would make every
 ticker hot and the rule a no-op; it deliberately does not count. `test/fetch-cadence.test.js`
 fails if either is broken, verified by breaking them.
 
@@ -1904,9 +1904,10 @@ let "delete all my alerts" silently switch the algorithm off.
 
 **It emails about exactly one thing: a holding reading very strong buy.** Not configurable —
 that is a claim about the signal, not a preference. The user owns two timings, both about
-volume rather than meaning, and both live on the Algorithm tab beside the explanation:
+volume rather than meaning, and both live on the Position Timing Signal tab beside the explanation:
 `algo_hold_days` (consecutive readings before it counts, default 3) and `algo_cooldown_days`
-(how long that holding then stays quiet, default 60). `PUT /api/algorithm/settings`.
+(how long that holding then stays quiet, default 30 — one month; it was 60 until 2026-09-28, and an
+account that already saved a value keeps it). `PUT /api/algorithm/settings`.
 
 **There is no sell alert, and that is a decision rather than an omission.** Measured over the
 current holdings: the sell side is on **39% of all days**, and **76%** for NVDA — whose sell
@@ -2192,10 +2193,10 @@ Also fixed here: `CURRENT_MARKET_VALUE` and `CURRENT_COST_BASIS` were only ever 
 dead for every account since it was written. They now come from the last snapshot, where the
 numbers actually are.
 
-### 🧮 Algorithm tab — the position-timing signal
+### 🧮 Position Timing Signal tab (once named *Algorithm*)
 
 Built from a written specification (2026-09-12). `algorithm.js` holds the rules, all pure
-functions of a price array; `/api/algorithm` serves them; the Algorithm tab draws them.
+functions of a price array; `/api/algorithm` serves them; the Position Timing Signal tab draws them.
 `test/algorithm.test.js` pins every threshold — they look arbitrary because they were
 *chosen*, so a retune must break a test rather than change meaning silently.
 

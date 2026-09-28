@@ -2032,7 +2032,7 @@ app.get('/api/algorithm/settings', (req, res) => {
   try {
     const row = db.prepare(
       'SELECT algo_alerts_enabled AS enabled, algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays FROM user_settings WHERE user_id = ?'
-    ).get(req.userId) || { enabled: 1, holdDays: 3, cooldownDays: 60 };
+    ).get(req.userId) || { enabled: 1, holdDays: 3, cooldownDays: 30 };
     res.json({
       enabled: !!row.enabled,
       holdDays: row.holdDays,

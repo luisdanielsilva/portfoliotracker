@@ -224,7 +224,7 @@ function ensureAlgorithmAlertSettings(db) {
     db.exec('ALTER TABLE users ADD COLUMN algo_hold_days INTEGER NOT NULL DEFAULT 3');
   }
   if (!cols.includes('algo_cooldown_days')) {
-    db.exec('ALTER TABLE users ADD COLUMN algo_cooldown_days INTEGER NOT NULL DEFAULT 60');
+    db.exec('ALTER TABLE users ADD COLUMN algo_cooldown_days INTEGER NOT NULL DEFAULT 30');
   }
   // When this account was last actually here. The only login signal before this
   // was sessions.created_at, which the daily credential purge deletes — so who is

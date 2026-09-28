@@ -135,13 +135,13 @@ test('changing a timing saves it and records what changed', async () => {
 
   const defaults = await (await call('GET')).json();
   assert.strictEqual(defaults.holdDays, 3, 'a new account starts at the documented defaults');
-  assert.strictEqual(defaults.cooldownDays, 60);
+  assert.strictEqual(defaults.cooldownDays, 30);
   assert.strictEqual(logRows().length, 0, 'reading changes nothing');
 
   assert.strictEqual((await call('PUT', { holdDays: 5, cooldownDays: 90 })).status, 200);
   assert.deepStrictEqual(logRows(), [
     { field: 'holdDays', old_value: 3, new_value: 5 },
-    { field: 'cooldownDays', old_value: 60, new_value: 90 }
+    { field: 'cooldownDays', old_value: 30, new_value: 90 }
   ], 'both changes are recorded, with what they were before');
 
   // Re-choosing what is already chosen is not an event. A timeline full of those
