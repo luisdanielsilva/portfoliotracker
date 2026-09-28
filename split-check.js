@@ -326,6 +326,166 @@ async function recordSplit(db, yf, userId, ticker, date) {
   };
 }
 
+/**
+ * For every ticker traded (optionally scoped to `userIds`), every Yahoo split
+ * event with no `stock_splits` row within +/-7 days — issue #30. Pure data,
+ * no printing; `verify-portfolio.js --check-splits` decides how to show it.
+ *
+ * "Affects a user" and its `delta` are a *telescoping* replay, not an
+ * independent one per event. The naive version — apply only the recorded
+ * splits before measuring `heldBefore` — is wrong the moment two unrecorded
+ * splits stack: it re-measures from the *stored* (pre-split) share count
+ * every time, so a second unrecorded split's delta is computed on top of a
+ * quantity that doesn't yet include the first one's effect, understating the
+ * true error and, if a sale falls between the two splits, capable of
+ * reporting "nobody held across" when someone in fact did (both were caught
+ * in review — see the plan and review.md for the worked examples).
+ *
+ * The fix: for a given (user, ticker), take the *clean* unrecorded events in
+ * date order, U1..Un. Non-clean events (probably spin-offs) are informational
+ * only and never enter this replay — pushing one onto `appliedClean` would
+ * change every later split's real share count on the strength of a corporate
+ * action that didn't actually multiply anyone's shares, so it never happens,
+ * on purpose.
+ *
+ * For event Uk, `heldBefore` is the position *just before* Uk, computed from
+ * transactions dated before Uk (the same `t.d < split_date` convention check
+ * 3 in `verify-portfolio.js` uses — a transaction dated on the event itself
+ * counts as post-split) with every *recorded* split up to Uk's date applied,
+ * plus U1..U(k-1) already applied. These are real shares, not stored ones:
+ * each earlier unrecorded split is folded in before the next one is measured.
+ * `delta = heldBefore * (ratio - 1) * product(recorded splits dated after
+ * Uk)` — never multiplied by a *later* unrecorded split, because that split's
+ * own term already accounts for it. Because each delta is exactly the change
+ * from the state after U(k-1) to the state after Uk, the deltas for a ticker
+ * sum exactly to (real holding) - (stored holding); see `totals` below.
+ *
+ * A ticker Yahoo cannot be reached for comes back as `{ ticker, error }`
+ * (`yahooErrorInfo(err).error`, never the raw Yahoo message) and the loop
+ * moves on to the next ticker rather than stopping.
+ */
+async function auditSplits(db, yf, { userIds, delayMs = 250 } = {}) {
+  const scoped = Array.isArray(userIds) && userIds.length > 0;
+  const placeholders = scoped ? userIds.map(() => '?').join(',') : '';
+
+  const tickers = (scoped
+    ? db.prepare(`SELECT DISTINCT ticker FROM transactions WHERE user_id IN (${placeholders}) ORDER BY ticker`).all(...userIds)
+    : db.prepare('SELECT DISTINCT ticker FROM transactions ORDER BY ticker').all()
+  ).map(r => r.ticker);
+
+  const recordedStmt = db.prepare('SELECT split_date AS date, ratio FROM stock_splits WHERE ticker = ? ORDER BY split_date');
+  const txStmt = db.prepare(`
+    SELECT tx_type, quantity, date(ts/1000,'unixepoch') d FROM transactions WHERE user_id = ? AND ticker = ?
+  `);
+  const tickerUsersStmt = scoped
+    ? null
+    : db.prepare('SELECT DISTINCT user_id AS id FROM transactions WHERE ticker = ?');
+
+  const results = [];
+  for (let i = 0; i < tickers.length; i++) {
+    const ticker = tickers[i];
+
+    let events;
+    try {
+      ({ events } = await fetchSplits(yf, ticker));
+    } catch (err) {
+      results.push({ ticker, error: yahooErrorInfo(err).error });
+      if (delayMs && i < tickers.length - 1) await new Promise(r => setTimeout(r, delayMs));
+      continue;
+    }
+
+    const recordedRows = recordedStmt.all(ticker);
+    // Already in date order: fetchSplits sorts `events`, and filtering preserves order.
+    const unrecordedEvents = diffAgainstRecorded(events, recordedRows).filter(e => !e.recorded);
+
+    const userIdsForTicker = scoped ? userIds : tickerUsersStmt.all(ticker).map(r => r.id);
+
+    // Per-user running state for the telescoping replay: `txs` fetched once
+    // (not once per event — hoisted out of the loop below), `appliedClean`
+    // the growing list of clean unrecorded events folded in so far, `stored`
+    // the current holding with only *recorded* splits applied (matches check
+    // 3's `expected`), and `deltaSum` the running total that becomes `real -
+    // stored` once every event for this ticker has been walked.
+    const userState = new Map();
+    const stateFor = userId => {
+      let st = userState.get(userId);
+      if (!st) {
+        const txs = txStmt.all(userId, ticker);
+        const stored = txs.reduce((sum, t) => {
+          let q = t.quantity;
+          for (const s of recordedRows) if (t.d < s.date) q *= s.ratio;
+          return sum + (t.tx_type === 'buy' ? q : -q);
+        }, 0);
+        st = { txs, appliedClean: [], stored, deltaSum: 0 };
+        userState.set(userId, st);
+      }
+      return st;
+    };
+
+    const unrecorded = unrecordedEvents.map(e => {
+      const holders = [];
+      // Same for every user for this event: the product of recorded splits
+      // dated after it. Computed once here rather than once per (event, user).
+      const afterFactor = recordedRows
+        .filter(s => s.date > e.date)
+        .reduce((a, s) => a * s.ratio, 1);
+      for (const userId of userIdsForTicker) {
+        const st = stateFor(userId);
+        let heldBefore = 0;
+        for (const t of st.txs) {
+          if (!(t.d < e.date)) continue;   // on or after the event counts as post-split
+          let q = t.quantity;
+          for (const s of recordedRows) {
+            if (t.d < s.date && s.date <= e.date) q *= s.ratio;
+          }
+          for (const u of st.appliedClean) {
+            if (t.d < u.date) q *= u.ratio;
+          }
+          heldBefore += t.tx_type === 'buy' ? q : -q;
+        }
+        // A negative heldBefore means the data is already inconsistent before
+        // this split even applies (more sold than ever bought, as of this
+        // date) — a bug elsewhere, not something the split maths can repair.
+        // Rather than report a fabricated positive holding, this is silently
+        // excluded from `holders`, same as heldBefore === 0; see the nit in
+        // review.md for why surfacing it is left as a follow-up.
+        if (heldBefore > 1e-9) {
+          const delta = heldBefore * (e.ratio - 1) * afterFactor;
+          holders.push({ userId, heldBefore, delta });
+          if (e.clean) st.deltaSum += delta;
+        }
+        // Only a *clean* event ever gets folded into future replays for this
+        // user — a non-clean event is information only (see the doc comment
+        // above) and must never change a later split's real share count.
+        if (e.clean) st.appliedClean.push({ date: e.date, ratio: e.ratio });
+      }
+      return {
+        date: e.date, numerator: e.numerator, denominator: e.denominator,
+        ratio: e.ratio, clean: e.clean, holders
+      };
+    });
+
+    // One aggregate per (user, ticker), for users any clean unrecorded event
+    // actually affected: stored vs. real holding, and the total share error —
+    // Σ delta_k for that user, which telescopes exactly to `real - stored`.
+    // Deliberately omitted when the deltas cancel out (e.g. an unrecorded 2:1
+    // followed by an unrecorded 1:2): the per-event ✗ lines above still list
+    // and count each event, so nothing is hidden — only a redundant "off by
+    // 0" total line is skipped.
+    const totals = [];
+    for (const [userId, st] of userState) {
+      if (Math.abs(st.deltaSum) > 1e-9) {
+        totals.push({ userId, stored: st.stored, real: st.stored + st.deltaSum, off: st.deltaSum });
+      }
+    }
+
+    results.push({ ticker, unrecorded, totals });
+    if (delayMs && i < tickers.length - 1) await new Promise(r => setTimeout(r, delayMs));
+  }
+
+  return results;
+}
+
 module.exports = {
-  CLEAN_MAX, isCleanSplit, fetchSplits, diffAgainstRecorded, evidenceFor, recordSplit, _clearCache
+  CLEAN_MAX, isCleanSplit, fetchSplits, diffAgainstRecorded, evidenceFor, recordSplit, auditSplits, _clearCache
 };

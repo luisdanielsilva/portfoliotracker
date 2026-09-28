@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  CLEAN_MAX, isCleanSplit, fetchSplits, diffAgainstRecorded, evidenceFor, recordSplit, _clearCache
+  CLEAN_MAX, isCleanSplit, fetchSplits, diffAgainstRecorded, evidenceFor, recordSplit, auditSplits, _clearCache
 } = require('../split-check.js');
 const { migratedDb, addUser, addTx, addSplit, day } = require('./helpers.js');
 
@@ -289,4 +289,159 @@ test('_clearCache: a cleared cache is refetched from yf', async () => {
   _clearCache();
   await fetchSplits(yf, 'NVDA');
   assert.equal(yf.calls, 2, 'the clear must force a refetch');
+});
+
+/* ---------------------------------------------------------------- auditSplits */
+
+test('auditSplits: a user who only bought after both splits is not a holder of either', async () => {
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'NVDA', quantity: 10, amount: 1000, ts: Date.UTC(2025, 0, 1) });
+  const yf = fakeYf({ NVDA: [
+    { date: '2021-07-20', n: 4, d: 1 },
+    { date: '2024-06-10', n: 10, d: 1 }
+  ] });
+
+  const [result] = await auditSplits(db, yf, { delayMs: 0 });
+  assert.equal(result.ticker, 'NVDA');
+  assert.equal(result.unrecorded.length, 2);
+  for (const e of result.unrecorded) assert.deepEqual(e.holders, []);
+});
+
+test('auditSplits: a holder before a split gets heldBefore and delta, multiplied by a later recorded split', async () => {
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'NVDA', quantity: 10, amount: 1000, ts: Date.UTC(2020, 0, 1) });
+  addSplit(db, { ticker: 'NVDA', date: '2024-06-10', ratio: 10 });   // recorded, after the unrecorded event
+  const yf = fakeYf({ NVDA: [{ date: '2021-07-20', n: 4, d: 1 }] });
+
+  const [result] = await auditSplits(db, yf, { delayMs: 0 });
+  assert.equal(result.unrecorded.length, 1);
+  const [holder] = result.unrecorded[0].holders;
+  assert.equal(holder.userId, u);
+  assert.equal(holder.heldBefore, 10);
+  assert.equal(holder.delta, 10 * 3 * 10, 'heldBefore * (ratio - 1) * the later recorded 10:1');
+});
+
+test('auditSplits: sold out before the split is not a holder, and a buy dated on the split day is post-split', async () => {
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'NVDA', quantity: 10, amount: 1000, ts: Date.UTC(2015, 0, 1) });
+  addTx(db, u, { ticker: 'NVDA', quantity: 10, amount: 1000, type: 'sell', ts: Date.UTC(2021, 0, 1) });   // sold out before the split
+  addTx(db, u, { ticker: 'NVDA', quantity: 5, amount: 500, ts: Date.UTC(2021, 6, 20) });   // same day as the split, post-split
+  const yf = fakeYf({ NVDA: [{ date: '2021-07-20', n: 4, d: 1 }] });
+
+  const [result] = await auditSplits(db, yf, { delayMs: 0 });
+  assert.equal(result.unrecorded[0].holders.length, 0);
+});
+
+test('auditSplits: a recorded split one day off from Yahoo\'s date is not reported', async () => {
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'TSLA', quantity: 10, amount: 1000, ts: Date.UTC(2015, 0, 1) });
+  addSplit(db, { ticker: 'TSLA', date: '2020-09-01', ratio: 5 });   // one day off '2020-08-31'
+  const yf = fakeYf({ TSLA: [{ date: '2020-08-31', n: 5, d: 1 }] });
+
+  const [result] = await auditSplits(db, yf, { delayMs: 0 });
+  assert.equal(result.unrecorded.length, 0, 'within +/-7 days counts as recorded');
+});
+
+test('auditSplits: a non-clean event comes back with clean: false', async () => {
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'T', quantity: 10, amount: 1000, ts: Date.UTC(2015, 0, 1) });
+  const yf = fakeYf({ T: [{ date: '2022-04-11', n: 1324, d: 1000 }] });
+
+  const [result] = await auditSplits(db, yf, { delayMs: 0 });
+  assert.equal(result.unrecorded[0].clean, false);
+});
+
+test('auditSplits: a ticker Yahoo throws for comes back as {ticker, error}, and the next ticker is still checked', async () => {
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'BAD', quantity: 10, amount: 1000, ts: Date.UTC(2015, 0, 1) });
+  addTx(db, u, { ticker: 'NVDA', quantity: 10, amount: 1000, ts: Date.UTC(2015, 0, 1) });
+  const yf = fakeYf({ NVDA: [{ date: '2021-07-20', n: 4, d: 1 }] }, {
+    onCall: (ticker) => { if (ticker === 'BAD') throw new Error('ECONNRESET: some internal detail'); }
+  });
+
+  const results = await auditSplits(db, yf, { delayMs: 0 });
+  const bad = results.find(r => r.ticker === 'BAD');
+  const nvda = results.find(r => r.ticker === 'NVDA');
+  assert.ok(bad.error, 'BAD must carry an error, not an empty unrecorded list');
+  assert.equal(bad.unrecorded, undefined);
+  assert.doesNotMatch(bad.error, /ECONNRESET|internal detail/, 'the raw yahoo-finance2 message must not leak');
+  assert.equal(nvda.unrecorded.length, 1, 'NVDA is still checked after BAD failed');
+});
+
+test('auditSplits: stacked unrecorded splits telescope — the second event\'s heldBefore and delta account for the first', async () => {
+  // Blocker from review.md: a naive replay that only ever applies *recorded*
+  // splits measures heldBefore in stored units, so the second unrecorded
+  // event's delta is computed against the pre-split 100, not the real 400 —
+  // giving 300 + 900 = 1200 instead of the true 300 + 3600 = 3900.
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'NVDA', quantity: 100, amount: 1000, ts: Date.UTC(2020, 0, 1) });
+  const yf = fakeYf({ NVDA: [
+    { date: '2021-07-20', n: 4, d: 1 },
+    { date: '2024-06-10', n: 10, d: 1 }
+  ] });
+
+  const [result] = await auditSplits(db, yf, { delayMs: 0 });
+  const [first, second] = result.unrecorded;
+  const [h1] = first.holders;
+  const [h2] = second.holders;
+
+  assert.equal(h1.heldBefore, 100);
+  assert.equal(h1.delta, 300);
+  assert.equal(h2.heldBefore, 400, 'real shares before the 10:1 already include the 4:1');
+  assert.equal(h2.delta, 3600);
+
+  const [total] = result.totals;
+  assert.equal(total.userId, u);
+  assert.equal(total.stored, 100);
+  assert.equal(total.real, 4000);
+  assert.equal(total.off, 3900, 'the two deltas telescope to the true total, not 1200');
+});
+
+test('auditSplits: a sale between two unrecorded splits is still measured correctly by the second, real-share replay', async () => {
+  // The false-negative from review.md: buy 100 in 2020, unrecorded 4:1 in
+  // 2021, sell 200 real (post-4:1) shares in 2022, unrecorded 10:1 in 2024. A
+  // stored-units replay gives 100 - 200 = -100 before the 10:1 and wrongly
+  // says nobody held across it, when 200 real shares did.
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'NVDA', quantity: 100, amount: 1000, ts: Date.UTC(2020, 0, 1) });
+  addTx(db, u, { ticker: 'NVDA', quantity: 200, amount: 2000, type: 'sell', ts: Date.UTC(2022, 0, 1) });
+  const yf = fakeYf({ NVDA: [
+    { date: '2021-07-20', n: 4, d: 1 },
+    { date: '2024-06-10', n: 10, d: 1 }
+  ] });
+
+  const [result] = await auditSplits(db, yf, { delayMs: 0 });
+  const [first, second] = result.unrecorded;
+
+  assert.equal(first.holders[0].heldBefore, 100);
+  assert.equal(first.holders[0].delta, 300);
+
+  assert.equal(second.holders.length, 1, 'the 10:1 must still name a holder — 200 real shares were held across it');
+  assert.equal(second.holders[0].heldBefore, 200, '400 real shares from the 4:1 minus the 200 real shares sold');
+  assert.equal(second.holders[0].delta, 1800);
+
+  const [total] = result.totals;
+  assert.equal(total.off, 2100, '2000 real shares today minus the stored -100 = 2100');
+});
+
+test('auditSplits: userIds scoping ignores another user\'s holding', async () => {
+  _clearCache();
+  const db = migratedDb();
+  const a = addUser(db, 'a@example.com');
+  const b = addUser(db, 'b@example.com');
+  addTx(db, a, { ticker: 'NVDA', quantity: 10, amount: 1000, ts: Date.UTC(2015, 0, 1) });
+  addTx(db, b, { ticker: 'NVDA', quantity: 20, amount: 2000, ts: Date.UTC(2015, 0, 1) });
+  const yf = fakeYf({ NVDA: [{ date: '2021-07-20', n: 4, d: 1 }] });
+
+  const [result] = await auditSplits(db, yf, { userIds: [a], delayMs: 0 });
+  assert.equal(result.unrecorded[0].holders.length, 1);
+  assert.equal(result.unrecorded[0].holders[0].userId, a);
 });

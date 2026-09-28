@@ -1016,7 +1016,8 @@ scratch copy afterwards and, read-only, against the live database throughout.
 already held but absent from this import (a "check my splits" link) is a follow-up issue, not this
 one. `verify-portfolio.js` stays offline and read-only, so it cannot notice a split Yahoo has
 recorded and this database has not — an optional `--check-splits` flag is a separate follow-up
-rather than a silent change to what "clean" currently means for that script. Undoing an import does
+rather than a silent change to what "clean" currently means for that script (closed 2026-09-27 by
+`--check-splits`, below). Undoing an import does
 **not** remove a split it recorded, for the same reason undoing an import has never touched price
 history: a split is a fact about the stock, not about the file that happened to reveal it.
 
@@ -1427,6 +1428,70 @@ have to be marked as never sent; it is left out.
 correlation, not cause; the date is the one you typed; a sale is scored against the shares, not
 against whatever the money did next.
 
+### 🔀 `verify-portfolio.js --check-splits` — 2026-09-27 (issue #30)
+
+Closes the follow-up left open by #9 (above): `verify-portfolio.js` was offline and read-only, so
+it could not see a split Yahoo knows about that `stock_splits` does not. The new opt-in flag asks
+Yahoo, ticker by ticker, and reports every event with no matching row within +/-7 days — the same
+`fetchSplits`/`diffAgainstRecorded` `split-check.js` already used for the import path, plus a new
+`auditSplits(db, yf, { userIds, delayMs })` that replays each user's transactions (the same
+`t.d < split_date` convention as check 3, a transaction dated on the split itself counting as
+post-split) to say whether anyone actually held shares across the event, and by how much.
+
+**Three exit codes**, not two: `0` clean, `1` a real problem — a default check failed, or an
+unrecorded clean split affects someone's holding — and `2` when the only thing wrong is that
+Yahoo could not be reached for one or more tickers, so the run did not actually verify everything
+it was asked to. `1` outranks `2` when both happen together. A ticker that fails is always printed
+as "could not check", never folded into "no splits recorded" — a failed lookup reading as a clean
+result would be worse than no check at all.
+
+**Severity below `✗`.** An unrecorded clean split nobody held across is `⚠` — on a typical account,
+most results are old splits that predate every transaction, so they are compacted to one `⚠` line
+per ticker rather than one line each (ASML's `8:9` in 2007 is one public example; AT&T's
+`1324:1000` on 2022-04-11 is a different case, below). A non-clean event (`!isCleanSplit`, most
+likely a spin-off) is `ℹ` when nobody held across it and `⚠` when someone did, but it never fails
+the run either way, since deciding whether a spin-off needs recording is a person's call, not this
+script's.
+
+**A ticker Yahoo cannot reach is `⚠ could not check`, not `✗`** — it is a check that didn't run,
+not a data problem, so it never claims "no splits" for a ticker that simply wasn't verified. It
+still keeps the run from claiming a clean bill of health: it counts toward "could not be checked"
+in the header and the run exits 2 unless a real problem also exits 1. If Yahoo has permanently
+delisted a ticker, this will 404 on every run indefinitely, so `--check-splits` will exit 2 forever
+for that ticker until it is removed from `transactions` (there is no ignore-list yet).
+
+**Stacked unrecorded splits are replayed as real shares, not stored ones.** If two unrecorded
+splits land on the same ticker, the second one's `heldBefore` and `delta` fold in the first: a
+holder before a 4:1 then a 10:1, both unrecorded, is reported as `heldBefore 100, +300` for the
+4:1 and `heldBefore 400, +3600` for the 10:1 — the two deltas add up to the true error (3900), not
+to a smaller number computed by re-measuring from the pre-split share count each time. A sale
+between the two splits is also handled correctly: replaying real, not stored, shares means a
+position that a naive replay would compute as negative — and therefore silently skip — is still
+caught. Each holder line is rounded to a few decimals and the delta is signed (`+300` / `-90`), and
+a per-ticker total line gives the stored-vs-real gap directly and signed too, e.g. `stored holding
+100, with Yahoo's splits 4000 (off by +3900)` for a forward split, or `off by -900` for a reverse
+one (1000 shares across an unrecorded 1:10 leaves 100).
+
+**`--user <key>` is validated before anything runs, including before Yahoo is ever contacted.** A
+missing value, a value that looks like another flag (`--user --check-splits` no longer takes the
+flag itself as the key), or a key that matches no one all exit 1 with an explanatory `✗` line and
+check nobody. Before this, an unmatched key produced zero users, zero tickers, and printed `✓ no
+problems found` at exit 0 — a verification tool falsely reporting a clean run after checking
+nothing. A `--user` given as the last argument no longer falls back to silently checking everyone,
+either.
+
+The default run is unchanged: `main()` is now an async function the CLI entry point calls, guarded
+by `require.main === module`, and `yahoo-finance2` is required lazily, only inside the
+`--check-splits` branch. A byte-diff against the pre-#30 script's output on the same database
+confirmed the refactor changed nothing, and a spawned-process test with a `--require` preload that
+throws if `yahoo-finance2` loads or anything reaches the network (`test/fixtures/no-network.js`)
+confirmed the default path survives it while `--check-splits` is correctly blocked by it.
+
+`split-check.js` (`auditSplits`, exported), `verify-portfolio.js` (`main()`, `mask()`, the
+`--check-splits` branch), and 27 tests across `test/split-check.test.js` and
+`test/verify-portfolio.test.js` (256 before this issue, 283 after — the stacked-splits fix and the
+`--user` validation fix above were both found and fixed during review).
+
 ### ⏳ Open Items / Backlog
 
 **Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**
@@ -1776,7 +1841,7 @@ scored at all, which also means a cooldown shorter than that cannot be observed 
 prices moving too. `test/helpers.js` gained `migratedDb()` because `schema.sqlite.sql` alone
 lacks anything added by an ALTER, `prices.price_native` included.
 
-**Testing — 200 tests, in CI since 2026-09-12.**
+**Testing — 283 tests, in CI since 2026-09-12.**
 
 `npm test` runs them; `node:test` is built into Node 22, so there is no framework to
 install and nothing was added to package.json. `.github/workflows/test.yml` runs the suite,
@@ -1960,7 +2025,8 @@ restore procedure are in DEPLOYMENT.md.
 The transactions currently in the database are test values. When real data is imported, run:
 
 ```bash
-node verify-portfolio.js          # read-only cross-check of every derived figure
+node verify-portfolio.js               # read-only cross-check of every derived figure
+node verify-portfolio.js --check-splits  # also compares stock_splits against Yahoo (network)
 ```
 
 It checks what the app *computes* against what the raw transactions say: a missing price that
@@ -1972,6 +2038,22 @@ This exists because every bug found on 2026-09-09 was caught by noticing a numbe
 — a phantom holding worth 81% of the portfolio, splits tripling post-split purchases, average
 cost ignoring splits. That is not a repeatable process. Run against a backup from before those
 fixes, this tool reports all three unaided.
+
+`--check-splits` is the one thing this script does over the network: for every traded ticker it
+asks Yahoo for every split event it knows about and reports any with no `stock_splits` row within
++/-7 days, using `split-check.js`'s `auditSplits`. Each is graded by whether a position was held
+across it: an unrecorded *clean* split that affects someone is `✗` and exits 1; one that affects
+nobody — long-held large caps typically show many old splits that predate any transaction — is
+`⚠`, listed compactly, one line per ticker; a non-clean event (a spin-off, like AT&T's `1324:1000`)
+is `ℹ` unless someone held across it, in which case it is `⚠` too — either way it never fails the
+run, since a spin-off is not this script's business to record. A ticker Yahoo could not be reached
+for is reported as `⚠ could not check`, never silently as "no splits" and never as `✗` (it's a
+check that didn't run, not a data problem), and exits 2 if that is the only thing wrong (1 still
+wins if a real problem was also found); a permanently delisted ticker will 404 forever, so this
+will exit 2 on every run until it is removed from `transactions`. The default run without the flag
+never loads `yahoo-finance2` and makes no network call at all. Stacked unrecorded splits are
+replayed as real, not stored, shares, so the reported deltas add up to the true stored-vs-real gap
+even when a sale falls between two unrecorded splits.
 
 ### 🆕 What a new account sees
 
