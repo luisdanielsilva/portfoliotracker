@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { tickerTier, priceGapDays, HOT_SEEN_DAYS, resolveDbPath } = require('../price-fetch.js');
 const { migratedDb, addUser, addTx, addPrice, day } = require('./helpers.js');
+const { algoRecipients } = require('../algo-settings.js');
 
 const NOW = new Date('2026-09-14T12:00:00.000Z');
 const daysAgo = n => new Date(NOW.getTime() - n * 864e5).toISOString();
@@ -73,7 +74,7 @@ test('the algorithm alert alone does not make everything hot', () => {
   // ticker hot and the rule pointless.
   const db = migratedDb();
   const u = holder(db, { seenDaysAgo: 400 });
-  assert.strictEqual(db.prepare('SELECT algo_alerts_enabled AS e FROM user_settings WHERE user_id = ?').get(u).e, 1,
+  assert.ok(algoRecipients(db, db.identity).some(r => r.id === u),
     'precondition: it really is on by default');
   assert.strictEqual(tickerTier(db, 'AAA', NOW, db.identity), 'cold');
 });

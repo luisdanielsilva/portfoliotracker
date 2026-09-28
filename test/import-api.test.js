@@ -44,7 +44,6 @@ function signIn(email) {
   const raw = 'test-' + crypto.randomBytes(12).toString('hex');
   idb.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
     .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
-  pdb.prepare('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)').run(key);
   return { key, pdb, headers: { 'Content-Type': 'application/json', Cookie: `pt_session=${raw}` } };
 }
 

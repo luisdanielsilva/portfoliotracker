@@ -30,12 +30,23 @@ function freshDb() {
  * Creates an identity and returns its **key**, not its row id — because the key
  * is what every financial table stores. Tests written before the split keep
  * working unchanged: the value they pass around simply became a string.
+ *
+ * Like sign-up in production, this writes no `user_settings` row. It used to,
+ * and that hid issue #34: every test account had a row that no real account got.
  */
 function addUser(db, email = 'someone@example.com') {
   const key = crypto.randomUUID();
   db.identity.prepare('INSERT INTO users (user_key, email) VALUES (?, ?)').run(key, email);
-  db.prepare('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)').run(key);
   return key;
+}
+
+/** Save the signal's timings for an account, as the settings PUT does: every column, explicitly. */
+function setAlgoSettings(db, key, { enabled = 1, holdDays = 3, cooldownDays = 30 } = {}) {
+  db.prepare(`INSERT INTO user_settings (user_id, algo_alerts_enabled, algo_hold_days, algo_cooldown_days)
+              VALUES (?,?,?,?)
+              ON CONFLICT(user_id) DO UPDATE SET algo_alerts_enabled = excluded.algo_alerts_enabled,
+                algo_hold_days = excluded.algo_hold_days, algo_cooldown_days = excluded.algo_cooldown_days`)
+    .run(key, enabled, holdDays, cooldownDays);
 }
 
 /** The identity row id, for the few tests that need to write a session. */
@@ -98,4 +109,4 @@ function addWatch(db, userId, { ticker, referenceEur = null, referenceNative = n
         referenceNative === null ? referenceEur : referenceNative, currency, source, note);
 }
 
-module.exports = { freshDb, migratedDb, addUser, identityIdFor, addTx, addPrice, addSplit, addWatch, day };
+module.exports = { freshDb, migratedDb, addUser, setAlgoSettings, identityIdFor, addTx, addPrice, addSplit, addWatch, day };

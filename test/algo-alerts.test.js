@@ -11,7 +11,7 @@ const assert = require('node:assert');
 const A = require('../algo-alerts.js');
 const signals = require('../algorithm.js');
 const { evaluateAlerts } = require('../price-fetch.js');
-const { migratedDb, addUser, addTx, addPrice, day } = require('./helpers.js');
+const { migratedDb, addUser, setAlgoSettings, addTx, addPrice, day } = require('./helpers.js');
 
 /** A price series ending in a deep, sustained dip: the last day ranks at the bottom. */
 function buildCheap(db, ticker, days = 800, endingOn = Date.UTC(2026, 2, 10)) {
@@ -92,7 +92,7 @@ test('the same holding is not emailed twice inside the quiet period', () => {
   const u = addUser(db, 'owner@example.com');
   addTx(db, u, { ticker: 'DIP', quantity: 10, amount: 1000, ts: day(1) });
   const asOf = buildCheap(db, 'DIP');
-  db.prepare('UPDATE user_settings SET algo_hold_days = 3, algo_cooldown_days = 60 WHERE user_id = ?').run(u);
+  setAlgoSettings(db, u, { holdDays: 3, cooldownDays: 60 });
 
   const first = A.evaluateAlgorithmSignals(db, asOf);
   assert.strictEqual(first.get('owner@example.com').length, 1, 'fires the first time');
@@ -114,7 +114,7 @@ test('a shorter quiet period lets it speak again sooner', () => {
   const u = addUser(db, 'owner@example.com');
   addTx(db, u, { ticker: 'DIP', quantity: 10, amount: 1000, ts: day(1) });
   const asOf = buildCheap(db, 'DIP');
-  db.prepare('UPDATE user_settings SET algo_hold_days = 3, algo_cooldown_days = 7 WHERE user_id = ?').run(u);
+  setAlgoSettings(db, u, { holdDays: 3, cooldownDays: 7 });
 
   A.evaluateAlgorithmSignals(db, asOf);
   // Move the world on eight days — prices included, or the freshness guard would
@@ -165,7 +165,7 @@ test('switching the algorithm alerts off silences them', () => {
   const u = addUser(db, 'owner@example.com');
   addTx(db, u, { ticker: 'DIP', quantity: 10, amount: 1000, ts: day(1) });
   const asOf = buildCheap(db, 'DIP');
-  db.prepare('UPDATE user_settings SET algo_alerts_enabled = 0 WHERE user_id = ?').run(u);
+  setAlgoSettings(db, u, { enabled: 0 });
   assert.strictEqual(A.evaluateAlgorithmSignals(db, asOf).size, 0);
 });
 

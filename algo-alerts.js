@@ -23,6 +23,7 @@
 
 const signals = require('./algorithm');
 const { recordAlertEvent } = require('./alert-log');
+const { algoRecipients } = require('./algo-settings');
 
 /** Only the top tier is worth an email. Everything else is the tab's job. */
 const ALERT_TIER = 'VeryStrong';
@@ -134,16 +135,9 @@ function evaluateAlgorithmSignals(db, now = new Date(), log = () => {}, identity
   // Settings live on the financial side keyed by the opaque id; the address that
   // the email actually goes to lives in the identity database and is fetched
   // separately. Nothing here can turn a key back into a person without it.
-  const idb = identityDb || (db && db.identity) || null;
-  const emailOf = new Map();
-  if (idb) {
-    try {
-      for (const r of idb.prepare('SELECT user_key, email FROM users').all()) emailOf.set(r.user_key, r.email);
-    } catch { /* no identities reachable */ }
-  }
-  const users = db.prepare(
-    'SELECT user_id AS id, algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays FROM user_settings WHERE algo_alerts_enabled = 1'
-  ).all().map(u => ({ ...u, email: emailOf.get(u.id) || null }));
+  // An account that never saved a timing has no settings row and gets the
+  // defaults, so the list starts from the identities (issue #34).
+  const users = algoRecipients(db, identityDb || (db && db.identity) || null);
 
   const firedAt = now.toISOString();
 

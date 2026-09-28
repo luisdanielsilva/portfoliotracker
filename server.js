@@ -194,6 +194,7 @@ function getAvgCostPerShare(ticker, userId) {
 // reference price for a watched stock. Holdings always win. See reference-price.js.
 const { referenceFor, watchedTickers } = require('./reference-price');
 const { lastHeldAvgCost, applyTransaction, newPosition } = require('./portfolio');
+const { readAlgoSettings } = require('./algo-settings');
 
 // A crash in one request must not take the process down with it. Under Node 22 an
 // unhandled rejection is fatal by default; pm2 would restart, but that is a
@@ -2030,9 +2031,7 @@ const ALGO_COOLDOWN_MIN = 7, ALGO_COOLDOWN_MAX = 365;
 
 app.get('/api/algorithm/settings', (req, res) => {
   try {
-    const row = db.prepare(
-      'SELECT algo_alerts_enabled AS enabled, algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays FROM user_settings WHERE user_id = ?'
-    ).get(req.userId) || { enabled: 1, holdDays: 3, cooldownDays: 30 };
+    const row = readAlgoSettings(db, req.userId);
     res.json({
       enabled: !!row.enabled,
       holdDays: row.holdDays,
@@ -2055,9 +2054,9 @@ app.put('/api/algorithm/settings', (req, res) => {
     if (!Number.isInteger(cool) || cool < ALGO_COOLDOWN_MIN || cool > ALGO_COOLDOWN_MAX) {
       return res.status(400).json({ error: `cooldownDays must be a whole number between ${ALGO_COOLDOWN_MIN} and ${ALGO_COOLDOWN_MAX}` });
     }
-    const before = db.prepare(
-      'SELECT algo_hold_days AS holdDays, algo_cooldown_days AS cooldownDays, algo_alerts_enabled AS enabled FROM user_settings WHERE user_id = ?'
-    ).get(req.userId) || {};
+    // With no row yet the account was running on the defaults, so that is what
+    // the first change is logged as changing from.
+    const before = readAlgoSettings(db, req.userId);
     const wantEnabled = enabled === false ? 0 : 1;
 
     // Only real changes are logged. A click that re-selects what was already

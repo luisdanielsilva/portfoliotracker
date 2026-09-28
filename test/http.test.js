@@ -15,6 +15,7 @@ const path = require('node:path');
 const PORT = 3199;
 const base = `http://127.0.0.1:${PORT}`;
 let server, dbFile, identityFile;
+let serverOut = '';   // stdout, where an unsent magic link is logged with SMTP off
 
 test.before(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-test-'));
@@ -22,8 +23,9 @@ test.before(async () => {
   identityFile = path.join(dir, 'identity.db');   // where the server will look for it
   server = spawn('node', [path.join(__dirname, '..', 'server.js')], {
     env: { ...process.env, DB_PATH: dbFile, API_PORT: String(PORT), SMTP_HOST: '', COOKIE_INSECURE: 'true' },
-    stdio: ['ignore', 'ignore', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe']
   });
+  server.stdout.on('data', d => { serverOut += d; });
   for (let i = 0; i < 50; i++) {
     try { await fetch(base + '/'); return; } catch { await new Promise(r => setTimeout(r, 100)); }
   }
@@ -35,8 +37,8 @@ test.after(() => { if (server) server.kill(); });
 
 /**
  * Create an account and a usable session across the split: the identity and the
- * session go in identity.db, the settings row on the financial side, and what
- * comes back is the opaque key the app will see as req.userId.
+ * session go in identity.db, and what comes back is the opaque key the app will
+ * see as req.userId. No settings row, because sign-up does not write one (#34).
  */
 function signIn(email) {
   const Database = require('better-sqlite3');
@@ -48,7 +50,6 @@ function signIn(email) {
   const raw = 'test-' + crypto.randomBytes(12).toString('hex');
   idb.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)')
     .run(crypto.createHash('sha256').update(raw).digest('hex'), userId, new Date(Date.now() + 36e5).toISOString());
-  pdb.prepare('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)').run(key);
   return { key, userId, raw, idb, pdb, headers: { 'Content-Type': 'application/json', Cookie: `pt_session=${raw}` } };
 }
 
@@ -700,4 +701,71 @@ test('two full years is not short', async () => {
   const { watchlist } = await (await fetch(base + '/api/watchlist', { headers: s.headers })).json();
   assert.strictEqual(watchlist.find(x => x.ticker === 'DEEPCO').historyShort, false);
   s.idb.close(); s.pdb.close();
+});
+
+/**
+ * Issue #34, end to end: an account made by the real sign-up path, with nothing
+ * inserted by hand. It never opens the Position Timing Signal tab, so it has no
+ * settings row, and the signal must still watch its holdings.
+ */
+test('a new account gets the timing signal without ever saving a timing', async () => {
+  const email = 'newcomer@example.com';
+  await fetch(base + '/api/auth/request-link', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+  });
+  let token = null;
+  for (let i = 0; i < 50 && !token; i++) {
+    const m = serverOut.match(new RegExp(`MAGIC LINK for ${email}[^\n]*\n[^\n]*token=([0-9a-f]+)`));
+    if (m) token = m[1]; else await new Promise(r => setTimeout(r, 50));
+  }
+  assert.ok(token, 'the magic link is logged when SMTP is off');
+
+  const signedIn = await fetch(base + '/api/auth/verify', {
+    method: 'POST', redirect: 'manual',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ token }).toString()
+  });
+  const cookie = (signedIn.headers.get('set-cookie') || '').match(/pt_session=[^;]+/);
+  assert.ok(cookie, 'signing in sets a session');
+  const headers = { 'Content-Type': 'application/json', Cookie: cookie[0] };
+
+  const buy = await fetch(base + '/api/transactions', {
+    method: 'POST', headers,
+    body: JSON.stringify({ ticker: 'DIPX', quantity: 10, amountEUR: 1000, type: 'buy', ts: Date.UTC(2025, 0, 2) })
+  });
+  assert.strictEqual(buy.status, 200);
+
+  const Database = require('better-sqlite3');
+  const idb = new Database(identityFile);
+  const pdb = new Database(dbFile);
+  try {
+    const key = idb.prepare('SELECT user_key FROM users WHERE email = ?').get(email).user_key;
+    assert.strictEqual(pdb.prepare('SELECT COUNT(*) c FROM user_settings WHERE user_id = ?').get(key).c, 0,
+      'precondition: sign-up wrote no settings row, exactly as in production');
+
+    const settings = await fetch(base + '/api/algorithm/settings', { headers }).then(r => r.json());
+    assert.deepStrictEqual([settings.enabled, settings.holdDays, settings.cooldownDays], [true, 3, 30],
+      'the tab shows the defaults');
+
+    // A long rise and then a collapse, so the last close is the cheapest in every window.
+    const days = 800, end = Date.UTC(2026, 2, 10), start = end - (days - 1) * 864e5;
+    const ins = pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_native, currency, price_date, source)
+                             VALUES ('DIPX', ?, ?, 'USD', ?, 'test')`);
+    pdb.transaction(() => {
+      for (let i = 0; i < days; i++) {
+        const p = i < days - 40 ? 100 + i * 0.25 : 40 - (i - (days - 40)) * 0.2;
+        ins.run(p, p, new Date(start + i * 864e5).toISOString().slice(0, 10));
+      }
+    })();
+
+    const { evaluateAlgorithmSignals, standingsFor } = require('../algo-alerts.js');
+    const { algoRecipients } = require('../algo-settings.js');
+    const fired = evaluateAlgorithmSignals(pdb, new Date(end), () => {}, idb);
+    assert.strictEqual((fired.get(email) || []).length, 1, 'the very strong buy reaches the new account');
+
+    assert.ok(algoRecipients(pdb, idb).some(r => r.id === key), 'and it is on the Monday standings list');
+    assert.ok(standingsFor(pdb, key).some(r => r.ticker === 'DIPX'), 'with its holding in it');
+  } finally {
+    idb.close(); pdb.close();
+  }
 });

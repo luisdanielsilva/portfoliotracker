@@ -1909,6 +1909,15 @@ volume rather than meaning, and both live on the Position Timing Signal tab besi
 (how long that holding then stays quiet, default 30 — one month; it was 60 until 2026-09-28, and an
 account that already saved a value keeps it). `PUT /api/algorithm/settings`.
 
+**An account with no settings row is on the defaults, not off** (#34). Sign-up creates only the
+identity; a `user_settings` row appears the first time someone saves a timing. Until 2026-09-28 the
+alert job and the Monday standings read `user_settings` directly, so an account created after the
+2026-09-14 split that never clicked a preset got neither, while the tab told its owner it was
+watching. Every reader now goes through `algo-settings.js`: `algoRecipients()` starts from the
+identities and applies `ALGO_DEFAULTS` (on, 3 days, 30 days) where no row exists, and
+`readAlgoSettings()` does the same for the API. The test helpers no longer insert a settings row on
+account creation either, because that insert is what hid this.
+
 **There is no sell alert, and that is a decision rather than an omission.** Measured over the
 current holdings: the sell side is on **39% of all days**, and **76%** for NVDA — whose sell
 days were followed by **+13.8% over the next 60**. An alert that is usually true and loudest

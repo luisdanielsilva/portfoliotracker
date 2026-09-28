@@ -14,6 +14,7 @@ const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
 const { evaluateAlgorithmSignals, standingsFor, isStandingsDay } = require('./algo-alerts');
+const { algoRecipients } = require('./algo-settings');
 const mailguard = require('./mailguard');
 const { identityFor } = require('./identity-db');
 const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
@@ -726,9 +727,10 @@ async function evaluateAlerts(db, mailer, identityDb = identityFor(db)) {
   // side stays visible without ever demanding attention.
   const standingsByRecipient = new Map();
   if (isStandingsDay()) {
-    for (const u of db.prepare('SELECT user_id AS id FROM user_settings WHERE algo_alerts_enabled = 1').all()) {
-      const email = emailOf(u.id);
-      if (!email) continue;
+    // Everyone the signal speaks to, including accounts with no settings row
+    // (issue #34) — the same list the very-strong-buy alert uses.
+    for (const u of algoRecipients(db, identityDb)) {
+      const email = u.email;
       const rows = standingsFor(db, u.id);
       if (!rows.length) continue;
       standingsByRecipient.set(email, rows);
