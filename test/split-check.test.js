@@ -375,7 +375,7 @@ test('auditSplits: a ticker Yahoo throws for comes back as {ticker, error}, and 
 });
 
 test('auditSplits: stacked unrecorded splits telescope — the second event\'s heldBefore and delta account for the first', async () => {
-  // Blocker from review.md: a naive replay that only ever applies *recorded*
+  // Blocker: a naive replay that only ever applies *recorded*
   // splits measures heldBefore in stored units, so the second unrecorded
   // event's delta is computed against the pre-split 100, not the real 400 —
   // giving 300 + 900 = 1200 instead of the true 300 + 3600 = 3900.
@@ -405,7 +405,7 @@ test('auditSplits: stacked unrecorded splits telescope — the second event\'s h
 });
 
 test('auditSplits: a sale between two unrecorded splits is still measured correctly by the second, real-share replay', async () => {
-  // The false-negative from review.md: buy 100 in 2020, unrecorded 4:1 in
+  // The false-negative this guards against: buy 100 in 2020, unrecorded 4:1 in
   // 2021, sell 200 real (post-4:1) shares in 2022, unrecorded 10:1 in 2024. A
   // stored-units replay gives 100 - 200 = -100 before the 10:1 and wrongly
   // says nobody held across it, when 200 real shares did.

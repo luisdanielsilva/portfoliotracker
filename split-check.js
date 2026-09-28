@@ -338,8 +338,9 @@ async function recordSplit(db, yf, userId, ticker, date) {
  * every time, so a second unrecorded split's delta is computed on top of a
  * quantity that doesn't yet include the first one's effect, understating the
  * true error and, if a sale falls between the two splits, capable of
- * reporting "nobody held across" when someone in fact did (both were caught
- * in review — see the plan and review.md for the worked examples).
+ * reporting "nobody held across" when someone in fact did (both are covered
+ * by the "stacked unrecorded splits" and "sale between two unrecorded
+ * splits" tests below).
  *
  * The fix: for a given (user, ticker), take the *clean* unrecorded events in
  * date order, U1..Un. Non-clean events (probably spin-offs) are informational
@@ -447,8 +448,11 @@ async function auditSplits(db, yf, { userIds, delayMs = 250 } = {}) {
         // this split even applies (more sold than ever bought, as of this
         // date) — a bug elsewhere, not something the split maths can repair.
         // Rather than report a fabricated positive holding, this is silently
-        // excluded from `holders`, same as heldBefore === 0; see the nit in
-        // review.md for why surfacing it is left as a follow-up.
+        // excluded from `holders`, same as heldBefore === 0. Surfacing this
+        // case explicitly (e.g. as its own diagnostic, distinct from "no one
+        // held across the split") would need a place to report it that
+        // doesn't imply the split check itself found a problem — left as a
+        // follow-up rather than done here.
         if (heldBefore > 1e-9) {
           const delta = heldBefore * (e.ratio - 1) * afterFactor;
           holders.push({ userId, heldBefore, delta });

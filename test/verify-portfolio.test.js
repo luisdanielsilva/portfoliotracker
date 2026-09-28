@@ -309,6 +309,67 @@ test('main(): --user --check-splits takes the flag as the key and must still exi
   assert.match(logs.join('\n'), /✗ --user needs an identity key/);
 });
 
+test('main(): an unknown argument is rejected before any DB query or Yahoo call, exit 1', async () => {
+  const cases = [
+    { argv: ['--check-split'], desc: 'typo, single flag' },
+    { argv: ['--user=abc'], desc: '--user=KEY with no space' },
+    { argv: ['--user', 'a', '--user', 'b'], desc: '--user given twice' },
+    { argv: ['--check-splits', '--check-splits'], desc: '--check-splits given twice' },
+    { argv: ['foo'], desc: 'a stray positional' }
+  ];
+
+  for (const { argv, desc } of cases) {
+    _clearCache();
+    const db = migratedDb();
+    const yf = fakeYf({ NVDA: [{ date: '2021-07-20', n: 4, d: 1 }] });
+    const logs = [];
+    const exitCode = await main({ db, identityDb: db.identity, argv, yf, log: m => logs.push(m), delayMs: 0 });
+    const out = logs.join('\n');
+
+    assert.equal(exitCode, 1, `${desc}: expected exit 1`);
+    assert.equal(yf.calls, 0, `${desc}: expected no Yahoo call`);
+    assert.match(out, /✗ (unknown argument|--user given more than once|--check-splits given more than once)/, `${desc}: expected a rejection line`);
+  }
+});
+
+test('main(): --user=KEY (no space) gets a hint to use --user <key> with a space', async () => {
+  _clearCache();
+  const db = migratedDb();
+  const yf = fakeYf({});
+  const logs = [];
+  const exitCode = await main({ db, identityDb: db.identity, argv: ['--user=abc'], yf, log: m => logs.push(m), delayMs: 0 });
+
+  assert.equal(exitCode, 1);
+  assert.equal(yf.calls, 0);
+  assert.match(logs.join('\n'), /✗ unknown argument "--user=abc" — use --user <key> \(with a space\)/);
+});
+
+test('main(): valid argument forms still work — no args, --check-splits, --user <key>, and --user <key> --check-splits in either order', async () => {
+  _clearCache();
+  const db = migratedDb();
+  const u = addUser(db);
+  addTx(db, u, { ticker: 'NVDA', quantity: 10, amount: 1000, ts: Date.UTC(2020, 0, 1) });
+  priced(db, 'NVDA');
+
+  const forms = [
+    [],
+    ['--check-splits'],
+    ['--user', u],
+    ['--user', u, '--check-splits'],
+    ['--check-splits', '--user', u]
+  ];
+
+  for (const argv of forms) {
+    _clearCache();
+    const yf = fakeYf({}); // no Yahoo splits at all, so --check-splits finds nothing to flag
+    const logs = [];
+    const exitCode = await main({ db, identityDb: db.identity, argv, yf, log: m => logs.push(m), delayMs: 0 });
+
+    assert.equal(exitCode, 0, `argv ${JSON.stringify(argv)}: expected exit 0`);
+    assert.doesNotMatch(logs.join('\n'), /unknown argument|given more than once/, `argv ${JSON.stringify(argv)}: unexpected rejection`);
+  }
+});
+
 test('main(): without --check-splits, yf is never called and the splits section is absent', async () => {
   _clearCache();
   const db = migratedDb();

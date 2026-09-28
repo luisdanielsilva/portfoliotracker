@@ -21,12 +21,18 @@
  * `stock_splits` row within +/-7 days — see split-check.js's `auditSplits`.
  * The default run never does this and never even loads `yahoo-finance2`.
  *
+ * Only `--check-splits` and `--user <key>` are recognised. Anything else —
+ * `--user=KEY` (no space), an unrecognised flag, a stray positional, or
+ * either flag given twice — exits 1 with an explanatory `✗` line and a
+ * one-line usage reminder, checked before any database query or Yahoo call.
+ *
  * Exit codes: 0 nothing wrong; 1 a real problem (a default check failed, an
- * unrecorded clean split affects someone's holding, or `--user` was given an
- * identity key that is missing, looks like another flag, or matches nobody —
- * see below); 2 nothing else was wrong, but Yahoo could not be reached for
- * one or more tickers, so `--check-splits` did not actually verify everything
- * it was asked to. 1 outranks 2 when both happen in the same run.
+ * unrecorded clean split affects someone's holding, an unrecognised argument
+ * was given, or `--user` was given an identity key that is missing, looks
+ * like another flag, or matches nobody — see below); 2 nothing else was
+ * wrong, but Yahoo could not be reached for one or more tickers, so
+ * `--check-splits` did not actually verify everything it was asked to. 1
+ * outranks 2 when both happen in the same run.
  *
  * `--user` is validated before anything else runs: a missing value, a value
  * starting with `--` (so `--user --check-splits` cannot silently take the
@@ -69,8 +75,38 @@ function fmtDelta(n) {
   return (n < 0 ? '-' : '+') + s;
 }
 
+const USAGE = 'usage: node verify-portfolio.js [--check-splits] [--user <key>]';
+
 async function main({ db, identityDb, argv, yf, log, delayMs }) {
-  const argUser = argv.indexOf('--user');
+  // Recognise exactly `--check-splits` and `--user <key>`, before any DB
+  // query or Yahoo work: an argument this script doesn't understand must
+  // never be silently ignored. Without this, `--user=KEY` (no space) read as
+  // nothing, so every user got checked instead of one; a typo like
+  // `--check-split` quietly ran only the offline checks and exited 0; and a
+  // repeated `--user` let the first occurrence silently win.
+  let onlyUser = null;
+  let userGiven = false;
+  let checkSplits = false;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--check-splits') {
+      if (checkSplits) { log('✗ --check-splits given more than once'); log(USAGE); return 1; }
+      checkSplits = true;
+    } else if (arg === '--user') {
+      if (userGiven) { log('✗ --user given more than once'); log(USAGE); return 1; }
+      userGiven = true;
+      onlyUser = argv[i + 1];
+      if (onlyUser !== undefined) i++; // consume the value slot; its validity (missing, or looking like a flag) is checked below
+    } else if (arg.startsWith('--user=')) {
+      log(`✗ unknown argument "${arg}" — use --user <key> (with a space)`);
+      log(USAGE);
+      return 1;
+    } else {
+      log(`✗ unknown argument "${arg}"`);
+      log(USAGE);
+      return 1;
+    }
+  }
   // `user_key` (schema.identity.sql) is a UUID string, not a row number — see
   // test/helpers.js's addUser(). A numeric-looking key would still be a
   // string here. Below, a missing value, a value that looks like another
@@ -78,8 +114,6 @@ async function main({ db, identityDb, argv, yf, log, delayMs }) {
   // rather than silently meaning "all users" (the old parseInt behaviour) or
   // "checked nothing, clean bill of health" (what an unvalidated empty
   // `users` result used to produce).
-  const onlyUser = argUser > -1 ? argv[argUser + 1] : null;
-  const checkSplits = argv.includes('--check-splits');
 
   db.pragma('busy_timeout = 5000');
   let problems = 0;
@@ -95,7 +129,7 @@ async function main({ db, identityDb, argv, yf, log, delayMs }) {
   // `--user` is validated here, before the per-user loop and before
   // `--check-splits` ever touches Yahoo: a bad key must never read as "there
   // was nothing to check, so nothing was wrong".
-  if (argUser > -1 && (!onlyUser || onlyUser.startsWith('--'))) {
+  if (userGiven && (!onlyUser || onlyUser.startsWith('--'))) {
     log('✗ --user needs an identity key (a UUID string)');
     return 1;
   }

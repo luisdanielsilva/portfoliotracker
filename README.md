@@ -1492,6 +1492,17 @@ confirmed the default path survives it while `--check-splits` is correctly block
 `test/verify-portfolio.test.js` (256 before this issue, 283 after — the stacked-splits fix and the
 `--user` validation fix above were both found and fixed during review).
 
+**Follow-up (issue #30): unknown arguments are now rejected outright.** The script recognises
+exactly `--check-splits` and `--user <key>`; anything else — an unrecognised flag, a stray
+positional, or `--user`/`--check-splits` given twice — now prints `✗ unknown argument "<arg>"` (or,
+for a repeat, `✗ --user given more than once` / `✗ --check-splits given more than once`), a one-line
+usage reminder, and exits 1, checked before any database query or Yahoo call. `--user=KEY` (no
+space) is a special case of "unknown argument" with its own hint, `use --user <key> (with a
+space)`, since typing an `=` there used to be silently read as nothing, leaving `--user` unset and
+every user checked instead of one. The existing `--user` validation messages (missing value, a
+value that looks like another flag, or a key that matches nobody) are unchanged. Brings the suite
+to 286 tests.
+
 ### ⏳ Open Items / Backlog
 
 **Two writers disagree about what a price's date means — measured 2026-09-18, not fixed.**
