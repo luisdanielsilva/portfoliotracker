@@ -254,7 +254,12 @@ function yahooErrorInfo(err) {
   return { status: 502, error: 'Yahoo is unavailable right now. Try again shortly.' };
 }
 
-async function recordSplit(db, yf, userId, ticker, date) {
+/**
+ * `opts.via` says only where the confirmation came from, for the stored
+ * description: `'holdings'` for "Check my splits" on the transactions tab
+ * (#31), anything else the import preview. It changes no rule below.
+ */
+async function recordSplit(db, yf, userId, ticker, date, opts) {
   const t = String(ticker || '').toUpperCase().trim();
   const d = String(date || '');
   if (!TICKER_RE.test(t) || !DATE_RE.test(d)) {
@@ -302,7 +307,8 @@ async function recordSplit(db, yf, userId, ticker, date) {
     return { ok: false, status: 409, error: `No transaction in ${t} dated before ${match.date} was found on this account.` };
   }
 
-  const description = `${match.numerator}-for-${match.denominator} split (from Yahoo, confirmed during an import)`;
+  const where = (opts && opts.via === 'holdings') ? 'confirmed from a check of existing holdings' : 'confirmed during an import';
+  const description = `${match.numerator}-for-${match.denominator} split (from Yahoo, ${where})`;
   try {
     db.prepare(`
       INSERT INTO stock_splits (ticker, split_date, ratio, description, source, added_by, added_at)

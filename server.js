@@ -1323,8 +1323,10 @@ app.post('/api/import/splits', backfillLimiter, async (req, res) => {
 });
 
 /**
- * POST /api/stock-splits {ticker, date} — record a split named during an
- * import preview.
+ * POST /api/stock-splits {ticker, date, via?} — record a split named during an
+ * import preview, or by "Check my splits" over existing holdings (#31, which
+ * sends via: 'holdings' so the stored description says so; nothing else about
+ * the rule changes with it).
  *
  * A thin wrapper over recordSplit(), which is where the actual rule lives:
  * the ratio and the stored date always come from Yahoo, never from this
@@ -1336,7 +1338,9 @@ app.post('/api/stock-splits', backfillLimiter, async (req, res) => {
   try {
     const YahooFinance = require('yahoo-finance2').default;
     const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
-    const result = await recordSplit(db, yf, req.userId, req.body && req.body.ticker, req.body && req.body.date);
+    const body = req.body || {};
+    const result = await recordSplit(db, yf, req.userId, body.ticker, body.date,
+      { via: body.via === 'holdings' ? 'holdings' : 'import' });
 
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     if (result.alreadyRecorded) return res.status(200).json({ alreadyRecorded: true });

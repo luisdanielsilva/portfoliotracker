@@ -921,7 +921,8 @@ does not scale — the next split of any held ticker would silently overstate qu
 average cost until someone noticed and typed a third row — and there was no way to tell a genuine
 split from a corporate action that only looks like one. This closes that gap for the one case in
 scope: **a ticker already in the file being imported.** Checking a ticker that is merely held (not
-in this file) is a deliberate follow-up, not done here — issue #31.
+in this file) is a deliberate follow-up, not done here — issue #31 (done 2026-09-30, *Check my
+splits*, below).
 
 **`stock_splits` is global, so the write is guarded, not gated on the client.** The table has no
 `user_id` — the same as `prices` — because a split is a fact about the ticker, not about an
@@ -1014,7 +1015,7 @@ scratch copy afterwards and, read-only, against the live database throughout.
 
 **What is not here.** `POST /api/import/splits` only checks tickers already in the file; a stock
 already held but absent from this import (a "check my splits" link) is a follow-up issue, not this
-one. `verify-portfolio.js` stays offline and read-only, so it cannot notice a split Yahoo has
+one (closed by #31, below). `verify-portfolio.js` stays offline and read-only, so it cannot notice a split Yahoo has
 recorded and this database has not — an optional `--check-splits` flag is a separate follow-up
 rather than a silent change to what "clean" currently means for that script (closed 2026-09-27 by
 `--check-splits`, below). Undoing an import does
@@ -1025,6 +1026,35 @@ history: a split is a fact about the stock, not about the file that happened to 
 `recordSplit`), `POST /api/import/splits`, `POST /api/stock-splits`, the "Stock splits" block in the
 import preview, and 28 tests across `test/split-check.test.js`, `test/migrations.test.js` and
 `test/import-api.test.js` (228 before this issue, 256 after).
+
+### 🔎 Check my splits — existing holdings, not just an imported file — 2026-09-30 (issue #31)
+
+#9 checked for unrecorded splits only in the tickers of the file being imported, so a holding typed
+in by hand, or imported before #9, was never checked. **Check my splits**, at the top of *Your
+transactions*, runs the same check over everything already registered: the same
+`POST /api/import/splits`, fed one row per transaction (ticker, UTC trade date, the price per share
+as paid) instead of one per file line, and the same `POST /api/stock-splits` to record. Nothing about
+the rules moved to the browser — `recordSplit()` still takes the ratio and date from Yahoo alone,
+still requires a transaction in that ticker dated before the split, and still refuses anything that
+is not a clean ratio. The only server change is a `via: "holdings"` flag, which makes the stored
+description read *"confirmed from a check of existing holdings"* instead of *"during an import"*.
+
+What it shows is worded the same way as the import preview, for transactions rather than a file:
+*"NVDA split 10-for-1 on 2024-06-10, not recorded. 3 of your transactions are from before it."*,
+ticked by default only when the prices look as paid, unticked with a warning when they already look
+split-adjusted, and the spin-off case named as not a split. With nothing to record it says *"No
+missing splits. Checked 15 tickers against Yahoo."* The request respects both server limits (20
+tickers, 500 rows) by sending batches, oldest rows first, since a ticker's oldest trade is what
+decides which splits matter at all. Each batch spends one slot of the hourly Yahoo limit the import
+shares.
+
+**Measured:** a scratch account holding NVDA from 2019 (10 + 5 shares) and 2023 (4), T from 2020
+and MSFT from 2021 was offered both NVDA splits, ticked, and the T spin-off as information only;
+recording them stored two `source='yahoo'` rows and the holding went from 19 to 640 shares
+(10×40 + 5×40 + 4×10). Run read-only against a scratch copy of the live account with its two TSLA
+rows deleted from the copy, it named exactly those two, ticked, and nothing else — the live NVDA
+holding, bought in 2025, is correctly not offered either split. Scheduled checks and emailing about
+new splits stay out of scope.
 
 ### 🧷 Four import races closed — 2026-09-30 (issue #32)
 
@@ -2476,7 +2506,7 @@ Environment variables in `.env`:
 - `GET /api/price-history/:ticker` — Historical prices for one ticker
 - `GET /api/stock-splits` — Known stock splits
 - `POST /api/import/splits` — For each ticker in a file being imported, has Yahoo recorded a split this database has not (read-only; does not bump the cache version)
-- `POST /api/stock-splits` — Record a split named during an import preview, `{ticker, date}` only — the ratio and date always come from Yahoo
+- `POST /api/stock-splits` — Record a split named during an import preview or by *Check my splits*, `{ticker, date, via?}` only — the ratio and date always come from Yahoo; `via: "holdings"` changes only the stored description
 - `GET /api/avg-cost` — Average cost basis per ticker
 - `GET /api/algorithm?ticker=X&period=2y` — Position-timing signal: both lanes for every day, notable runs, tile counts, and today's position-gated call
 - `GET /api/alerts` — List user's price alerts with current prices

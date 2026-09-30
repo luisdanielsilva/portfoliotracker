@@ -384,6 +384,12 @@
   .imp-split label{display:flex;gap:6px;align-items:baseline}
   .imp-split-info,.imp-split-unavail,.imp-split-checking{color:var(--muted)}
   .imp-done-msg{font-size:calc(12.5px + var(--bump));color:var(--ink);line-height:1.6}
+  #spl-card{margin:0 0 14px;padding-bottom:14px;border-bottom:1px solid var(--hair);display:grid;gap:8px}
+  #spl-card[hidden]{display:none}
+  .spl-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .spl-bar[hidden]{display:none}
+  .spl-hint{font-size:calc(11.5px + var(--bump));color:var(--muted);line-height:1.5;flex:1;min-width:180px}
+  #spl-msg:empty,#spl-list:empty{display:none}
   @media (max-width:520px){ .imp-sec{grid-template-columns:1fr 100px} .imp-sec>button{grid-column:2} }
   /* the same picture the alert list draws, at the size the panel has room for: six months
      of price, the level that fires, and the gap between them */
@@ -1772,6 +1778,19 @@
       <div class="addcard">
         <h3>Your transactions <span id="tx-count" style="color:var(--muted);font-weight:400"></span></h3>
         <p class="hint">Automatically synced to server. Each transaction creates a derived snapshot.</p>
+        <!-- #31: the import's split check, run over everything already registered.
+             Same endpoints, same server-side rules; only the rows come from here. -->
+        <div id="spl-card" hidden>
+          <div class="spl-bar">
+            <button type="button" class="btn" id="spl-check">Check my splits</button>
+            <span class="spl-hint">Asks Yahoo whether a stock you have traded split without it being recorded here.</span>
+          </div>
+          <div class="imp-splits" id="spl-list"></div>
+          <div class="spl-bar" id="spl-actions" hidden>
+            <button type="button" class="btn primary" id="spl-record">Record ticked splits</button>
+          </div>
+          <div class="imp-done-msg" id="spl-msg"></div>
+        </div>
         <div class="uslist" id="tx-list"></div>
       </div>
       </div>

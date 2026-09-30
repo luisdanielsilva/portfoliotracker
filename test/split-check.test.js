@@ -130,6 +130,38 @@ test('recordSplit: inserts Yahoo\'s own ratio and date — the function takes no
   assert.match(row.description, /4-for-1/);
 });
 
+test('recordSplit: via "holdings" (#31) only changes the stored description', async () => {
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  addTx(db, u, { ticker: 'NVDA', quantity: 10, amount: 1000, ts: Date.UTC(2015,0,1) });
+  const yf = fakeYf({ NVDA: [{ date: '2021-07-20', n: 4, d: 1 }, { date: '2024-06-10', n: 10, d: 1 }] });
+
+  const viaHoldings = await recordSplit(db, yf, u, 'NVDA', '2021-07-20', { via: 'holdings' });
+  const viaImport = await recordSplit(db, yf, u, 'NVDA', '2024-06-10');
+  assert.equal(viaHoldings.status, 201);
+  assert.equal(viaImport.status, 201);
+  const rows = db.prepare('SELECT split_date, ratio, source, added_by, description FROM stock_splits ORDER BY split_date').all();
+  assert.deepEqual(rows.map(r => [r.split_date, r.ratio, r.source, r.added_by]),
+    [['2021-07-20', 4, 'yahoo', u], ['2024-06-10', 10, 'yahoo', u]]);
+  assert.match(rows[0].description, /^4-for-1 split \(from Yahoo, confirmed from a check of existing holdings\)$/);
+  assert.match(rows[1].description, /confirmed during an import/);
+});
+
+test('recordSplit: via "holdings" keeps every guard — no pre-split holding, a non-clean ratio, a date Yahoo does not report', async () => {
+  _clearCache();
+  const db = migratedDb(); const u = addUser(db);
+  const yf = fakeYf({ NVDA: [{ date: '2021-07-20', n: 4, d: 1 }], T: [{ date: '2022-04-11', n: 1324, d: 1000 }] });
+  const via = { via: 'holdings' };
+
+  addTx(db, u, { ticker: 'NVDA', quantity: 10, amount: 1000, ts: Date.UTC(2022,0,3) });   // bought only after the split
+  assert.equal((await recordSplit(db, yf, u, 'NVDA', '2021-07-20', via)).status, 409);
+
+  addTx(db, u, { ticker: 'T', quantity: 10, amount: 1000, ts: Date.UTC(2015,0,1) });
+  assert.equal((await recordSplit(db, yf, u, 'T', '2022-04-11', via)).status, 422);
+  assert.equal((await recordSplit(db, yf, u, 'T', '2019-01-01', via)).status, 404);
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM stock_splits').get().c, 0);
+});
+
 test('recordSplit: refuses a non-clean event, like the T spin-off', async () => {
   _clearCache();
   const db = migratedDb(); const u = addUser(db);

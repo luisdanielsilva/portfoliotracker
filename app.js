@@ -1623,6 +1623,7 @@
   function renderTransactionList(){
     var list=document.getElementById("tx-list"), cnt=document.getElementById("tx-count");
     cnt.textContent=transactions.length?"("+transactions.length+")":"";
+    splSyncCard();
     if(!transactions.length){ list.innerHTML='<div class="usempty">None yet. Register one above.</div>'; return; }
     list.innerHTML="";
     transactions.slice().sort(function(a,b){return b.ts-a.ts;}).forEach(function(tx){
@@ -2330,21 +2331,24 @@
       });
   }
 
-  /** POST /api/stock-splits for one checked event; never throws, resolves to a result either way. */
-  function impRecordOneSplit(sp){
+  /**
+   * POST /api/stock-splits for one checked event; never throws, resolves to a result either way.
+   * `via` is "holdings" from Check my splits (#31); it only changes the description stored.
+   */
+  function impRecordOneSplit(sp, via){
     return apiFetch("./api/stock-splits",{
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({ticker:sp.ticker, date:sp.date})
+      body:JSON.stringify(via?{ticker:sp.ticker, date:sp.date, via:via}:{ticker:sp.ticker, date:sp.date})
     })
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d,sp:sp}; }); })
       .catch(function(e){ return {ok:false,d:{error:e.message},sp:sp}; });
   }
 
   /** One at a time, not in parallel — recordSplit() is a write against a table every account shares. */
-  function impRecordSplits(list){
+  function impRecordSplits(list, via){
     var results=[];
     return list.reduce(function(chain,sp){
-      return chain.then(function(){ return impRecordOneSplit(sp); }).then(function(res){ results.push(res); });
+      return chain.then(function(){ return impRecordOneSplit(sp, via); }).then(function(res){ results.push(res); });
     }, Promise.resolve()).then(function(){ return results; });
   }
 
@@ -2372,8 +2376,8 @@
         var lostTickers=lost.map(function(res){ return res.sp.ticker; })
           .filter(function(t,i,a){ return a.indexOf(t)===i; }).join(", ");
         if(lost.length) showError(d.imported+" imported from "+st.fileName+", but the "+lostTickers
-          +" split"+(lost.length===1?"":"s")+" could not be recorded. Quantities for "+lostTickers+" are wrong until "
-          +(lost.length===1?"it is":"they are")+".");
+          +" split"+(lost.length===1?"":"s")+" could not be recorded. Check my splits, beside your transactions, can record "
+          +(lost.length===1?"it":"them")+".");
         else showSuccess(d.imported+" imported from "+st.fileName
           +(results.length?", "+(results.length===1?"split":"splits")+" recorded":""));
         refreshAll();
@@ -2562,6 +2566,186 @@
       if(sec){ sec.ticker=btn.dataset.impSymbol; sec.source="typed"; impState.checks=null; impRender(); impCheckPrices(); impCheckSplits(); }
     });
   })();
+
+  /* ================= check my splits (#31) =================
+   *
+   * The import's split check (#9) only ever looked at the tickers in the file
+   * being imported, so a holding typed in by hand, or imported before #9, was
+   * never checked. This runs the same check over everything already
+   * registered: the same POST /api/import/splits, fed from `transactions`
+   * rather than a file, and the same POST /api/stock-splits to record — so the
+   * same rules hold, server-side: the ratio and date are Yahoo's, the caller
+   * must hold the ticker from before the split, and only a clean ratio is
+   * recorded. Nothing here is trusted by the server; it only decides what to
+   * offer.
+   */
+  var splState=null;   // {splits, choices, tickers} for the last check shown
+  var splReq=0;
+  var SPL_BATCH=20;    // the server checks at most this many tickers per request (MAX_SPLIT_CHECK_TICKERS)
+  var SPL_ROWS=500;    // ...and reads at most this many rows (MAX_IMPORT_ROWS), dropping the rest
+
+  /** One row per transaction, in the shape the import sends: the price is per share, in the currency paid. */
+  function splRows(){
+    return transactions.map(function(tx){
+      var paid=(tx.currency==="USD"&&tx.exchangeRate)?tx.amount/tx.exchangeRate:tx.amount;
+      return {line:tx.id, ticker:String(tx.ticker||"").toUpperCase(),
+              date:new Date(tx.ts).toISOString().slice(0,10),   // UTC, as the server's "held before" check reads it
+              price:tx.quantity>0?paid/tx.quantity:null};
+    });
+  }
+
+  function splCheck(){
+    var rows=splRows();
+    if(!rows.length) return;
+    // Oldest first: a ticker's oldest trade decides which splits are relevant
+    // at all, so if the server ever has to cut rows it must cut the newest.
+    rows.sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; });
+    var byTicker={};
+    rows.forEach(function(r){ (byTicker[r.ticker]=byTicker[r.ticker]||[]).push(r); });
+    var tickers=Object.keys(byTicker).sort();
+    // Batches that stay inside both server limits, so nothing is dropped silently.
+    var batches=[], cur=[], curRows=0;
+    tickers.forEach(function(t){
+      var n=Math.min(byTicker[t].length,SPL_ROWS);
+      if(cur.length&&(cur.length>=SPL_BATCH||curRows+n>SPL_ROWS)){ batches.push(cur); cur=[]; curRows=0; }
+      cur.push(t); curRows+=n;
+    });
+    if(cur.length) batches.push(cur);
+    var req=++splReq;
+    var btn=impEl("spl-check");
+    btn.disabled=true; btn.textContent="Checking…";
+    splState=null;
+    impEl("spl-actions").hidden=true;
+    impEl("spl-msg").innerHTML="";
+    impEl("spl-list").innerHTML='<div class="imp-split imp-split-checking">Checking '+tickers.length
+      +" ticker"+(tickers.length===1?"":"s")+" against Yahoo…</div>";
+
+    // One batch after another: each request walks its tickers with a pause
+    // between them, because Yahoo is the same source the daily prices come from.
+    var found=[], error=null;
+    batches.reduce(function(chain,batch){
+      return chain.then(function(){
+        if(error) return;
+        return apiFetch("./api/import/splits",{
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({rows:batch.reduce(function(acc,t){ return acc.concat(byTicker[t].slice(0,SPL_ROWS)); },[])})
+        })
+          .then(function(r){ return r.json().catch(function(){ return null; }).then(function(d){ return {ok:r.ok,d:d}; }); })
+          .then(function(res){
+            if(res.ok&&res.d&&res.d.splits) found=found.concat(res.d.splits);
+            else error=(res.d&&res.d.error)||"the server said no";
+          });
+      });
+    }, Promise.resolve())
+      .catch(function(e){ error=e.message||"no connection"; })
+      .then(function(){
+        if(req!==splReq) return;
+        btn.disabled=false; btn.textContent="Check my splits";
+        if(error&&!found.length){
+          impEl("spl-list").innerHTML='<div class="imp-split imp-split-unavail">The split check couldn’t run: '
+            +esc(String(error).replace(/\.$/,""))+". Nothing was changed.</div>";
+          return;
+        }
+        splState={splits:found, choices:{}, tickers:tickers.length, partial:!!error};
+        splRender();
+      });
+  }
+
+  /** The same lines the import preview uses, worded for transactions rather than a file. */
+  function splRender(){
+    var st=splState; if(!st) return;
+    var open=st.splits.filter(function(sp){ return sp.status!=="unavailable"&&!sp.recorded; });
+    var html=st.splits.map(function(sp){
+      if(sp.status==="unavailable") return '<div class="imp-split imp-split-unavail">Could not check '+esc(sp.ticker)+".</div>";
+      if(sp.recorded) return "";
+      if(!sp.clean){
+        return '<div class="imp-split imp-split-info">'+esc(sp.ticker)+": Yahoo's prices are adjusted for a "
+          +esc(sp.numerator)+":"+esc(sp.denominator)+" event on "+esc(sp.date)
+          +", usually a spin-off. It is not a split and is not recorded.</div>";
+      }
+      var key=sp.ticker+"|"+sp.date;
+      if(!(key in st.choices)) st.choices[key]=(sp.evidence==="as-traded");
+      var warn=sp.evidence==="restated"
+        ? "Your "+sp.ticker+" prices already look split-adjusted. Recording this would multiply those transactions again — left unchecked unless you know otherwise."
+        : sp.evidence==="unknown"
+          ? "Could not tell from your prices whether they are as paid or already adjusted — check your broker statement."
+          : "";
+      return '<div class="imp-split">'
+        +'<label><input type="checkbox" data-spl-key="'+esc(key)+'"'+(st.choices[key]?" checked":"")+"> "
+        +esc(sp.ticker)+" split "+esc(sp.numerator)+"-for-"+esc(sp.denominator)+" on "+esc(sp.date)+", not recorded. "
+        +sp.rowsBefore+" of your transactions "+(sp.rowsBefore===1?"is":"are")+" from before it.</label>"
+        +(warn?'<div class="imp-flag">'+esc(warn)+"</div>":"")+"</div>";
+    }).join("");
+    var clean=open.filter(function(sp){ return sp.clean; });
+    impEl("spl-list").innerHTML=html;
+    impEl("spl-actions").hidden=!clean.length;
+    var tail=st.partial?" Some tickers could not be checked this time; run it again later for the rest.":"";
+    var unchecked=st.splits.some(function(sp){ return sp.status==="unavailable"; });
+    if(!clean.length&&!unchecked) impEl("spl-msg").innerHTML="<b>No missing splits.</b> Checked "+st.tickers+" ticker"
+      +(st.tickers===1?"":"s")+" against Yahoo."+tail;
+    else impEl("spl-msg").innerHTML=tail.trim();
+    splSyncRecordButton();
+  }
+
+  function splTicked(){
+    if(!splState) return [];
+    return splState.splits.filter(function(sp){
+      return sp.status!=="unavailable"&&sp.clean&&!sp.recorded&&splState.choices[sp.ticker+"|"+sp.date];
+    });
+  }
+  function splSyncRecordButton(){
+    var n=splTicked().length, b=impEl("spl-record");
+    b.disabled=!n;
+    b.textContent=n>1?"Record "+n+" splits":"Record this split";
+  }
+
+  function splRecord(){
+    var list=splTicked();
+    if(!list.length) return;
+    var st=splState, req=splReq;
+    var btn=impEl("spl-record"), check=impEl("spl-check");
+    btn.disabled=true; check.disabled=true; btn.textContent="Recording…";
+    impRecordSplits(list,"holdings").then(function(results){
+      check.disabled=false;
+      var msg=[], any=false;
+      results.forEach(function(res){
+        var label=esc(res.sp.ticker)+" "+esc(res.sp.numerator)+"-for-"+esc(res.sp.denominator)+" ("+esc(res.sp.date)+")";
+        if(res.ok){
+          any=true; res.sp.recorded=true;
+          msg.push((res.d&&res.d.alreadyRecorded?"Already recorded: ":"Recorded: ")+label+".");
+        } else {
+          msg.push("The "+label+" split could not be recorded: "+esc(String((res.d&&res.d.error)||"an error").replace(/\.$/,""))+".");
+        }
+      });
+      if(any){ refreshPortfolio(); loadStockSplits(); }
+      if(splState!==st||splReq!==req) return;   // a new check started meanwhile; it will draw its own list
+      splRender();
+      impEl("spl-msg").innerHTML=msg.join(" ");
+    });
+  }
+
+  (function wireSplitCheck(){
+    var btn=impEl("spl-check");
+    if(!btn) return;
+    btn.addEventListener("click",splCheck);
+    impEl("spl-record").addEventListener("click",splRecord);
+    impEl("spl-list").addEventListener("change",function(e){
+      var t=e.target;
+      if(splState&&t.dataset&&t.dataset.splKey){ splState.choices[t.dataset.splKey]=t.checked; splSyncRecordButton(); }
+    });
+  })();
+
+  /** Shown only when there is something to check; forgotten when the last transaction goes. */
+  function splSyncCard(){
+    var card=impEl("spl-card");
+    if(!card) return;
+    card.hidden=!transactions.length;
+    if(!transactions.length){
+      splReq++; splState=null;
+      impEl("spl-list").innerHTML=""; impEl("spl-msg").innerHTML=""; impEl("spl-actions").hidden=true;
+      var b=impEl("spl-check"); b.disabled=false; b.textContent="Check my splits";
+    }
+  }
 
   /* ================= watchlist ================= */
   /*
