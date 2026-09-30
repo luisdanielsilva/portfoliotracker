@@ -21,7 +21,7 @@ const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
         ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureAlertEventLog,
         ensureDataVersion, ensureWatchlist, recentHigh } = require('./db-migrations');
 const { recordAlertEvent, markDelivery } = require('./alert-log');
-const { RATE_UPSERT_SQL, backfillRates } = require('./backfill-history');
+const { RATE_UPSERT_SQL, backfillRates, reconvertPrices, previousFxSession, tradingDate, FX_TZ } = require('./backfill-history');
 require('dotenv').config();
 
 // Hardcoded until the database split, which is exactly the kind of thing that
@@ -390,7 +390,9 @@ function renderAlertDigestText(items, standings = []) {
  * days reaching back as far as the oldest close this run will write: the rates for
  * the days whose closes this run converts, rewritten each run so a rate that
  * was not known yet on the last run (see backfill-history.js) is filled in on this
- * one, just as `backfillTicker` rewrites its own window of closes.
+ * one; then every stored close in that window whose date's rate changed is
+ * re-converted (`reconvertPrices`), and a rate that came back older than the
+ * session before today's is returned in `warnings` for the log and run report.
  *
  * The returned `rates` map (newest rate per currency) is only for the log: every
  * price row goes through `backfillTicker`, which converts each bar with
@@ -405,8 +407,14 @@ const FX_WINDOW_DAYS = 10;
 
 async function fetchExchangeRates(yahooFinance, db, currencies, now = new Date(), windowDays = FX_WINDOW_DAYS) {
   const rates = { EUR: 1 };
+  const warnings = [];
   const from = new Date(now.getTime() - windowDays * 864e5).toISOString().slice(0, 10);
   const to = new Date(now.getTime() + 864e5).toISOString().slice(0, 10);
+  // The newest rate a healthy run can have: the session before today's, in London.
+  // Anything older means Yahoo's answer lagged or came back partial, and the closes
+  // this run writes for the missing days would be converted at an older rate — a
+  // run that looks like a success unless it says so.
+  const expected = previousFxSession(tradingDate(now, FX_TZ));
   // Falling back to the most recent stored rate beats a constant from months ago.
   const lastKnown = db.prepare(`
     SELECT rate, date FROM exchange_rates
@@ -422,15 +430,32 @@ async function fetchExchangeRates(yahooFinance, db, currencies, now = new Date()
       rates[currency] = r.last.rate;
       log(`  💱 1 ${currency} = €${r.last.rate.toFixed(4)} at the end of ${r.last.date}`
         + ` (${r.written} day(s) written; ${r.pending}'s is not known until the next day starts)`);
+      if (r.last.date < expected) {
+        const w = `${currency} rate is behind: newest is ${r.last.date}, expected ${expected} — `
+          + `closes after ${r.last.date} are converted at that older rate until a later run has it`;
+        warnings.push(w);
+        log(`  ⚠ ${w}`);
+      }
     } catch (err) {
       const prev = lastKnown.get(currency);
       rates[currency] = prev ? prev.rate : null;
-      log(`  ⚠ ${currency} rate unavailable (${err.message}); `
-        + (prev ? `last known rate is €${prev.rate.toFixed(4)} for ${prev.date} (unchanged, not rewritten)` : 'no rate stored for this currency yet'));
+      const w = `${currency} rate unavailable (${err.message}); `
+        + (prev ? `last known rate is €${prev.rate.toFixed(4)} for ${prev.date} (unchanged, not rewritten)` : 'no rate stored for this currency yet');
+      warnings.push(w);
+      log(`  ⚠ ${w}`);
     }
     await new Promise(r => setTimeout(r, 150));
   }
-  return rates;
+
+  // A close written before its own rate existed (a manual evening run, or a run
+  // whose rate came back behind) was converted at an earlier day's rate. The quote
+  // tickers' closes are rewritten by this run's own backfill, but a cold ticker is
+  // left alone for up to COLD_INTERVAL_DAYS — so re-convert every stored close in the
+  // window whose date's rate is now different, for every ticker, locally. This is
+  // what makes "rewritten on the next run" true for all of them (issue #33 review).
+  const reconverted = reconvertPrices(db, { since: from });
+  if (reconverted) log(`  💱 ${reconverted} stored close(s) re-converted at their own date's rate`);
+  return { rates, warnings, reconverted };
 }
 
 function ensureJobRunsTable(db) {
@@ -487,6 +512,7 @@ function renderRunReport(status, d) {
         ${status === 'success' ? row('Prices fetched', `${d.successCount} of ${d.tickerCount}`) : ''}
         ${status === 'success' ? row('Alerts evaluated', String(d.alertsChecked ?? 0)) : ''}
         ${status === 'success' ? row('Alerts triggered', String(d.alertsTriggered ?? 0)) : ''}
+        ${(d.fxWarnings || []).map(w => row('⚠ Exchange rate', w)).join('')}
         ${d.error ? row('Error', d.error) : ''}
         ${row('Duration', d.durationMs != null ? (d.durationMs / 1000).toFixed(1) + 's' : '—')}
       </table>
@@ -1099,7 +1125,8 @@ async function fetchPrices() {
     // at the start of today — already sitting in `exchange_rates` before a
     // single price is written. An evening run has no rate for today's own close
     // yet (it is taken at midnight London, issue #33) and carries yesterday's
-    // forward; the next morning's run rewrites that close at its own rate.
+    // forward; the next run's `fetchExchangeRates` re-converts it at its own rate,
+    // whichever tier the ticker is in.
     // The set of currencies to fetch a rate for comes from what these tickers
     // are already stored in — new tickers default to USD, same as before.
     const { backfillTicker } = require('./backfill-history');
@@ -1110,7 +1137,7 @@ async function fetchPrices() {
     // As far back as the furthest price this run will write (a range ticker can be
     // up to a year behind), so a job that missed days fills their rates too.
     const fxDays = Math.min(366, Math.max(FX_WINDOW_DAYS, ...plan.range.map(p => p.gap + 3)));
-    await fetchExchangeRates(yahooFinance, db, neededCurrencies, now, fxDays);
+    const fx = await fetchExchangeRates(yahooFinance, db, neededCurrencies, now, fxDays);
 
     // One writer for every ticker: the job and backfill-history.js both go
     // through backfillTicker, so they can never disagree about a price or its
@@ -1154,7 +1181,7 @@ async function fetchPrices() {
     // New prices change every computed view. The web process caches those by a
     // version counter rather than by time, so this is what tells it to let go of
     // yesterday's answers — without the two processes needing to talk.
-    if (successCount > 0) {
+    if (successCount > 0 || fx.reconverted > 0) {
       db.prepare('UPDATE data_version SET version = version + 1 WHERE id = 1').run();
     }
 
@@ -1184,6 +1211,7 @@ async function fetchPrices() {
     const summary = {
       reason, tickerCount: tickers.length, successCount, failureCount,
       alertsChecked: alertStats.checked, alertsTriggered: alertStats.triggered,
+      fxWarnings: fx.warnings, fxReconverted: fx.reconverted,
       results, durationMs: Date.now() - startedAt
     };
     recordRun(db, 'success', summary);
@@ -1227,7 +1255,7 @@ if (require.main === module) {
 
 module.exports = { renderAlertDigest, renderAlertDigestText, alertSubject, evaluateAlerts, ordinal,
   digestModel, DIGEST_SECTIONS,
-  RATE_UPSERT_SQL, fetchExchangeRates,
+  RATE_UPSERT_SQL, fetchExchangeRates, renderRunReport,
   identityFor, emailsByKey, resolveDbPath, failureRecentlyReported,
   tickerTier, priceGapDays, fetchUniverse, HOT_SEEN_DAYS, COLD_INTERVAL_DAYS,
                    areMarketsClosedForFetch };

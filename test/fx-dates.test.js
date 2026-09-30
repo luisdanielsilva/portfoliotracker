@@ -13,9 +13,10 @@ const path = require('path');
 const { migratedDb: migratedDbBase, addPrice, addUser, addTx, day } = require('./helpers.js');
 const { ensureDataVersion } = require('../db-migrations.js');
 const {
-  fxRatesFromChart, isFxSession, previousFxSession, isDayStart, backfillRates, makeRateLookup, lookupRate
+  fxRatesFromChart, isFxSession, previousFxSession, isDayStart, backfillRates, makeRateLookup, lookupRate,
+  reconvertPrices
 } = require('../backfill-history.js');
-const { fetchExchangeRates } = require('../price-fetch.js');
+const { fetchExchangeRates, renderRunReport } = require('../price-fetch.js');
 const {
   planRates, planPrices, planAll, applyPlan, rollback, changeLogMatchesDb, main, rateTables
 } = require('../redate-rates.js');
@@ -126,7 +127,8 @@ test('the daily job no longer files a rate under the day it ran', async () => {
     chart: async () => fxChart([['2026-09-28', 1.12], ['2026-09-29', 1.13], ['2026-09-30', 1.134]], { live: ['2026-09-30T08:00:00Z', 1.1349] }),
     quote: async () => { throw new Error('the job must not ask for a live quote any more'); }
   };
-  const rates = await fetchExchangeRates(yf, db, ['USD', 'EUR'], now);
+  const { rates, warnings } = await fetchExchangeRates(yf, db, ['USD', 'EUR'], now);
+  assert.deepStrictEqual(warnings, [], 'up to date: the newest rate is the session before today');
   const rows = ratesOf(db);
   assert.ok(!rows.some(r => r.date === '2026-09-30'), 'today has no end-of-day rate yet, so no row');
   assert.deepStrictEqual(rows.map(r => [r.date, r.rate]),
@@ -138,9 +140,42 @@ test('when Yahoo fails, the job keeps the stored rates and writes nothing', asyn
   const db = migratedDb();
   setRate(db, '2026-09-28', 0.88);
   const yf = { chart: async () => { throw new Error('rate limited'); } };
-  const rates = await fetchExchangeRates(yf, db, ['USD'], new Date('2026-09-30T08:00:00Z'));
+  const { rates, warnings } = await fetchExchangeRates(yf, db, ['USD'], new Date('2026-09-30T08:00:00Z'));
   assert.strictEqual(rates.USD, 0.88);
+  assert.match(warnings[0], /USD rate unavailable \(rate limited\)/);
   assert.strictEqual(ratesOf(db).length, 1);
+});
+
+test('a rate that comes back behind is a warning, in the log and in the run report', async () => {
+  const db = migratedDb();
+  // Tuesday 09:00 Lisbon: Monday's rate is due (Tuesday's opening snapshot), but Yahoo
+  // has only got as far as Monday's opening snapshot — Friday's rate.
+  const yf = { chart: async () => fxChart([['2026-09-25', 1.12], ['2026-09-28', 1.13]]) };
+  const { warnings } = await fetchExchangeRates(yf, db, ['USD'], new Date('2026-09-29T08:00:00Z'));
+  assert.strictEqual(warnings.length, 1);
+  assert.match(warnings[0], /USD rate is behind: newest is 2026-09-25, expected 2026-09-28/);
+  const html = renderRunReport('success', { reason: 'ok', successCount: 1, tickerCount: 1, fxWarnings: warnings });
+  assert.match(html, /Exchange rate/);
+  assert.match(html, /newest is 2026-09-25/);
+});
+
+test('refreshing the rates re-converts every ticker\'s recent closes whose rate changed, cold ones included', async () => {
+  const db = migratedDb();
+  setRate(db, '2026-09-28', 0.88);
+  // A manual run on Tuesday evening wrote Tuesday's close at Monday's rate (Tuesday's
+  // was not known yet). COLD is a ticker the next morning's run will not fetch.
+  addPrice(db, { ticker: 'COLD', date: '2026-09-29', eur: 88, native: 100 });
+  addPrice(db, { ticker: 'COLD', date: '2026-09-28', eur: 88, native: 100 });
+  addPrice(db, { ticker: 'EUROPE', date: '2026-09-29', eur: 50, native: 50, currency: 'EUR' });
+  addPrice(db, { ticker: 'OLD', date: '2026-08-03', eur: 1, native: 100 }); // outside the window: left alone
+
+  const yf = { chart: async () => fxChart([['2026-09-29', 1 / 0.88], ['2026-09-30', 1 / 0.882]]) };
+  const { reconverted } = await fetchExchangeRates(yf, db, ['USD'], new Date('2026-09-30T08:00:00Z'));
+  assert.strictEqual(reconverted, 1);
+  assert.deepStrictEqual(pricesOf(db).map(p => [p.ticker, p.price_date, p.price_eur]), [
+    ['COLD', '2026-09-28', 88], ['COLD', '2026-09-29', 88.2], ['EUROPE', '2026-09-29', 50], ['OLD', '2026-08-03', 1]
+  ]);
+  assert.strictEqual(reconvertPrices(db, { since: '2026-09-01' }), 0, 'converges: a second pass changes nothing');
 });
 
 test('recompute-eur reads Yahoo\'s FX bars through the shared writer, not its own UTC slice', () => {

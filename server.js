@@ -996,6 +996,9 @@ const MAX_IMPORT_ROWS = 500;
  * in a way reaching forwards would not be, because the earlier rate is one that
  * existed when the trade happened.
  *
+ * Since issue #33 a row is the rate at the *end* of its date, so a trade gets that
+ * day's closing rate, and a weekend trade Friday's.
+ *
  * A date before the table starts returns null and the row is refused. The
  * alternative — the oldest rate we happen to hold — would silently price a 2014
  * trade at a 2015 rate and look entirely plausible doing it.

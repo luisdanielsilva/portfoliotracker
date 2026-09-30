@@ -149,8 +149,15 @@ function makeRateLookup(db) {
  * such a gap ends the day that is missing, not the one before it. The newest snapshot has
  * not been followed by another yet, so the latest date with a rate is always the session
  * before today's, and a close written before its snapshot exists carries the previous
- * rate forward until the job's next run rewrites it (the job re-converts its whole ~10-day
- * window every run).
+ * rate forward until the job's next run re-converts it (`reconvertPrices`, run for every
+ * ticker's recent closes each time the rates are refreshed).
+ *
+ * Friday is the weak spot. Its rate is the snapshot that opens Monday, taken just after
+ * the market reopens on Sunday night, so it carries whatever the weekend moved: against
+ * the hourly rate at the US close it is 0.139% off on average over 101 Fridays, where
+ * the other weekdays are 0.061% (2026-09-25: 0.15%). The only other daily snapshot is
+ * the one that opens Friday itself, a whole session stale, so it is still the better
+ * choice — but it is an approximation, not Friday's close.
  *
  * Only bars stamped exactly at the start of a day count. Around the current day Yahoo also
  * returns an extra bar stamped at the time of the request, holding the live price; that
@@ -222,8 +229,9 @@ function fxRatesFromChart(chart) {
   snaps.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
   // Ascending, first one wins: should Yahoo carry a bar for a day the market is shut
-  // (a weekend, Christmas), its snapshot is the previous session's close exactly —
-  // better than the one taken after the market reopens.
+  // (a weekend, Christmas), its snapshot is taken nearer the previous session's close
+  // than the one after the market reopens, and is preferred to it. (None has been seen
+  // in 2015–2026; the weekend gap is otherwise carried by Friday's rate — see above.)
   const rates = [];
   const filed = new Set();
   for (const s of snaps) {
@@ -233,6 +241,35 @@ function fxRatesFromChart(chart) {
     rates.push({ date, rate: parseFloat((1 / s.close).toFixed(6)) });
   }
   return { rates, pending: snaps.length ? snaps[snaps.length - 1].date : null, droppedLive };
+}
+
+/**
+ * Re-convert every stored non-euro close dated `since` or later whose `price_eur` is no
+ * longer `price_native ×` its date's rate — because that rate arrived or changed after
+ * the close was written (a manual evening run converts today's close at yesterday's
+ * rate; a lagging Yahoo answer does the same for a whole day). Local only, no Yahoo
+ * call, and it touches every ticker, so a cold ticker the job will not fetch again for
+ * a week is corrected on the next run too. Returns the number of rows changed.
+ */
+function reconvertPrices(db, { since }) {
+  const rateFor = makeRateLookup(db);
+  const rows = db.prepare(`
+    SELECT id, price_date, price_native, price_eur, currency FROM prices
+    WHERE price_date >= ? AND price_native IS NOT NULL AND currency IS NOT NULL AND currency <> 'EUR'
+  `).all(since);
+  const update = db.prepare('UPDATE prices SET price_eur = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+  let changed = 0;
+  db.transaction(() => {
+    for (const p of rows) {
+      const rate = rateFor(p.currency, p.price_date);
+      if (rate == null) continue;
+      const eur = parseFloat((p.price_native * rate).toFixed(4));
+      if (Math.abs(eur - p.price_eur) <= 0.00005) continue;
+      update.run(eur, p.id);
+      changed++;
+    }
+  })();
+  return changed;
 }
 
 /**
@@ -361,4 +398,4 @@ if (require.main === module) {
 }
 
 module.exports = { backfillTicker, tradingDate, isBarFinal, finalBars, makeRateLookup, lookupRate, DEFAULT_YEARS, DEFAULT_GRACE_MIN,
-  RATE_UPSERT_SQL, FX_TZ, fxSymbol, isDayStart, isFxSession, previousFxSession, fxRatesFromChart, backfillRates };
+  RATE_UPSERT_SQL, FX_TZ, fxSymbol, isDayStart, isFxSession, previousFxSession, fxRatesFromChart, backfillRates, reconvertPrices };

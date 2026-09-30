@@ -1665,7 +1665,7 @@ close of D — and it is the rate that belongs with a close on D:
 **The decision:** a row in `exchange_rates` holds the rate at the **end of the FX session it is dated
 by** — Yahoo's next start-of-day snapshot. The snapshot labelled Tuesday is filed under Monday, the
 one labelled Monday under Friday (FX does not trade at weekends, so Monday's opening price is the
-first after Friday's close), and the one labelled 2 January under 31 December (25 December and 1
+first after Friday's close — though not Friday's close itself; see below), and the one labelled 2 January under 31 December (25 December and 1
 January are the two days the whole market shuts). It is a calendar rule, not "the bar before it":
 Yahoo has the odd weekday with no bar at all although FX traded (2017-07-11, 2019-05-22, Easter
 Monday 2025), and the snapshot after such a gap still ends the missing day, not the one before it.
@@ -1684,6 +1684,13 @@ day — are intraday quotes and are dropped. See `fxRatesFromChart()` in `backfi
 | 22 | neither neighbouring session's rate: the job's intraday quotes (2026-09-11 → 09-29) and rows around the Christmas/New Year gaps |
 | 356 | *missing*: 354 summer Fridays, whose rate had been filed under Sunday; 2017-11-16; and 2026-09-15, the day the job died |
 
+**Friday is the approximation.** Its rate is the snapshot that opens Monday, taken just after the
+market reopens on Sunday night, so it carries whatever the weekend moved: 0.139% from the US-close
+rate on average over 101 Fridays, against 0.061% for the other weekdays (2026-09-25: 0.15%). The only
+other daily snapshot Yahoo offers is the one that opens Friday itself, a whole session stale, so this
+is still the better of the two — but it is not Friday's close, and a weekend-heavy move shows up in
+Friday's `price_eur`.
+
 Against the same hourly US-close reference, the table as it stood was 0.201% off on average across
 2024-10 → 2026-09; re-dated, it is 0.077%. Against the ECB's reference rate it gets very slightly
 *further* away (0.268% → 0.286% over 2015–2026), as it should: the ECB fixes at 14:15 Frankfurt, the
@@ -1696,8 +1703,13 @@ last ~10 days of rates through `backfillRates()` every run (further back if a ti
 needs it), before any price is written, so at 09:00
 yesterday's close finds yesterday's rate already there. The newest rate is always the previous
 session's — today's is not known until the next London day starts — so a manual evening run converts
-today's close at yesterday's rate and the next morning's run rewrites it at its own (both rewrite
-windows cover it). `recompute-eur.js` reads its rates through the same function.
+today's close at yesterday's rate. Every run therefore, right after refreshing the rates,
+re-converts every ticker's stored closes in that window whose date's rate has since changed
+(`reconvertPrices()`, local, no Yahoo call) — every ticker, because a cold one is not fetched again
+for up to a week and would otherwise keep the wrong rate that long. And a rate that comes back
+*behind* — Yahoo lagging, so the newest rate is older than the session before today's — is no longer
+logged as success: it is a `⚠` line in the log, a row in the run-report email and `fxWarnings` in
+`job_runs`, the same as a rate that could not be fetched at all. `recompute-eur.js` reads its rates through the same function.
 
 **The migration — `redate-rates.js`.** The sibling of `redate-prices.js`, with the same shape and the
 same safety rails: `DB_PATH` required, a dry run by default, `--apply` refusing while
@@ -2604,7 +2616,7 @@ closing rate for** (issue #33 — see *A rate's date* above; `backfillRates()` i
   `backfill-history.js`) — so at 09:00 yesterday's close needs yesterday's rate already sitting in
   `exchange_rates` before a single price is written. Today's own rate does not exist until the
   next London day starts; a manual evening run carries yesterday's forward and the next run
-  rewrites it.
+  re-converts it, for every ticker (`reconvertPrices()`).
 - If a rate cannot be fetched today, `fetchExchangeRates`'s own log line still says so and shows
   the most recent stored rate rather than a constant from months ago — but that value is no
   longer what prices are written with; `makeRateLookup` reads `exchange_rates` directly and
