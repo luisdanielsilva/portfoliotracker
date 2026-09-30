@@ -1214,6 +1214,17 @@ and `figure:<id>:end` markers in `index.html`; `--check` reports whether the fil
 without writing. Historical closes do not change, so there is no cache and no fixture. The script
 is not in `PUBLIC_FILES`, so it is not served.
 
+**Its rates follow `exchange_rates` (#36).** `usdToEur()` reads `EURUSD=X` through
+`fxRatesFromChart()`, the same filing rule #33 settled (*A rate's date*, below): the snapshot
+that opens London day D+1 is D's rate, and the live bar for today is ignored. It used to take each
+bar's UTC date, which is a session late all winter. Regenerated on the same day's data with both
+rules (2026-09-30), the difference on the page was small but real: buy-and-hold in the six-stock
+comparison €324k → €323k (323,634 → 323,408), the rule 393,751 → 393,946, realised gains
+€175,114 → €175,238 (28% of it €49,032 → €49,067, of a €70,117 → €70,538 gap), days under water
+7 → 10 of 1,946 (all still January–June 2019, so the caption's "all of them in the first months"
+holds), and one feature-card drawdown label −39% → −40%. The headline €394k and every other figure
+were unchanged.
+
 **Cost:** `index.html` is 154 KB, **42 KB gzipped** — about 1,900 real data points for some 8 KB
 on the wire, against 124 KB before any of this. The figures are still static SVG: they draw before
 any script runs, and a visitor with JavaScript off still sees them.
@@ -1861,8 +1872,8 @@ fraction of a percent, so it wants the same deliberate window and human review #
 
 **Not changed:** the source (still Yahoo; the ECB's fixing would be a different, mid-day rate —
 out of scope here), currencies beyond USD (#8), `server.js`'s `rateOnDate` for imports (it reads the
-table, so it inherits the fix), and `landing-figures.js`, which reads `EURUSD=X` for the landing
-page's charts with the same UTC slice but never writes `exchange_rates` — a follow-up if it matters.
+table, so it inherits the fix). `landing-figures.js` read `EURUSD=X` with the same UTC slice for the
+landing page's charts; that was #36, below.
 
 ### ⏳ Open Items / Backlog
 

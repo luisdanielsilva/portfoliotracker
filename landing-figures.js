@@ -59,11 +59,19 @@ async function series(yf, symbol, from, to) {
  * The same rule the importer uses: a trade on a day the rate table skips takes
  * the last rate before it, never the next one, because that is the rate that
  * existed at the time.
+ *
+ * Dated the way `exchange_rates` is (#33, #36): Yahoo's daily FX bar is a snapshot at
+ * 00:00 London, so the rate that closes session D is the bar labelled D+1, and the
+ * live bar for today is not a rate at all. Read through `series()` these came out
+ * under their UTC date instead: a session late all winter, and an intraday price
+ * on the last day. fxRatesFromChart is the one place that rule is written down.
  */
 async function usdToEur(yf, from, to) {
-  const raw = await series(yf, 'EURUSD=X', from, to);
-  const byDate = new Map(raw.map(r => [r.d, 1 / r.c]));
-  let last = 1 / raw[0].c;
+  const { fxRatesFromChart } = require('./backfill-history');
+  const { rates } = fxRatesFromChart(await yf.chart('EURUSD=X', { period1: from, period2: to, interval: '1d' }));
+  if (rates.length < 30) throw new Error(`EURUSD=X: only ${rates.length} rates for ${from}..${to}`);
+  const byDate = new Map(rates.map(r => [r.date, r.rate]));
+  let last = rates[0].rate;
   return date => {
     if (byDate.has(date)) { last = byDate.get(date); return last; }
     return last;                       // weekend, holiday, or a day the feed skipped
@@ -939,5 +947,5 @@ if (require.main === module) {
   main().catch(err => { console.error('landing-figures failed:', err.message); process.exit(1); });
 }
 
-module.exports = { niceTicks, box, line, steps, band, thin, thinIndices, nearestSampled, widestGap, halfLabel, simulate,
+module.exports = { niceTicks, box, line, steps, band, thin, thinIndices, nearestSampled, widestGap, halfLabel, simulate, usdToEur,
   mailFigure, MAIL_ITEMS, MAIL_STANDINGS, MAIL_DATE };
