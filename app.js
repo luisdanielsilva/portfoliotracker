@@ -1793,10 +1793,18 @@
   /** A security is one line in the Securities list: the thing a broker names and this app has to name back. */
   function impSecurityKey(row){ return row.isin || row.rawTicker || row.name || "?"; }
 
+  /* Which read is current (#32). A read that finishes after Cancel, or after a
+     newer file was chosen, must not take the view over: onload used to assign
+     impState unconditionally, so a slow read could reopen a preview the person
+     had closed, or replace the file they picked second with the one they picked
+     first. impReset() and each new read move it on. */
+  var impReadGen=0;
+
   function impReadFile(file){
-    var reader=new FileReader();
-    reader.onerror=function(){ showError("That file could not be read."); };
+    var reader=new FileReader(), gen=++impReadGen;
+    reader.onerror=function(){ if(gen===impReadGen) showError("That file could not be read."); };
     reader.onload=function(){
+      if(gen!==impReadGen) return;
       var text=String(reader.result||"");
       if(!text.trim()){ showError("That file is empty."); return; }
       impState={fileName:file.name, text:text};
@@ -1929,13 +1937,16 @@
     if(!impState) return;
     var st=impState;
     var rows=impResolvedRows();
+    // The same monotonic id impCheckSplits uses (#32): type ticker A and then B,
+    // and A's answer can land last and paint A's deviations under B's rows.
+    var reqId=(st.checksReq=(st.checksReq||0)+1);
     if(!rows.length) return;
     apiFetch("./api/import/check",{
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({rows:rows.map(function(r){ return {line:r.line,ticker:r.ticker,date:r.date,price:r.price}; })})
     })
       .then(function(r){ return r.ok?r.json():null; })
-      .then(function(d){ if(impState===st&&d&&d.checks){ st.checks=d.checks; st.checkThreshold=d.threshold||20; impRender(); } })
+      .then(function(d){ if(impState===st&&st.checksReq===reqId&&d&&d.checks){ st.checks=d.checks; st.checkThreshold=d.threshold||20; impRender(); } })
       .catch(function(){ /* without the check the preview is still usable, just quieter */ });
   }
 
@@ -2264,6 +2275,9 @@
     var st=impState;
     var rows=impResolvedRows();
     if(!rows.length) return;
+    // Taken now, while the preview is still the current state: a Cancel during
+    // the POST below replaces impState, and the ticked splits went with it (#32).
+    var checked=impCheckedSplits();
     var note=impEl("imp-note");
     note.className="frm-note"; note.textContent="Importing…";
     impEl("imp-go").disabled=true;
@@ -2282,18 +2296,12 @@
           return;
         }
         var d=res.d;
-        if(impState!==st){
-          // Cancel ran while this request was in flight. The rows landed
-          // server-side regardless, so the view still needs the same
-          // refresh impFinishImport's own Cancel branch gives it — only the
-          // split recording, which needs the (gone) preview state, is
-          // skipped here.
-          loadTransactions();
-          if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
-          refreshPortfolio();
-          impBackfill(d.newTickers||[], rows);
-          return;
-        }
+        // A Cancel may have run while this request was in flight. The rows
+        // landed server-side regardless, so it is not treated as nothing
+        // happening: impFinishImport records the ticked splits and says what
+        // happened either way (#32) — a holding left short by exactly the
+        // split ratio is the outcome #9 exists to prevent.
+        //
         // A null batchId (every row a duplicate) must never overwrite a real
         // one — that would strand "Undo this import" for rows that did land
         // from an earlier response. It can only happen from a genuine repeat
@@ -2312,7 +2320,7 @@
         // already be there. A failure here does not undo the import — the
         // rows are correct as typed, only the split is missing — so it is
         // reported and offered a retry rather than rolled back.
-        impFinishImport(st, d, parts, rows);
+        impFinishImport(st, d, parts, rows, checked);
       })
       .catch(function(e){
         if(impState===st){
@@ -2340,16 +2348,40 @@
     }, Promise.resolve()).then(function(){ return results; });
   }
 
-  /** Finish the done message with what happened to any split checked in the preview, then reveal it. */
-  function impFinishImport(st, d, parts, rows){
-    var checked=impCheckedSplits();
+  /**
+   * Finish the done message with what happened to any split checked in the
+   * preview, then reveal it.
+   *
+   * `checked` was taken before the import was sent, so a Cancel at any point
+   * after Import was clicked still records what was ticked. If the import
+   * area is empty when this settles (Cancel, nothing opened since), the done
+   * view comes back, saying the Cancel came too late, with Undo on it — the
+   * one thing Cancel was for. If another file is already open, its preview is
+   * left alone and the outcome goes to a toast instead.
+   */
+  function impFinishImport(st, d, parts, rows, checked){
     impRecordSplits(checked).then(function(results){
-      if(impState!==st){   // Cancel ran while the splits were recording; the import view is gone, but the work still happened
+      function refreshAll(){
         loadTransactions();
         if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
         refreshPortfolio();
         impBackfill(d.newTickers||[], rows);
+      }
+      if(impState!==st && impState){
+        var lost=results.filter(function(res){ return !res.ok; });
+        var lostTickers=lost.map(function(res){ return res.sp.ticker; })
+          .filter(function(t,i,a){ return a.indexOf(t)===i; }).join(", ");
+        if(lost.length) showError(d.imported+" imported from "+st.fileName+", but the "+lostTickers
+          +" split"+(lost.length===1?"":"s")+" could not be recorded. Quantities for "+lostTickers+" are wrong until "
+          +(lost.length===1?"it is":"they are")+".");
+        else showSuccess(d.imported+" imported from "+st.fileName
+          +(results.length?", "+(results.length===1?"split":"splits")+" recorded":""));
+        refreshAll();
         return;
+      }
+      if(impState!==st){
+        impState=st;
+        parts.unshift("<b>Cancel came too late to stop this import</b> — the file had already been sent.");
       }
       var failed=[];
       results.forEach(function(res){
@@ -2371,14 +2403,10 @@
       if(retry){ retry.hidden=!failed.length; retry.disabled=false; }
 
       impEl("imp-done-msg").innerHTML=parts.join(" ");
-      impEl("imp-undo").hidden=!d.batchId;
+      impEl("imp-undo").hidden=!st.batchId;
       impShow("done");
       showSuccess(d.imported+" imported");
-
-      loadTransactions();
-      if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
-      refreshPortfolio();
-      impBackfill(d.newTickers||[], rows);
+      refreshAll();
     });
   }
 
@@ -2390,8 +2418,18 @@
     if(!list.length) return;
     var retryBtn=impEl("imp-splits-retry");
     if(retryBtn) retryBtn.disabled=true;   // one retry in flight at a time; each click is a limiter slot spent
+    // Undo does not replace impState, so `impState===st` alone let a retry that
+    // was still in flight re-show its button and append "still could not be
+    // recorded" after "Import undone" (#32). Undo moves this generation on.
+    var gen=st.retryGen||0;
     impRecordSplits(list).then(function(results){
-      if(impState!==st) return;   // Cancel/"import another"/Undo ran while the retry was in flight; nothing left to report against
+      if(impState!==st||st.retryGen!==gen){
+        // Cancel/"import another"/Undo ran while the retry was in flight; nothing
+        // left to report against. A split that did get recorded still changes
+        // the numbers, so the portfolio is redrawn for it.
+        if(results.some(function(res){ return res.ok; })) refreshPortfolio();
+        return;
+      }
       var stillFailed=[];
       var msg=[];
       results.forEach(function(res){
@@ -2446,6 +2484,7 @@
         if(!res.ok){ showError(res.d.error||"That import could not be undone."); return; }
         if(impState===st){   // Cancel/"import another" ran while the undo was in flight; the overlay is gone but the undo still happened
           st.batchId=null;
+          st.retryGen=(st.retryGen||0)+1;   // a split retry still in flight reports into nothing now
           impEl("imp-done-msg").innerHTML="<b>Import undone.</b> "+res.d.removed+" transaction"
             +(res.d.removed===1?"":"s")+" removed. Any price history that was loaded is kept. "
             +"Any split that was recorded is kept, since it is a fact about the stock, not about this file.";
@@ -2464,6 +2503,7 @@
 
   function impReset(){
     impState=null;
+    impReadGen++;   // a read still in progress belongs to what was just closed
     impEl("imp-file").value="";
     impEl("imp-filename").textContent="";
     impEl("imp-note").textContent="";

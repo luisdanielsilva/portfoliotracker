@@ -1026,6 +1026,32 @@ history: a split is a fact about the stock, not about the file that happened to 
 import preview, and 28 tests across `test/split-check.test.js`, `test/migrations.test.js` and
 `test/import-api.test.js` (228 before this issue, 256 after).
 
+### 🧷 Four import races closed — 2026-09-30 (issue #32)
+
+Left open on purpose by #9's final review, each one reproduced in Puppeteer with the request (or,
+for the file read, `FileReader`'s load) held back, and gone after the fix:
+
+1. **A Cancel during the import request dropped a ticked split.** The rows land server-side
+   whatever the browser does next, but the ticked splits were read from the preview state that
+   Cancel had just thrown away, so the holding stayed wrong by exactly the split ratio — the
+   outcome #9 exists to prevent. The ticked splits are now taken when Import is clicked, and
+   recorded when the response arrives, Cancel or not. If the import area is still empty, the done
+   view comes back saying *"Cancel came too late to stop this import — the file had already been
+   sent"*, with Undo, which is what the Cancel was for. If another file is already open, its
+   preview is left alone and the outcome is a toast naming the file and any split that failed.
+2. **A split retry still in flight when Undo landed reappeared** after *"Import undone"*, with its
+   retry button. Undo does not replace the import state, so the staleness check passed; Undo now
+   moves a retry generation on, and a late retry reports into nothing.
+3. **Price checks from a superseded ticker could show against the new one.** Type A, then B: A's
+   check could land last and paint A's deviations under B's rows. `impCheckPrices` now carries the
+   same monotonic request id `impCheckSplits` does.
+4. **A file read finishing after Cancel reopened the preview** — and, the same race without a
+   Cancel, a slow first file could replace a quick second one. A read generation, moved on by each
+   new read and by Cancel, decides whether `onload` may take the view.
+
+The #9 regression set still passes against a scratch copy: double-click Import, the stale split
+response, the six ticker-change cases, and NVDA → Cancel → TSLA in both response orders.
+
 ### 📈 The landing page's charts are real prices now — 2026-09-26
 
 Every figure a logged-out visitor saw was a hand-drawn polyline: twelve points across four years,
