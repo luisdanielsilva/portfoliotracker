@@ -4205,18 +4205,20 @@
           return [];
         }
 
-        // Transform API snapshots to BASE_RAW format: [dateStr, [[tickerIdx, qty, marketValue, rent]]]
-        // Transform API snapshots to BASE_RAW format: [dateStr, [[tickerIdx, qty, marketValue, rent]]]
+        // Transform API snapshots to BASE_RAW format: [ts, [[tickerIdx, qty, marketValue, rent]]]
+        // Each day arrives as [ts, [[symbolIdx, quantity, amount, marketValue], ...]],
+        // with the symbols named once in data.tickers (#5).
         BASE_RAW = data.snapshots
-          .filter(snap => snap.holdings && snap.holdings.length > 0 && snap.ts)
+          .filter(snap => snap[1].length > 0 && snap[0])
           .map(snap => {
-            // snap.date is a UTC instant. Stripping the Z and re-parsing made the
-            // browser read it as local time, moving every point back by the viewer's
-            // offset — and since the server stamps each snapshot at local midnight,
-            // that put the last one on the previous day: "Last updated: 9 Sept" above
-            // a chart holding the 10 Sept close. Keep the instant as sent.
-            const dateStr = snap.date;
-            const holdings = snap.holdings.map(h => {
+            // The instant is kept as sent: re-reading a date string without its Z
+            // once shifted every point by the viewer's UTC offset, and since the
+            // server stamps each snapshot at local midnight, that put the last one
+            // on the previous day: "Last updated: 9 Sept" above a chart holding the
+            // 10 Sept close.
+            const ts = snap[0];
+            const holdings = snap[1].map(row => {
+              const h = { ticker: data.tickers[row[0]], quantity: row[1], amount: row[2], marketValue: row[3] };
               // BKEY started as a fixed list of the tickers held at the time it was
               // written. Anything absent used to be dropped here, silently removing
               // the holding from both the chart and the headline total — an ASML.AS
@@ -4259,18 +4261,16 @@
             }).filter(h => h !== null);
 
             if (holdings.length === 0) return null;
-            return [dateStr, holdings];
+            return [ts, holdings];
           })
           .filter(s => s !== null);
 
         // Market value and cost basis come from the last snapshot. They used to be read
         // from /api/prices, which has never returned snapshots — so the gain line beside
         // the headline was dead for every account since it was written.
-        var last=data.snapshots[data.snapshots.length-1];
-        if(last){
-          if(last.portfolioTotal!=null) CURRENT_MARKET_VALUE=last.portfolioTotal;
-          if(last.costBasis!=null) CURRENT_COST_BASIS=last.costBasis;
-        }
+        // Only the last day's totals are sent, since only the last day's are read.
+        if(data.portfolioTotal!=null) CURRENT_MARKET_VALUE=data.portfolioTotal;
+        if(data.costBasis!=null) CURRENT_COST_BASIS=data.costBasis;
 
         console.log(`✓ Loaded ${BASE_RAW.length} snapshots from API`);
         return BASE_RAW;

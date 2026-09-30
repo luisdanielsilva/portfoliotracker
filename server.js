@@ -3,6 +3,7 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
@@ -417,8 +418,22 @@ class BoundedCache {
     while (this.map.size > this.max) this.map.delete(this.map.keys().next().value);
   }
 }
-const snapshotCache = new BoundedCache(40);   // one JSON string per user per version
+const snapshotCache = new BoundedCache(40);   // one {json, gzip} per user per version
 const scoreCache = new BoundedCache(60);      // one scored series per ticker per version
+
+/** A cached /api/snapshots body, compressed once and sent compressed to anyone who
+ *  can take it. nginx here gzips only text/html and nothing it proxies, so without
+ *  this the portfolio crossed the wire at full size (#5). Compressing costs ~10ms,
+ *  once per cache entry, to send the real account's 516 KB as 81 KB. */
+function sendSnapshots(req, res, entry) {
+  res.type('application/json');
+  res.vary('Accept-Encoding');
+  if (req.acceptsEncodings('gzip', 'identity') === 'gzip') {
+    res.set('Content-Encoding', 'gzip');
+    return res.send(entry.gzip);
+  }
+  res.send(entry.json);
+}
 
 /* ---- rate limits on the authenticated API ----
  *
@@ -1548,7 +1563,7 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
     // JSON is reusable as-is — which skips the rebuild *and* the serialisation.
     const cacheKey = `${req.userId}:${dataVersion()}`;
     const cached = snapshotCache.get(cacheKey);
-    if (cached) return res.type('application/json').send(cached);
+    if (cached) return sendSnapshots(req, res, cached);
     // Get all stock splits
     const splitsStmt = db.prepare('SELECT ticker, split_date, ratio FROM stock_splits ORDER BY split_date ASC');
     const splits = splitsStmt.all();
@@ -1568,7 +1583,7 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
     const transactions = txStmt.all(req.userId);
 
     if (transactions.length === 0) {
-      res.json({ snapshots: [] });
+      res.json({ tickers: [], snapshots: [] });
       return;
     }
 
@@ -1663,6 +1678,24 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
     // Generate daily snapshots from first transaction to today
     const snapshotDates = generateDailySnapshots(req.userId);
 
+    /* The wire format (#5). One snapshot per calendar day for eleven years came to
+     * 2.45 MB, sent uncompressed — nginx only gzips text/html, and not proxied
+     * responses at all. Most of it was field names and figures the page never read:
+     * every holding of every day spelled out `ticker`, `quantity`, `amount`,
+     * `costPerShare`, `price` and `marketValue`, and each day its instant twice.
+     *
+     * Now each day is `[ts, [[tickerIdx, quantity, amount, marketValue], ...]]` with
+     * the symbols named once in `tickers` — the shape app.js was already turning the
+     * objects into — and only the last day's totals are sent, because only the last
+     * day's are read. Every number is the same double it was, so nothing the page
+     * derives from them can move; and every day is still sent, so the daily moves,
+     * the lowest value and the drawdown are measured on the same points as before.
+     * 2.45 MB -> 0.52 MB, and 81 KB once gzipped (sendSnapshots). */
+    const tickers = [];
+    const tickerIdx = {};
+    let portfolioTotal = null;
+    let costBasis = null;
+
     const snapshots = snapshotDates.map(dateStr => {
       const ts = new Date(dateStr).getTime();
       const snapshotDate = dateStr.split('T')[0]; // YYYY-MM-DD
@@ -1706,36 +1739,27 @@ app.get('/api/snapshots', heavyLimiter, (req, res) => {
           const currentValue = price ? adjustedQty * price : adjustedQty * (h.cost / h.quantity); // Fallback to cost if no price
           marketValue += currentValue;
 
-
-          return {
-            ticker,
-            quantity: adjustedQty,
-            amount: h.cost,
-            costPerShare: h.quantity > 0 ? h.cost / h.quantity : 0,
-            price: price || (h.cost / h.quantity),
-            marketValue: currentValue
-          };
+          if (!(ticker in tickerIdx)) { tickerIdx[ticker] = tickers.length; tickers.push(ticker); }
+          return [tickerIdx[ticker], adjustedQty, h.cost, currentValue];
         });
 
-      return {
-        date: new Date(dateStr).toISOString(),
-        ts,
-        holdings: holdingsArray,
-        portfolioTotal: marketValue,
-        /* The cost of what is held, which is what the page puts beside the market
-           value. Summing every entry instead included positions closed years ago,
-           whose running total was proceeds minus purchases — a realised gain, arriving
-           here as negative cost. Airbus and AT&T between them moved this figure by
-           €175.87 against a portfolio they are no longer part of. A closed position
-           now resets to zero cost (#26), so the filter is belt and braces; it matches
-           the holdings array above. */
-        costBasis: Object.values(stateAtDate).reduce((sum, h) => h.quantity > 0 ? sum + h.cost : sum, 0)
-      };
+      portfolioTotal = marketValue;
+      /* The cost of what is held, which is what the page puts beside the market
+         value. Summing every entry instead included positions closed years ago,
+         whose running total was proceeds minus purchases — a realised gain, arriving
+         here as negative cost. Airbus and AT&T between them moved this figure by
+         €175.87 against a portfolio they are no longer part of. A closed position
+         now resets to zero cost (#26), so the filter is belt and braces; it matches
+         the holdings array above. */
+      costBasis = Object.values(stateAtDate).reduce((sum, h) => h.quantity > 0 ? sum + h.cost : sum, 0);
+
+      return [ts, holdingsArray];
     });
 
-    const body = JSON.stringify({ snapshots });
-    snapshotCache.set(cacheKey, body);
-    res.type('application/json').send(body);
+    const json = JSON.stringify({ tickers, snapshots, portfolioTotal, costBasis });
+    const entry = { json, gzip: zlib.gzipSync(json) };
+    snapshotCache.set(cacheKey, entry);
+    sendSnapshots(req, res, entry);
   } catch (err) {
     console.error('GET /api/snapshots error:', err.message);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });

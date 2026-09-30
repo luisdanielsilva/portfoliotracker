@@ -302,16 +302,16 @@ test('cost basis counts what is held, and every holding carries what it cost', a
   // sold for more than it cost: the realised gain is what used to leak into cost
   assert.strictEqual((await sell('GONE', 5, 800, Date.UTC(2026, 0, 12))).status, 200);
 
-  const { snapshots } = await fetch(base + '/api/snapshots', { headers }).then(r => r.json());
-  const last = snapshots[snapshots.length - 1];
+  const data = await fetch(base + '/api/snapshots', { headers }).then(r => r.json());
+  const last = data.snapshots[data.snapshots.length - 1];
 
-  assert.strictEqual(last.costBasis, 1000,
+  assert.strictEqual(data.costBasis, 1000,
     'a closed position must not move the cost of what is still held (it was 700 with GONE counted)');
-  assert.deepStrictEqual(last.holdings.map(h => h.ticker), ['KEEP'], 'only open positions are holdings');
-  for (const h of last.holdings) {
-    assert.strictEqual(typeof h.amount, 'number',
+  assert.deepStrictEqual(last[1].map(h => data.tickers[h[0]]), ['KEEP'], 'only open positions are holdings');
+  for (const [, , amount] of last[1]) {
+    assert.strictEqual(typeof amount, 'number',
       'the browser derives its return % from `amount`; without it every split reads as a purchase');
-    assert.ok(h.amount > 0, 'a held position has a positive cost to measure against');
+    assert.ok(amount > 0, 'a held position has a positive cost to measure against');
   }
   s.idb.close(); s.pdb.close();
 });
@@ -329,10 +329,92 @@ test('a profitable sale leaves the chart the cost of the shares still held', asy
   assert.strictEqual((await post(10, 1000, 'buy', Date.UTC(2026, 0, 10))).status, 200);
   assert.strictEqual((await post(4, 800, 'sell', Date.UTC(2026, 0, 12))).status, 200);
 
-  const { snapshots } = await fetch(base + '/api/snapshots', { headers: s.headers }).then(r => r.json());
-  const h = snapshots[snapshots.length - 1].holdings.find(x => x.ticker === 'PART');
-  assert.strictEqual(h.amount, 600, 'six shares at the €100 they cost');
-  assert.strictEqual(h.costPerShare, 100);
+  const { tickers, snapshots } = await fetch(base + '/api/snapshots', { headers: s.headers }).then(r => r.json());
+  const [, quantity, amount] = snapshots[snapshots.length - 1][1].find(x => tickers[x[0]] === 'PART');
+  assert.strictEqual(amount, 600, 'six shares at the €100 they cost');
+  assert.strictEqual(amount / quantity, 100);
+  s.idb.close(); s.pdb.close();
+});
+
+/**
+ * The wire format of /api/snapshots (#5). Eleven years of daily objects came to
+ * 2.45 MB, uncompressed on the way out. The day-by-day detail is what the page's
+ * lowest value, drawdown and best/worst day are measured on, so every day is still
+ * sent — what went is the repetition and the fields nobody read.
+ */
+test('the portfolio history is sent once per day, compactly, with nothing the page does not read', async () => {
+  const s = signIn('wire@example.com');
+  const ins = s.pdb.prepare(`INSERT INTO prices (ticker, price_eur, price_usd, price_native, currency, price_date, source)
+                             VALUES (?, ?, NULL, ?, 'EUR', ?, 'test')`);
+  ins.run('WIRE', 33.33, 33.33, '2026-01-12');
+  ins.run('WIRE', 40.1, 40.1, '2026-01-14');
+  const post = (ticker, quantity, amountEUR, ts) => fetch(base + '/api/transactions', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker, quantity, amountEUR, type: 'buy', ts })
+  });
+  assert.strictEqual((await post('WIRE', 3, 90, Date.UTC(2026, 0, 10, 12))).status, 200);
+  assert.strictEqual((await post('OTHER', 2, 50, Date.UTC(2026, 0, 13, 12))).status, 200);
+
+  const text = await fetch(base + '/api/snapshots', { headers: s.headers }).then(r => r.text());
+  for (const unread of ['costPerShare', '"price"', '"date"', '"holdings"', '"marketValue"']) {
+    assert.ok(!text.includes(unread), `${unread} is not read by the page and must not be sent`);
+  }
+  const data = JSON.parse(text);
+  assert.deepStrictEqual(data.tickers, ['WIRE', 'OTHER'], 'each symbol is named once');
+
+  // one point per calendar day from the first buy to today, at local midnight
+  const first = new Date(Date.UTC(2026, 0, 10, 12)); first.setHours(0, 0, 0, 0);
+  const days = Math.round((Date.now() - first.getTime()) / 864e5) + 1;
+  assert.ok(Math.abs(data.snapshots.length - days) <= 1, `expected ~${days} daily points, got ${data.snapshots.length}`);
+  assert.strictEqual(data.snapshots[0][0], first.getTime());
+  for (let i = 1; i < data.snapshots.length; i++) {
+    assert.ok(data.snapshots[i][0] > data.snapshots[i - 1][0], 'points ascend');
+  }
+
+  const at = d => { const t = new Date(d); t.setHours(0, 0, 0, 0); return data.snapshots.find(x => x[0] === t.getTime()); };
+  // before any price: valued at cost; then quantity x the price of the day, as the same double
+  assert.deepStrictEqual(at('2026-01-11T12:00:00')[1], [[0, 3, 90, 90]]);
+  assert.deepStrictEqual(at('2026-01-12T12:00:00')[1], [[0, 3, 90, 3 * 33.33]]);
+  // a buy at noon is first held at the next midnight
+  assert.deepStrictEqual(at('2026-01-13T12:00:00')[1], [[0, 3, 90, 3 * 33.33]]);
+  assert.deepStrictEqual(at('2026-01-14T12:00:00')[1], [[0, 3, 90, 3 * 40.1], [1, 2, 50, 50]]);
+  for (const [, rows] of data.snapshots) for (const r of rows) assert.strictEqual(r.length, 4, 'a holding is [symbol, quantity, amount, marketValue]');
+
+  // the headline's two figures, for the last day only
+  const last = data.snapshots[data.snapshots.length - 1][1];
+  assert.strictEqual(data.portfolioTotal, last.reduce((a, r) => a + r[3], 0));
+  assert.strictEqual(data.portfolioTotal, 3 * 40.1 + 50);
+  assert.strictEqual(data.costBasis, 140);
+  s.idb.close(); s.pdb.close();
+});
+
+test('the portfolio history is gzipped for a client that accepts it, and plain for one that does not', async () => {
+  const s = signIn('gzip@example.com');
+  assert.strictEqual((await fetch(base + '/api/transactions', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'ZIP', quantity: 1, amountEUR: 10, type: 'buy', ts: Date.UTC(2025, 0, 1, 12) })
+  })).status, 200);
+  const http = require('node:http');
+  const zlib = require('node:zlib');
+  const get = enc => new Promise((resolve, reject) => {
+    const headers = { Cookie: s.headers.Cookie };
+    if (enc) headers['Accept-Encoding'] = enc;
+    http.get(base + '/api/snapshots', { headers }, res => {
+      const chunks = []; res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ res, body: Buffer.concat(chunks) }));
+    }).on('error', reject);
+  });
+
+  const plain = await get(null);
+  assert.strictEqual(plain.res.headers['content-encoding'], undefined, 'no Accept-Encoding, no compression');
+  const zipped = await get('gzip, deflate, br');
+  assert.strictEqual(zipped.res.headers['content-encoding'], 'gzip');
+  assert.match(zipped.res.headers.vary || '', /Accept-Encoding/i, 'a shared cache must not hand gzip to a client that cannot read it');
+  assert.ok(zipped.body.length < plain.body.length / 4, `gzip should shrink ${plain.body.length} bytes well below a quarter`);
+  assert.strictEqual(zlib.gunzipSync(zipped.body).toString(), plain.body.toString(), 'the same answer either way');
+  // and the cached copy is served the same way as the fresh one
+  const again = await get('gzip');
+  assert.strictEqual(again.res.headers['content-encoding'], 'gzip');
+  assert.deepStrictEqual(again.body, zipped.body);
   s.idb.close(); s.pdb.close();
 });
 

@@ -311,7 +311,8 @@ was still beside it** — which SQLite would replay onto the restored file. It n
 before copying and removes the stale `-wal`/`-shm` with the file they describe.
 
 **2. Caching the computed views.** `/api/snapshots` rebuilt a user's whole history on every
-request (463KB, ~48ms of blocking work) for a page that had not changed; `/api/algorithm`
+request (463KB at the time, ~48ms of blocking work — the response has since been re-shaped, see
+*The size of the portfolio history* below) for a page that had not changed; `/api/algorithm`
 re-scored a full price series per request, and that scoring is *identical for every user* —
 only the position gate differs. Both are now keyed by a database-wide `data_version` counter,
 bumped by a single middleware after any successful write and by the price-fetch job after it
@@ -326,6 +327,46 @@ roughly doubled, and the caches are per-process, so each warms separately.
 
 Pinned by tests: a write must retire the cached portfolio (verified by removing the version
 bump and watching the test fail), and the database must be in WAL mode.
+
+### 📦 The size of the portfolio history (#5) — 2026-09-30
+
+The 463KB above stopped being true when eleven years of broker history were imported: one
+snapshot per calendar day since 2015 came to **2.45 MB for the real account (4,117 days)**, and
+it grows by a day every day. It also crossed the wire at that size — nginx here compresses only
+`text/html`, and nothing it proxies (`gzip_proxied` is off), so no JSON or JS from the app was
+ever gzipped.
+
+Measured on a copy of the real account, same data, before and after:
+
+| | Before | After |
+|---|---|---|
+| `/api/snapshots`, raw | 2,449,955 B | **516,251 B** (−79%) |
+| on the wire | 2,449,955 B (sent uncompressed) | **80,833 B** (gzip) |
+| Portfolio tab drawn, 10 Mbit/s + 40ms RTT, median of 6 | 3.2 s | **1.2 s** |
+| `JSON.parse` in the browser, median | 8.3 ms | 3.3 ms |
+
+**What changed.** Each day is now `[ts, [[symbolIdx, quantity, amount, marketValue], ...]]`,
+with the symbols named once in `tickers`, and `portfolioTotal`/`costBasis` sent once for the last
+day — the only one the page reads them from. Gone: the field names repeated 16,000 times, the
+instant sent twice per day (`date` and `ts`), and `costPerShare` and `price`, which the page never
+read. The server gzips the finished body once per cache entry and sends it to any client that
+accepts gzip (`Vary: Accept-Encoding`).
+
+**What deliberately did not change.** Every day is still sent, and every number is the same
+double it was. The issue suggested scoping the fetch to the period on screen, or thinning old
+history to weekly points; both would move figures the page shows. The Portfolio tab opens on
+*All*, and its peak, lowest value, max drawdown, *best / worst gap* (a day-to-day move), the
+underwater chart and the snapshot table are all measured on the daily series — thin it and they
+change. Checked by loading both versions in headless Chrome against the same database with the
+clock frozen: headline, KPI strips, holdings table, every period button (1M–All, total and
+Tesla/Ex-Tesla) with hovered values at eight positions, both detail charts and the snapshot table
+came out identical, and so did the screenshots, byte for byte.
+
+**Not done here, worth doing.** The page still builds ~140,000 DOM nodes for this account, most
+of them the collapsed snapshot table (3,567 rows) and a dot per day per series; that is where a
+bigger holdings list would stall a browser, and it is a render problem rather than a payload one.
+And `gzip_proxied any;` with `gzip_types application/json application/javascript text/css;` in
+nginx (root) would compress everything else the app serves — `app.js` alone goes out as 252KB.
 
 ### 🚨 The 453-email morning — 2026-09-15
 
