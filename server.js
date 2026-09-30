@@ -851,7 +851,10 @@ app.post('/api/transactions', (req, res) => {
     const amountEUR = positive(tx.amountEUR != null ? tx.amountEUR : tx.amount, 1e12);
     const txType = String(tx.type || 'buy');
     const currency = String(tx.currency || 'EUR').toUpperCase();
-    const rate = positive(tx.exchangeRate != null ? tx.exchangeRate : 1, 1e6);
+    // A euro trade's rate is 1 by definition. Any other currency must say what it was
+    // converted at: defaulting to 1 stored dollars as euros for every trade the form
+    // sent without one (#35).
+    const rate = currency === 'EUR' ? 1 : positive(tx.exchangeRate, 1e6);
     const ts = num(tx.ts);
 
     if (!TICKER_RE.test(ticker)) return res.status(400).json({ error: 'Ticker must be 1-12 characters: letters, digits, dot or dash.' });
@@ -859,7 +862,7 @@ app.post('/api/transactions', (req, res) => {
     if (amountEUR === null) return res.status(400).json({ error: 'Amount must be a positive number.' });
     if (!TX_TYPES.has(txType)) return res.status(400).json({ error: "Type must be 'buy' or 'sell'." });
     if (!/^[A-Z]{3}$/.test(currency)) return res.status(400).json({ error: 'Currency must be a three-letter code.' });
-    if (rate === null) return res.status(400).json({ error: 'Exchange rate must be a positive number.' });
+    if (rate === null) return res.status(400).json({ error: `A trade in ${currency} needs the exchange rate it was made at (1 ${currency} = ? EUR), as a positive number.` });
     // A date far in the past or the future is a typo, not a trade — and it stretches
     // every chart to fit it. Two days of slack covers time zones and the form's 12:00.
     if (ts === null || ts < MIN_TX_TS || ts > Date.now() + 2 * 864e5) {
@@ -933,6 +936,10 @@ app.put('/api/transactions/:id', (req, res) => {
     if (!checkStmt.get(req.params.id, req.userId)) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
+    // Same rule as the POST (#35): no silent rate of 1 for a non-euro trade.
+    const currency = String(tx.currency || 'EUR').toUpperCase();
+    const rate = currency === 'EUR' ? 1 : positive(tx.exchangeRate, 1e6);
+    if (rate === null) return res.status(400).json({ error: `A trade in ${currency} needs the exchange rate it was made at (1 ${currency} = ? EUR), as a positive number.` });
 
     const updateStmt = db.prepare(`
       UPDATE transactions
@@ -944,8 +951,8 @@ app.put('/api/transactions/:id', (req, res) => {
       tx.ticker,
       tx.quantity,
       tx.amountEUR || tx.amount,
-      tx.currency || 'EUR',
-      tx.exchangeRate || 1.0,
+      currency,
+      rate,
       tx.type || 'buy',
       tx.ts,
       req.params.id,
@@ -1010,6 +1017,9 @@ const MAX_IMPORT_ROWS = 500;
  * settlement that is otherwise perfectly ordinary. Reaching backwards is safe
  * in a way reaching forwards would not be, because the earlier rate is one that
  * existed when the trade happened.
+ *
+ * Since issue #33 a row is the rate at the *end* of its date, so a trade gets that
+ * day's closing rate, and a weekend trade Friday's.
  *
  * A date before the table starts returns null and the row is refused. The
  * alternative — the oldest rate we happen to hold — would silently price a 2014
@@ -1338,8 +1348,10 @@ app.post('/api/import/splits', backfillLimiter, async (req, res) => {
 });
 
 /**
- * POST /api/stock-splits {ticker, date} — record a split named during an
- * import preview.
+ * POST /api/stock-splits {ticker, date, via?} — record a split named during an
+ * import preview, or by "Check my splits" over existing holdings (#31, which
+ * sends via: 'holdings' so the stored description says so; nothing else about
+ * the rule changes with it).
  *
  * A thin wrapper over recordSplit(), which is where the actual rule lives:
  * the ratio and the stored date always come from Yahoo, never from this
@@ -1351,7 +1363,9 @@ app.post('/api/stock-splits', backfillLimiter, async (req, res) => {
   try {
     const YahooFinance = require('yahoo-finance2').default;
     const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
-    const result = await recordSplit(db, yf, req.userId, req.body && req.body.ticker, req.body && req.body.date);
+    const body = req.body || {};
+    const result = await recordSplit(db, yf, req.userId, body.ticker, body.date,
+      { via: body.via === 'holdings' ? 'holdings' : 'import' });
 
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     if (result.alreadyRecorded) return res.status(200).json({ alreadyRecorded: true });

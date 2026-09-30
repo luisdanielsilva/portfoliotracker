@@ -962,7 +962,8 @@ does not scale — the next split of any held ticker would silently overstate qu
 average cost until someone noticed and typed a third row — and there was no way to tell a genuine
 split from a corporate action that only looks like one. This closes that gap for the one case in
 scope: **a ticker already in the file being imported.** Checking a ticker that is merely held (not
-in this file) is a deliberate follow-up, not done here — issue #31.
+in this file) is a deliberate follow-up, not done here — issue #31 (done 2026-09-30, *Check my
+splits*, below).
 
 **`stock_splits` is global, so the write is guarded, not gated on the client.** The table has no
 `user_id` — the same as `prices` — because a split is a fact about the ticker, not about an
@@ -1055,7 +1056,7 @@ scratch copy afterwards and, read-only, against the live database throughout.
 
 **What is not here.** `POST /api/import/splits` only checks tickers already in the file; a stock
 already held but absent from this import (a "check my splits" link) is a follow-up issue, not this
-one. `verify-portfolio.js` stays offline and read-only, so it cannot notice a split Yahoo has
+one (closed by #31, below). `verify-portfolio.js` stays offline and read-only, so it cannot notice a split Yahoo has
 recorded and this database has not — an optional `--check-splits` flag is a separate follow-up
 rather than a silent change to what "clean" currently means for that script (closed 2026-09-27 by
 `--check-splits`, below). Undoing an import does
@@ -1066,6 +1067,61 @@ history: a split is a fact about the stock, not about the file that happened to 
 `recordSplit`), `POST /api/import/splits`, `POST /api/stock-splits`, the "Stock splits" block in the
 import preview, and 28 tests across `test/split-check.test.js`, `test/migrations.test.js` and
 `test/import-api.test.js` (228 before this issue, 256 after).
+
+### 🔎 Check my splits — existing holdings, not just an imported file — 2026-09-30 (issue #31)
+
+#9 checked for unrecorded splits only in the tickers of the file being imported, so a holding typed
+in by hand, or imported before #9, was never checked. **Check my splits**, at the top of *Your
+transactions*, runs the same check over everything already registered: the same
+`POST /api/import/splits`, fed one row per transaction (ticker, UTC trade date, the price per share
+as paid) instead of one per file line, and the same `POST /api/stock-splits` to record. Nothing about
+the rules moved to the browser — `recordSplit()` still takes the ratio and date from Yahoo alone,
+still requires a transaction in that ticker dated before the split, and still refuses anything that
+is not a clean ratio. The only server change is a `via: "holdings"` flag, which makes the stored
+description read *"confirmed from a check of existing holdings"* instead of *"during an import"*.
+
+What it shows is worded the same way as the import preview, for transactions rather than a file:
+*"NVDA split 10-for-1 on 2024-06-10, not recorded. 3 of your transactions are from before it."*,
+ticked by default only when the prices look as paid, unticked with a warning when they already look
+split-adjusted, and the spin-off case named as not a split. With nothing to record it says *"No
+missing splits. Checked 15 tickers against Yahoo."* The request respects both server limits (20
+tickers, 500 rows) by sending batches, oldest rows first, since a ticker's oldest trade is what
+decides which splits matter at all. Each batch spends one slot of the hourly Yahoo limit the import
+shares.
+
+**Measured:** a scratch account holding NVDA from 2019 (10 + 5 shares) and 2023 (4), T from 2020
+and MSFT from 2021 was offered both NVDA splits, ticked, and the T spin-off as information only;
+recording them stored two `source='yahoo'` rows and the holding went from 19 to 640 shares
+(10×40 + 5×40 + 4×10). Run read-only against a scratch copy of the live account with its two TSLA
+rows deleted from the copy, it named exactly those two, ticked, and nothing else — the live NVDA
+holding, bought in 2025, is correctly not offered either split. Scheduled checks and emailing about
+new splits stay out of scope.
+
+### 🧷 Four import races closed — 2026-09-30 (issue #32)
+
+Left open on purpose by #9's final review, each one reproduced in Puppeteer with the request (or,
+for the file read, `FileReader`'s load) held back, and gone after the fix:
+
+1. **A Cancel during the import request dropped a ticked split.** The rows land server-side
+   whatever the browser does next, but the ticked splits were read from the preview state that
+   Cancel had just thrown away, so the holding stayed wrong by exactly the split ratio — the
+   outcome #9 exists to prevent. The ticked splits are now taken when Import is clicked, and
+   recorded when the response arrives, Cancel or not. If the import area is still empty, the done
+   view comes back saying *"Cancel came too late to stop this import — the file had already been
+   sent"*, with Undo, which is what the Cancel was for. If another file is already open, its
+   preview is left alone and the outcome is a toast naming the file and any split that failed.
+2. **A split retry still in flight when Undo landed reappeared** after *"Import undone"*, with its
+   retry button. Undo does not replace the import state, so the staleness check passed; Undo now
+   moves a retry generation on, and a late retry reports into nothing.
+3. **Price checks from a superseded ticker could show against the new one.** Type A, then B: A's
+   check could land last and paint A's deviations under B's rows. `impCheckPrices` now carries the
+   same monotonic request id `impCheckSplits` does.
+4. **A file read finishing after Cancel reopened the preview** — and, the same race without a
+   Cancel, a slow first file could replace a quick second one. A read generation, moved on by each
+   new read and by Cancel, decides whether `onload` may take the view.
+
+The #9 regression set still passes against a scratch copy: double-click Import, the stale split
+response, the six ticker-change cases, and NVDA → Cancel → TSLA in both response orders.
 
 ### 📈 The landing page's charts are real prices now — 2026-09-26
 
@@ -1673,9 +1729,140 @@ changes. Not something this script, or this repo, does on its own.
 
 **What did not change:** `areMarketsClosedForFetch`'s daily on/off window (redundant now that
 `isBarFinal` does the real work per-bar, but left alone — a cleanup for later); the run-report email
-and the alert digest, both untouched by this issue; and `exchange_rates`, which still stores a rate
+and the alert digest, both untouched by this issue; and `exchange_rates`, which still stored a rate
 under the day it was fetched rather than the day it is a rate *for* — the same class of problem,
-filed separately as a follow-up rather than folded in here.
+filed separately as #33 and fixed in *A rate's date* below.
+
+### 💱 A rate's date — 2026-09-30 (issue #33)
+
+#12 settled that a price is filed under its own trading session and converted at **the rate for
+that date**. That only works if `exchange_rates` row D *is* the rate for D, and it was not. Two
+writers had filed rates by two different rules, neither of them "the date the rate belongs to":
+
+- **The daily job** called `quote('EURUSD=X')` at 09:00 Lisbon and filed the answer under
+  `DATE('now')` — the same clock-dating #12 removed from prices. What it stored was an overnight
+  intraday price, taken some thirteen hours before the US close it would be used to convert.
+- **`recompute-eur.js`** — the source of every row before 2026-09-16 — took Yahoo's daily bars and
+  dated each one with a UTC slice of its timestamp. Yahoo stamps an FX bar at 00:00 **London**, which
+  is 00:00Z in winter and 23:00Z the day before in summer, so the same code filed winter rates under
+  one date and summer rates under the day before.
+
+**What a Yahoo FX bar actually holds.** Measured against Yahoo's own hourly series over 505 days
+(2024-10 → 2026-09): a daily bar's "close" is a snapshot taken at the bar's **start**, not its end.
+It sits 0.035% on average from the day's first hourly open and 0.315% from its last hourly close, and
+is nearer the start on 464 of the 505 days (open and close are usually identical to five decimals).
+So the bar Yahoo labels D+1 is the rate at the turn of D into D+1 — about three hours after the US
+close of D — and it is the rate that belongs with a close on D:
+
+| rate used for a US close on D | mean distance from the hourly rate at 16:00 New York on D |
+|---|---|
+| the bar Yahoo labels D | 0.314% (nearer on 72 of 505 days) |
+| **the bar Yahoo labels D+1** | **0.079%** (nearer on 433) |
+
+**The decision:** a row in `exchange_rates` holds the rate at the **end of the FX session it is dated
+by** — Yahoo's next start-of-day snapshot. The snapshot labelled Tuesday is filed under Monday, the
+one labelled Monday under Friday (FX does not trade at weekends, so Monday's opening price is the
+first after Friday's close — though not Friday's close itself; see below), and the one labelled 2 January under 31 December (25 December and 1
+January are the two days the whole market shuts). It is a calendar rule, not "the bar before it":
+Yahoo has the odd weekday with no bar at all although FX traded (2017-07-11, 2019-05-22, Easter
+Monday 2025), and the snapshot after such a gap still ends the missing day, not the one before it.
+Bars stamped anywhere other than 00:00 London — the extra "live" bar Yahoo appends for the current
+day — are intraday quotes and are dropped. See `fxRatesFromChart()` in `backfill-history.js`.
+
+**What the stored rows held**, checked row by row against that rule on a copy of the live database
+(2,977 USD rows, 2015-04-30 → 2026-09-30):
+
+| rows | what they held |
+|---|---|
+| 1,423 | the right rate — almost all of them summer weekdays, where the UTC slice was right by accident |
+| 1,157 | winter weekdays: the **previous** session's rate — a day late |
+| 357 + 3 | Sundays (summer: Friday's rate, which belongs under Friday) and Saturdays |
+| 13 | 25 December / 1 January, when the market is shut |
+| 22 | neither neighbouring session's rate: the job's intraday quotes (2026-09-11 → 09-29) and rows around the Christmas/New Year gaps |
+| 356 | *missing*: 354 summer Fridays, whose rate had been filed under Sunday; 2017-11-16; and 2026-09-15, the day the job died |
+
+**Friday is the approximation.** Its rate is the snapshot that opens Monday, taken just after the
+market reopens on Sunday night, so it carries whatever the weekend moved: 0.139% from the US-close
+rate on average over 101 Fridays, against 0.061% for the other weekdays (2026-09-25: 0.15%). The only
+other daily snapshot Yahoo offers is the one that opens Friday itself, a whole session stale, so this
+is still the better of the two — but it is not Friday's close, and a weekend-heavy move shows up in
+Friday's `price_eur`.
+
+Against the same hourly US-close reference, the table as it stood was 0.201% off on average across
+2024-10 → 2026-09; re-dated, it is 0.077%. Against the ECB's reference rate it gets very slightly
+*further* away (0.268% → 0.286% over 2015–2026), as it should: the ECB fixes at 14:15 Frankfurt, the
+middle of the day, and these are now end-of-day rates.
+
+**One writer.** `backfillRates()` in `backfill-history.js` is now the only code that writes
+`exchange_rates`, the same way `backfillTicker()` is for prices, and `RATE_UPSERT_SQL` moved beside
+it (still re-exported from `price-fetch.js`). The daily job no longer calls `quote()`: it rewrites the
+last ~10 days of rates through `backfillRates()` every run (further back if a ticker it is catching up
+needs it), before any price is written, so at 09:00
+yesterday's close finds yesterday's rate already there. The newest rate is always the previous
+session's — today's is not known until the next London day starts — so a manual evening run converts
+today's close at yesterday's rate. Every run therefore, right after refreshing the rates,
+re-converts every ticker's stored closes in that window whose date's rate has since changed
+(`reconvertPrices()`, local, no Yahoo call) — every ticker, because a cold one is not fetched again
+for up to a week and would otherwise keep the wrong rate that long. And a rate that comes back
+*behind* — Yahoo lagging, so the newest rate is older than the session before today's — is no longer
+logged as success: it is a `⚠` line in the log, a row in the run-report email and `fxWarnings` in
+`job_runs`, the same as a rate that could not be fetched at all. `recompute-eur.js` reads its rates through the same function.
+
+**The migration — `redate-rates.js`.** The sibling of `redate-prices.js`, with the same shape and the
+same safety rails: `DB_PATH` required, a dry run by default, `--apply` refusing while
+`portfolio-price-fetch.service` is active, a gzipped `.backup()` under `backup-db.sh`'s naming
+(`portfolio.db.pre-redate-rates-<stamp>.gz`), a change log written `"pending"` before the one
+transaction and `"applied"` after it, every row re-read and compared before it is written, and
+`--rollback <changes.json>`. It re-derives what every date should hold from Yahoo through
+`fxRatesFromChart()` and diffs it against the table: an **update** (with the reason — "a day late" or
+"neither neighbouring session's rate"), a **delete** (a day the market is shut, bracketed by
+sessions), an **insert** (a session inside the stored range with no row). A weekday Yahoo has no
+snapshot for is left alone and listed as unverifiable (one row: 2017-11-15); rows after the last
+known rate are left for the job. A correction above 5% is flagged IMPLAUSIBLE and refuses
+`--apply` — no day in this history moved that much, so it would mean a broken reference, not a date.
+
+Then `price_eur`, **only where a date's rate changed**: for every non-euro price the tool looks up
+the rate a reader finds for its date before and after (the same carry-forward as
+`makeRateLookup`), and where the two differ sets `price_eur = price_native × new rate` — nothing else
+about the row moves, so every change is the re-dating. A row that did not equal `price_native × old
+rate` to begin with is corrected too but counted apart in the dry run (seven rows, all 2026-09-11,
+converted at a rate that is not the one stored for that day).
+
+The dry run on a copy of the live database, 2026-09-30 22:15 Lisbon (before #12's migration):
+
+```
+Rates: 1179 update(s), 373 delete(s), 356 insert(s)
+   1157 updated: held the previous session's rate (a day late)
+     22 updated: matches neither neighbouring session's end-of-day rate
+    373 deleted: the FX market is shut (weekend, 25 Dec, 1 Jan)
+    356 inserted: an FX session with no stored rate
+Prices: 9806 price_eur value(s) re-converted, on 1481 date(s) whose rate changed; 16 ticker(s)
+  mean |change| 0.349%; largest META 2020-03-19 €139.6974 -> €143.6849 (+2.85%)
+  ⚠ 7 of them did not equal price_native × their old rate to begin with (2026-09-11)
+Portfolio effect today, user lu***@gmail.com (13 held tickers): total +106.62, all of it the rate re-dating
+```
+
+The largest single correction is a day of March 2020, when EUR/USD itself moved 2–3% a day; the
+portfolio's value today moves by +€106.62, because the newest rate (2026-09-29) was the job's
+09:00 quote rather than that evening's rate. Applied to a second throwaway copy, it left
+`verify-portfolio.js` clean, every non-euro `price_eur` equal to `price_native ×` its date's rate, and
+a second dry run at zero changes; `--rollback` then restored both tables row for row.
+
+```bash
+DB_PATH=/path/to/portfolio.db node redate-rates.js              # dry run (default): report only
+DB_PATH=/path/to/portfolio.db node redate-rates.js --verbose    # ...listing every changed row
+DB_PATH=/path/to/portfolio.db node redate-rates.js --apply
+DB_PATH=/path/to/portfolio.db node redate-rates.js --rollback <changes.json>
+```
+
+**Applying it to the real database is a separate decision**, not something this change does — see
+*Re-dating exchange rates* in `DEPLOYMENT.md`. It restates the euro value of most of history by a
+fraction of a percent, so it wants the same deliberate window and human review #12's migration had.
+
+**Not changed:** the source (still Yahoo; the ECB's fixing would be a different, mid-day rate —
+out of scope here), currencies beyond USD (#8), `server.js`'s `rateOnDate` for imports (it reads the
+table, so it inherits the fix), and `landing-figures.js`, which reads `EURUSD=X` for the landing
+page's charts with the same UTC slice but never writes `exchange_rates` — a follow-up if it matters.
 
 ### ⏳ Open Items / Backlog
 
@@ -2243,6 +2430,17 @@ Also fixed here: `CURRENT_MARKET_VALUE` and `CURRENT_COST_BASIS` were only ever 
 dead for every account since it was written. They now come from the last snapshot, where the
 numbers actually are.
 
+**The same empty state is reached without a reload when the last holding goes (#10).** Deleting
+the last transaction by hand, or undoing an import that emptied the account, used to end in
+`location.reload()` — `refreshPortfolio()` handed back to `startApp()` rather than trusting
+`rebuild()` with nothing in it. The reload threw away whatever had just been written: *"Import
+undone — 2 transactions removed"* vanished inside 150ms. `rebuild()` with no rows *is* the empty
+state above (every renderer checks `n`), so it is now drawn in place and the message stays. A
+failed `/api/snapshots` fetch returns `null`, not `[]`, so a network error leaves the charts as
+they were instead of blanking them. Removing a transaction by hand also says so in the form's
+note — *"Removed: buy 2 MSFT on 30 Sept 2026, 12:00. That was your last transaction, so the
+portfolio is empty."* — rather than only in a toast that is gone in under three seconds.
+
 ### 🧮 Position Timing Signal tab (once named *Algorithm*)
 
 Built from a written specification (2026-09-12). `algorithm.js` holds the rules, all pure
@@ -2472,15 +2670,15 @@ Environment variables in `.env`:
 - `GET /api/auth/me` — Current user info
 - `POST /api/auth/logout` — Destroy session
 - `GET /api/transactions` — List user's transactions
-- `POST /api/transactions` — Add transaction
-- `PUT /api/transactions/:id` — Update transaction
+- `POST /api/transactions` — Add transaction. A non-EUR trade must carry `exchangeRate` (1 unit = ? EUR) and is refused without one; a EUR trade is always stored at 1 (#35)
+- `PUT /api/transactions/:id` — Update transaction (same rate rule)
 - `DELETE /api/transactions/:id` — Remove transaction
 - `GET /api/snapshots` — Computed portfolio value over time (transactions + splits + latest prices)
 - `GET /api/prices` — Latest known price per ticker
 - `GET /api/price-history/:ticker` — Historical prices for one ticker
 - `GET /api/stock-splits` — Known stock splits
 - `POST /api/import/splits` — For each ticker in a file being imported, has Yahoo recorded a split this database has not (read-only; does not bump the cache version)
-- `POST /api/stock-splits` — Record a split named during an import preview, `{ticker, date}` only — the ratio and date always come from Yahoo
+- `POST /api/stock-splits` — Record a split named during an import preview or by *Check my splits*, `{ticker, date, via?}` only — the ratio and date always come from Yahoo; `via: "holdings"` changes only the stored description
 - `GET /api/avg-cost` — Average cost basis per ticker
 - `GET /api/algorithm?ticker=X&period=2y` — Position-timing signal: both lanes for every day, notable runs, tile counts, and today's position-gated call
 - `GET /api/alerts` — List user's price alerts with current prices
@@ -2515,15 +2713,18 @@ after the fetch's own slot. See Monitoring below. `crontab -l` shows both.
 ### 💱 Exchange Rates
 
 The portfolio total is in euros, so every non-euro price must be converted. The daily job fetches
-the live rate for each currency actually held — Yahoo quotes FX as tickers, so `EUR<CUR>=X` gives
-euros-per-unit and the stored multiplier is its inverse — and writes it to `exchange_rates`
-(`from_currency` → `EUR`, one row per day).
+the recent daily rates for each currency actually held — Yahoo quotes FX as tickers, so
+`EUR<CUR>=X` gives units-per-euro and the stored multiplier is its inverse — and writes them to
+`exchange_rates` (`from_currency` → `EUR`, one row per FX session), each **under the session it is the
+closing rate for** (issue #33 — see *A rate's date* above; `backfillRates()` is the only writer).
 
 - Since issue #12, rates are fetched **before** the day's bars, not after: every price now goes
   through `backfillTicker`, which converts each bar with the rate recorded **for that bar's own
   date**, carrying the most recent earlier rate forward (`makeRateLookup` in
-  `backfill-history.js`) — so a same-day completed session (a manual evening run) needs today's
-  rate already sitting in `exchange_rates` before a single price is written.
+  `backfill-history.js`) — so at 09:00 yesterday's close needs yesterday's rate already sitting in
+  `exchange_rates` before a single price is written. Today's own rate does not exist until the
+  next London day starts; a manual evening run carries yesterday's forward and the next run
+  re-converts it, for every ticker (`reconvertPrices()`).
 - If a rate cannot be fetched today, `fetchExchangeRates`'s own log line still says so and shows
   the most recent stored rate rather than a constant from months ago — but that value is no
   longer what prices are written with; `makeRateLookup` reads `exchange_rates` directly and
@@ -2563,6 +2764,8 @@ not compound. It would be the tool to use if a rate source were ever found to be
 price's date* above for what it fixes and how, and `--rollback` for undoing it. Like
 `recompute-eur.js`, it takes a backup before writing, is safe to preview with a dry run first
 (the default), and requiring the module never runs it.
+`redate-rates.js` does the same for the dates of the rates themselves (issue #33), and re-converts
+`price_eur` only on the dates whose rate it changes.
 
 ### 🔭 Monitoring
 

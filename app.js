@@ -1623,6 +1623,7 @@
   function renderTransactionList(){
     var list=document.getElementById("tx-list"), cnt=document.getElementById("tx-count");
     cnt.textContent=transactions.length?"("+transactions.length+")":"";
+    splSyncCard();
     if(!transactions.length){ list.innerHTML='<div class="usempty">None yet. Register one above.</div>'; return; }
     list.innerHTML="";
     transactions.slice().sort(function(a,b){return b.ts-a.ts;}).forEach(function(tx){
@@ -1636,12 +1637,18 @@
         '<button class="ux" title="Delete" aria-label="Delete transaction">×</button></div>'+
         '<div class="us-l2"><span class="um us-tk">'+esc(tx.ticker)+'</span><span class="um">'+tx.quantity+' shares</span><span class="um">'+amtStr+totalStr+'</span></div>';
       row.querySelector(".ux").addEventListener("click",function(){
-        apiFetch("./api/transactions/"+tx.id,{method:"DELETE"}).then(function(){
+        apiFetch("./api/transactions/"+tx.id,{method:"DELETE"}).then(function(r){
+          if(!r.ok) throw new Error("HTTP "+r.status);
           transactions=transactions.filter(function(t){return t.id!==tx.id;});
           renderTransactionList();
-          refreshPortfolio();
+          // Said in the form's own note, where the confirmation of a registration
+          // appears, and before the refresh: a toast is gone in under three seconds.
+          var nt=document.getElementById("tx-note"); nt.className="frm-note ok";
+          nt.textContent="Removed: "+typeLabel.toLowerCase()+" "+tx.quantity+" "+tx.ticker+" on "+stampLabel(tx.ts)+"."
+            +(transactions.length?"":" That was your last transaction, so the portfolio is empty.");
           toast("Transaction removed");
-        });
+          refreshPortfolio();
+        }).catch(function(e){ showError("Could not remove that transaction: "+e.message); });
       });
       list.appendChild(row);
     });
@@ -1689,10 +1696,21 @@
     // deleted, and it outlived the page — so one stale copy went on overriding the tail
     // of the chart on that browser forever. The server recomputes the whole series from
     // the transactions themselves; refreshPortfolio() below just asks it to.
+    // The rate goes with it (#35). It used to be typed, used for amountEUR and then
+    // dropped, so the server stored 1 and the list showed euros with a dollar sign.
     var txRecord={ts:ts, ticker:ticker, quantity:qty, amount:amount, currency:currency, amountEUR:amountEUR, type:txType};
+    if(currency!=="EUR") txRecord.exchangeRate=rate;
     apiFetch("./api/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(txRecord)}).then(function(r){
-      return r.json();
-    }).then(function(d){
+      return r.json().then(function(d){ return {ok:r.ok, d:d}; });
+    }).then(function(res){
+      var d=res.d;
+      // A refusal (bad input, the ticker limit) used to be read as a success: an
+      // undefined transaction was pushed and the note said it had been saved.
+      if(!res.ok || !d || !d.transaction){
+        nt.className="frm-note err";
+        nt.textContent=(d&&d.error)||"The transaction was not saved.";
+        return;
+      }
       transactions.push(d.transaction);
       renderTransactionList();
       refreshPortfolio();
@@ -1787,10 +1805,18 @@
   /** A security is one line in the Securities list: the thing a broker names and this app has to name back. */
   function impSecurityKey(row){ return row.isin || row.rawTicker || row.name || "?"; }
 
+  /* Which read is current (#32). A read that finishes after Cancel, or after a
+     newer file was chosen, must not take the view over: onload used to assign
+     impState unconditionally, so a slow read could reopen a preview the person
+     had closed, or replace the file they picked second with the one they picked
+     first. impReset() and each new read move it on. */
+  var impReadGen=0;
+
   function impReadFile(file){
-    var reader=new FileReader();
-    reader.onerror=function(){ showError("That file could not be read."); };
+    var reader=new FileReader(), gen=++impReadGen;
+    reader.onerror=function(){ if(gen===impReadGen) showError("That file could not be read."); };
     reader.onload=function(){
+      if(gen!==impReadGen) return;
       var text=String(reader.result||"");
       if(!text.trim()){ showError("That file is empty."); return; }
       impState={fileName:file.name, text:text};
@@ -1923,13 +1949,16 @@
     if(!impState) return;
     var st=impState;
     var rows=impResolvedRows();
+    // The same monotonic id impCheckSplits uses (#32): type ticker A and then B,
+    // and A's answer can land last and paint A's deviations under B's rows.
+    var reqId=(st.checksReq=(st.checksReq||0)+1);
     if(!rows.length) return;
     apiFetch("./api/import/check",{
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({rows:rows.map(function(r){ return {line:r.line,ticker:r.ticker,date:r.date,price:r.price}; })})
     })
       .then(function(r){ return r.ok?r.json():null; })
-      .then(function(d){ if(impState===st&&d&&d.checks){ st.checks=d.checks; st.checkThreshold=d.threshold||20; impRender(); } })
+      .then(function(d){ if(impState===st&&st.checksReq===reqId&&d&&d.checks){ st.checks=d.checks; st.checkThreshold=d.threshold||20; impRender(); } })
       .catch(function(){ /* without the check the preview is still usable, just quieter */ });
   }
 
@@ -2258,6 +2287,9 @@
     var st=impState;
     var rows=impResolvedRows();
     if(!rows.length) return;
+    // Taken now, while the preview is still the current state: a Cancel during
+    // the POST below replaces impState, and the ticked splits went with it (#32).
+    var checked=impCheckedSplits();
     var note=impEl("imp-note");
     note.className="frm-note"; note.textContent="Importing…";
     impEl("imp-go").disabled=true;
@@ -2276,18 +2308,12 @@
           return;
         }
         var d=res.d;
-        if(impState!==st){
-          // Cancel ran while this request was in flight. The rows landed
-          // server-side regardless, so the view still needs the same
-          // refresh impFinishImport's own Cancel branch gives it — only the
-          // split recording, which needs the (gone) preview state, is
-          // skipped here.
-          loadTransactions();
-          if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
-          refreshPortfolio();
-          impBackfill(d.newTickers||[], rows);
-          return;
-        }
+        // A Cancel may have run while this request was in flight. The rows
+        // landed server-side regardless, so it is not treated as nothing
+        // happening: impFinishImport records the ticked splits and says what
+        // happened either way (#32) — a holding left short by exactly the
+        // split ratio is the outcome #9 exists to prevent.
+        //
         // A null batchId (every row a duplicate) must never overwrite a real
         // one — that would strand "Undo this import" for rows that did land
         // from an earlier response. It can only happen from a genuine repeat
@@ -2306,7 +2332,7 @@
         // already be there. A failure here does not undo the import — the
         // rows are correct as typed, only the split is missing — so it is
         // reported and offered a retry rather than rolled back.
-        impFinishImport(st, d, parts, rows);
+        impFinishImport(st, d, parts, rows, checked);
       })
       .catch(function(e){
         if(impState===st){
@@ -2316,34 +2342,61 @@
       });
   }
 
-  /** POST /api/stock-splits for one checked event; never throws, resolves to a result either way. */
-  function impRecordOneSplit(sp){
+  /**
+   * POST /api/stock-splits for one checked event; never throws, resolves to a result either way.
+   * `via` is "holdings" from Check my splits (#31); it only changes the description stored.
+   */
+  function impRecordOneSplit(sp, via){
     return apiFetch("./api/stock-splits",{
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({ticker:sp.ticker, date:sp.date})
+      body:JSON.stringify(via?{ticker:sp.ticker, date:sp.date, via:via}:{ticker:sp.ticker, date:sp.date})
     })
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d,sp:sp}; }); })
       .catch(function(e){ return {ok:false,d:{error:e.message},sp:sp}; });
   }
 
   /** One at a time, not in parallel — recordSplit() is a write against a table every account shares. */
-  function impRecordSplits(list){
+  function impRecordSplits(list, via){
     var results=[];
     return list.reduce(function(chain,sp){
-      return chain.then(function(){ return impRecordOneSplit(sp); }).then(function(res){ results.push(res); });
+      return chain.then(function(){ return impRecordOneSplit(sp, via); }).then(function(res){ results.push(res); });
     }, Promise.resolve()).then(function(){ return results; });
   }
 
-  /** Finish the done message with what happened to any split checked in the preview, then reveal it. */
-  function impFinishImport(st, d, parts, rows){
-    var checked=impCheckedSplits();
+  /**
+   * Finish the done message with what happened to any split checked in the
+   * preview, then reveal it.
+   *
+   * `checked` was taken before the import was sent, so a Cancel at any point
+   * after Import was clicked still records what was ticked. If the import
+   * area is empty when this settles (Cancel, nothing opened since), the done
+   * view comes back, saying the Cancel came too late, with Undo on it — the
+   * one thing Cancel was for. If another file is already open, its preview is
+   * left alone and the outcome goes to a toast instead.
+   */
+  function impFinishImport(st, d, parts, rows, checked){
     impRecordSplits(checked).then(function(results){
-      if(impState!==st){   // Cancel ran while the splits were recording; the import view is gone, but the work still happened
+      function refreshAll(){
         loadTransactions();
         if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
         refreshPortfolio();
         impBackfill(d.newTickers||[], rows);
+      }
+      if(impState!==st && impState){
+        var lost=results.filter(function(res){ return !res.ok; });
+        var lostTickers=lost.map(function(res){ return res.sp.ticker; })
+          .filter(function(t,i,a){ return a.indexOf(t)===i; }).join(", ");
+        if(lost.length) showError(d.imported+" imported from "+st.fileName+", but the "+lostTickers
+          +" split"+(lost.length===1?"":"s")+" could not be recorded. Check my splits, beside your transactions, can record "
+          +(lost.length===1?"it":"them")+".");
+        else showSuccess(d.imported+" imported from "+st.fileName
+          +(results.length?", "+(results.length===1?"split":"splits")+" recorded":""));
+        refreshAll();
         return;
+      }
+      if(impState!==st){
+        impState=st;
+        parts.unshift("<b>Cancel came too late to stop this import</b> — the file had already been sent.");
       }
       var failed=[];
       results.forEach(function(res){
@@ -2365,14 +2418,10 @@
       if(retry){ retry.hidden=!failed.length; retry.disabled=false; }
 
       impEl("imp-done-msg").innerHTML=parts.join(" ");
-      impEl("imp-undo").hidden=!d.batchId;
+      impEl("imp-undo").hidden=!st.batchId;
       impShow("done");
       showSuccess(d.imported+" imported");
-
-      loadTransactions();
-      if(typeof loadAndRenderPrices==="function") loadAndRenderPrices();
-      refreshPortfolio();
-      impBackfill(d.newTickers||[], rows);
+      refreshAll();
     });
   }
 
@@ -2384,8 +2433,18 @@
     if(!list.length) return;
     var retryBtn=impEl("imp-splits-retry");
     if(retryBtn) retryBtn.disabled=true;   // one retry in flight at a time; each click is a limiter slot spent
+    // Undo does not replace impState, so `impState===st` alone let a retry that
+    // was still in flight re-show its button and append "still could not be
+    // recorded" after "Import undone" (#32). Undo moves this generation on.
+    var gen=st.retryGen||0;
     impRecordSplits(list).then(function(results){
-      if(impState!==st) return;   // Cancel/"import another"/Undo ran while the retry was in flight; nothing left to report against
+      if(impState!==st||st.retryGen!==gen){
+        // Cancel/"import another"/Undo ran while the retry was in flight; nothing
+        // left to report against. A split that did get recorded still changes
+        // the numbers, so the portfolio is redrawn for it.
+        if(results.some(function(res){ return res.ok; })) refreshPortfolio();
+        return;
+      }
       var stillFailed=[];
       var msg=[];
       results.forEach(function(res){
@@ -2440,6 +2499,7 @@
         if(!res.ok){ showError(res.d.error||"That import could not be undone."); return; }
         if(impState===st){   // Cancel/"import another" ran while the undo was in flight; the overlay is gone but the undo still happened
           st.batchId=null;
+          st.retryGen=(st.retryGen||0)+1;   // a split retry still in flight reports into nothing now
           impEl("imp-done-msg").innerHTML="<b>Import undone.</b> "+res.d.removed+" transaction"
             +(res.d.removed===1?"":"s")+" removed. Any price history that was loaded is kept. "
             +"Any split that was recorded is kept, since it is a fact about the stock, not about this file.";
@@ -2451,10 +2511,6 @@
           if(retry) retry.hidden=true;
         }
         showSuccess(res.d.removed+" removed");
-        // Said before the refresh, not after: undoing an import that took the
-        // portfolio back to empty ends in refreshPortfolio() reloading the page
-        // to hand over to the empty state, and a message written after that call
-        // can be wiped before it is read.
         loadTransactions(); refreshPortfolio();
       })
       .catch(function(e){ showError("Undo failed: "+e.message); });
@@ -2462,6 +2518,7 @@
 
   function impReset(){
     impState=null;
+    impReadGen++;   // a read still in progress belongs to what was just closed
     impEl("imp-file").value="";
     impEl("imp-filename").textContent="";
     impEl("imp-note").textContent="";
@@ -2520,6 +2577,186 @@
       if(sec){ sec.ticker=btn.dataset.impSymbol; sec.source="typed"; impState.checks=null; impRender(); impCheckPrices(); impCheckSplits(); }
     });
   })();
+
+  /* ================= check my splits (#31) =================
+   *
+   * The import's split check (#9) only ever looked at the tickers in the file
+   * being imported, so a holding typed in by hand, or imported before #9, was
+   * never checked. This runs the same check over everything already
+   * registered: the same POST /api/import/splits, fed from `transactions`
+   * rather than a file, and the same POST /api/stock-splits to record — so the
+   * same rules hold, server-side: the ratio and date are Yahoo's, the caller
+   * must hold the ticker from before the split, and only a clean ratio is
+   * recorded. Nothing here is trusted by the server; it only decides what to
+   * offer.
+   */
+  var splState=null;   // {splits, choices, tickers} for the last check shown
+  var splReq=0;
+  var SPL_BATCH=20;    // the server checks at most this many tickers per request (MAX_SPLIT_CHECK_TICKERS)
+  var SPL_ROWS=500;    // ...and reads at most this many rows (MAX_IMPORT_ROWS), dropping the rest
+
+  /** One row per transaction, in the shape the import sends: the price is per share, in the currency paid. */
+  function splRows(){
+    return transactions.map(function(tx){
+      var paid=(tx.currency==="USD"&&tx.exchangeRate)?tx.amount/tx.exchangeRate:tx.amount;
+      return {line:tx.id, ticker:String(tx.ticker||"").toUpperCase(),
+              date:new Date(tx.ts).toISOString().slice(0,10),   // UTC, as the server's "held before" check reads it
+              price:tx.quantity>0?paid/tx.quantity:null};
+    });
+  }
+
+  function splCheck(){
+    var rows=splRows();
+    if(!rows.length) return;
+    // Oldest first: a ticker's oldest trade decides which splits are relevant
+    // at all, so if the server ever has to cut rows it must cut the newest.
+    rows.sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; });
+    var byTicker={};
+    rows.forEach(function(r){ (byTicker[r.ticker]=byTicker[r.ticker]||[]).push(r); });
+    var tickers=Object.keys(byTicker).sort();
+    // Batches that stay inside both server limits, so nothing is dropped silently.
+    var batches=[], cur=[], curRows=0;
+    tickers.forEach(function(t){
+      var n=Math.min(byTicker[t].length,SPL_ROWS);
+      if(cur.length&&(cur.length>=SPL_BATCH||curRows+n>SPL_ROWS)){ batches.push(cur); cur=[]; curRows=0; }
+      cur.push(t); curRows+=n;
+    });
+    if(cur.length) batches.push(cur);
+    var req=++splReq;
+    var btn=impEl("spl-check");
+    btn.disabled=true; btn.textContent="Checking…";
+    splState=null;
+    impEl("spl-actions").hidden=true;
+    impEl("spl-msg").innerHTML="";
+    impEl("spl-list").innerHTML='<div class="imp-split imp-split-checking">Checking '+tickers.length
+      +" ticker"+(tickers.length===1?"":"s")+" against Yahoo…</div>";
+
+    // One batch after another: each request walks its tickers with a pause
+    // between them, because Yahoo is the same source the daily prices come from.
+    var found=[], error=null;
+    batches.reduce(function(chain,batch){
+      return chain.then(function(){
+        if(error) return;
+        return apiFetch("./api/import/splits",{
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({rows:batch.reduce(function(acc,t){ return acc.concat(byTicker[t].slice(0,SPL_ROWS)); },[])})
+        })
+          .then(function(r){ return r.json().catch(function(){ return null; }).then(function(d){ return {ok:r.ok,d:d}; }); })
+          .then(function(res){
+            if(res.ok&&res.d&&res.d.splits) found=found.concat(res.d.splits);
+            else error=(res.d&&res.d.error)||"the server said no";
+          });
+      });
+    }, Promise.resolve())
+      .catch(function(e){ error=e.message||"no connection"; })
+      .then(function(){
+        if(req!==splReq) return;
+        btn.disabled=false; btn.textContent="Check my splits";
+        if(error&&!found.length){
+          impEl("spl-list").innerHTML='<div class="imp-split imp-split-unavail">The split check couldn’t run: '
+            +esc(String(error).replace(/\.$/,""))+". Nothing was changed.</div>";
+          return;
+        }
+        splState={splits:found, choices:{}, tickers:tickers.length, partial:!!error};
+        splRender();
+      });
+  }
+
+  /** The same lines the import preview uses, worded for transactions rather than a file. */
+  function splRender(){
+    var st=splState; if(!st) return;
+    var open=st.splits.filter(function(sp){ return sp.status!=="unavailable"&&!sp.recorded; });
+    var html=st.splits.map(function(sp){
+      if(sp.status==="unavailable") return '<div class="imp-split imp-split-unavail">Could not check '+esc(sp.ticker)+".</div>";
+      if(sp.recorded) return "";
+      if(!sp.clean){
+        return '<div class="imp-split imp-split-info">'+esc(sp.ticker)+": Yahoo's prices are adjusted for a "
+          +esc(sp.numerator)+":"+esc(sp.denominator)+" event on "+esc(sp.date)
+          +", usually a spin-off. It is not a split and is not recorded.</div>";
+      }
+      var key=sp.ticker+"|"+sp.date;
+      if(!(key in st.choices)) st.choices[key]=(sp.evidence==="as-traded");
+      var warn=sp.evidence==="restated"
+        ? "Your "+sp.ticker+" prices already look split-adjusted. Recording this would multiply those transactions again — left unchecked unless you know otherwise."
+        : sp.evidence==="unknown"
+          ? "Could not tell from your prices whether they are as paid or already adjusted — check your broker statement."
+          : "";
+      return '<div class="imp-split">'
+        +'<label><input type="checkbox" data-spl-key="'+esc(key)+'"'+(st.choices[key]?" checked":"")+"> "
+        +esc(sp.ticker)+" split "+esc(sp.numerator)+"-for-"+esc(sp.denominator)+" on "+esc(sp.date)+", not recorded. "
+        +sp.rowsBefore+" of your transactions "+(sp.rowsBefore===1?"is":"are")+" from before it.</label>"
+        +(warn?'<div class="imp-flag">'+esc(warn)+"</div>":"")+"</div>";
+    }).join("");
+    var clean=open.filter(function(sp){ return sp.clean; });
+    impEl("spl-list").innerHTML=html;
+    impEl("spl-actions").hidden=!clean.length;
+    var tail=st.partial?" Some tickers could not be checked this time; run it again later for the rest.":"";
+    var unchecked=st.splits.some(function(sp){ return sp.status==="unavailable"; });
+    if(!clean.length&&!unchecked) impEl("spl-msg").innerHTML="<b>No missing splits.</b> Checked "+st.tickers+" ticker"
+      +(st.tickers===1?"":"s")+" against Yahoo."+tail;
+    else impEl("spl-msg").innerHTML=tail.trim();
+    splSyncRecordButton();
+  }
+
+  function splTicked(){
+    if(!splState) return [];
+    return splState.splits.filter(function(sp){
+      return sp.status!=="unavailable"&&sp.clean&&!sp.recorded&&splState.choices[sp.ticker+"|"+sp.date];
+    });
+  }
+  function splSyncRecordButton(){
+    var n=splTicked().length, b=impEl("spl-record");
+    b.disabled=!n;
+    b.textContent=n>1?"Record "+n+" splits":"Record this split";
+  }
+
+  function splRecord(){
+    var list=splTicked();
+    if(!list.length) return;
+    var st=splState, req=splReq;
+    var btn=impEl("spl-record"), check=impEl("spl-check");
+    btn.disabled=true; check.disabled=true; btn.textContent="Recording…";
+    impRecordSplits(list,"holdings").then(function(results){
+      check.disabled=false;
+      var msg=[], any=false;
+      results.forEach(function(res){
+        var label=esc(res.sp.ticker)+" "+esc(res.sp.numerator)+"-for-"+esc(res.sp.denominator)+" ("+esc(res.sp.date)+")";
+        if(res.ok){
+          any=true; res.sp.recorded=true;
+          msg.push((res.d&&res.d.alreadyRecorded?"Already recorded: ":"Recorded: ")+label+".");
+        } else {
+          msg.push("The "+label+" split could not be recorded: "+esc(String((res.d&&res.d.error)||"an error").replace(/\.$/,""))+".");
+        }
+      });
+      if(any){ refreshPortfolio(); loadStockSplits(); }
+      if(splState!==st||splReq!==req) return;   // a new check started meanwhile; it will draw its own list
+      splRender();
+      impEl("spl-msg").innerHTML=msg.join(" ");
+    });
+  }
+
+  (function wireSplitCheck(){
+    var btn=impEl("spl-check");
+    if(!btn) return;
+    btn.addEventListener("click",splCheck);
+    impEl("spl-record").addEventListener("click",splRecord);
+    impEl("spl-list").addEventListener("change",function(e){
+      var t=e.target;
+      if(splState&&t.dataset&&t.dataset.splKey){ splState.choices[t.dataset.splKey]=t.checked; splSyncRecordButton(); }
+    });
+  })();
+
+  /** Shown only when there is something to check; forgotten when the last transaction goes. */
+  function splSyncCard(){
+    var card=impEl("spl-card");
+    if(!card) return;
+    card.hidden=!transactions.length;
+    if(!transactions.length){
+      splReq++; splState=null;
+      impEl("spl-list").innerHTML=""; impEl("spl-msg").innerHTML=""; impEl("spl-actions").hidden=true;
+      var b=impEl("spl-check"); b.disabled=false; b.textContent="Check my splits";
+    }
+  }
 
   /* ================= watchlist ================= */
   /*
@@ -4195,13 +4432,13 @@
       })
       .then(data => {
         if (!data.snapshots || data.snapshots.length === 0) {
-          // A new account has no transactions yet. That is the normal starting
-          // state, not a failure — showing a red error to someone who has just
-          // signed up is both alarming and unhelpful, so point them at the step
-          // they actually need to take.
+          // No transactions: a new account, or one whose last holding was just
+          // removed. The prompt to add a first transaction is startApp's to show,
+          // not this function's — refreshPortfolio() lands here after a delete,
+          // and a toast from here would talk over the message saying what was
+          // just removed.
           console.info('No snapshots yet — account has no transactions');
           BASE_RAW=[]; CURRENT_MARKET_VALUE=null; CURRENT_COST_BASIS=null;
-          toast('Add your first transaction to start building your portfolio history');
           return [];
         }
 
@@ -4278,22 +4515,25 @@
       .catch(err => {
         console.error('Failed to load snapshots:', err.message);
         showError('Failed to load portfolio data: '+err.message);
-        return [];
+        return null;   // not [] — "could not ask" must not read as "the portfolio is empty"
       });
   }
 
   /* Every series on the page is derived from BASE_RAW, and only /api/snapshots fills
      it. rebuild() on its own therefore redraws the same stale numbers — which is why
      registering or deleting a transaction left the chart a page-reload behind the very
-     list it sits next to. Re-fetch, then rebuild. */
+     list it sits next to. Re-fetch, then rebuild.
+
+     An empty answer is rebuilt in place too (#10). This used to reload the page to
+     reach startApp's empty state, which destroyed whatever message had just been
+     written — "Import undone", "Transaction removed" — before anyone could read it.
+     rebuild() with no rows *is* that empty state: every renderer checks `n` and
+     draws its own zero-axis placeholder, which is exactly what startApp shows a new
+     account. A failed fetch (null) leaves the charts as they were. */
   function refreshPortfolio(){
     JOURNAL=null;   // a trade changed: the journal is stale
     return loadSnapshotsFromAPI().then(function(rows){
-      if(rows && rows.length){ rebuild(); return; }
-      // No snapshots and no transactions means the last holding was just deleted.
-      // rebuild() cannot draw a universe with nothing in it; startApp already handles
-      // that state properly, so hand back to it rather than special-casing every chart.
-      if(!transactions.length) location.reload();
+      if(rows) rebuild();
     });
   }
 
@@ -4620,7 +4860,10 @@
     // Loaded up front rather than when the tab is first opened, because the
     // alert form's stock list is built from holdings *and* the watchlist — open
     // Alerts before Watchlist and the watched stocks would be missing from it.
-    return Promise.all([loadSnapshotsFromAPI(), loadStockSplits(), loadWatchlist()]).then(() => {
+    return Promise.all([loadSnapshotsFromAPI(), loadStockSplits(), loadWatchlist()]).then((res) => {
+      // A new account has no transactions yet. That is the normal starting state,
+      // not a failure — point at the step that is actually needed.
+      if(res[0] && !res[0].length) toast('Add your first transaction to start building your portfolio history');
       rebuild();
       document.getElementById("tx-date").value=todayISO();
       loadTransactions();

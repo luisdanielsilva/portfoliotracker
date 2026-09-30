@@ -307,6 +307,21 @@ test('POST /api/stock-splits refuses a user with no pre-split transaction in tha
   assert.equal(res.status, 409);
 });
 
+test('POST /api/stock-splits with via "holdings" (#31) is held to the same rules as an import', async () => {
+  const s = signIn('viaholdings@example.com');
+  const bad = await fetch(base + '/api/stock-splits', {
+    method: 'POST', headers: s.headers, body: JSON.stringify({ ticker: '../nope', date: '2021-07-20', via: 'holdings' })
+  });
+  assert.equal(bad.status, 400);
+  // a ratio in the body is not a parameter anywhere; the caller holds nothing, so it is refused
+  const res = await fetch(base + '/api/stock-splits', {
+    method: 'POST', headers: s.headers,
+    body: JSON.stringify({ ticker: 'NVDA', date: '2021-07-20', via: 'holdings', ratio: 1000, numerator: 1000, denominator: 1 })
+  });
+  assert.equal(res.status, 409);
+  assert.equal(s.pdb.prepare("SELECT COUNT(*) c FROM stock_splits WHERE ticker = 'NVDA'").get().c, 0);
+});
+
 test('POST /api/stock-splits returns alreadyRecorded without needing Yahoo', async () => {
   const s = signIn('already@example.com');
   storeRate(s.pdb, '2020-01-01', 0.9);

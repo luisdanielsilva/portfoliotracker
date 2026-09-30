@@ -278,6 +278,44 @@ test('a holding registered now is in the very next read of the portfolio', async
 });
 
 /**
+ * #35: the Register form converted a USD trade at the rate typed into it, then sent
+ * no rate, and the server filed the trade at 1 — so the list read "790,50$ × 1".
+ * A non-euro trade now has to say its rate, on the way in and on an edit.
+ */
+test('a trade in dollars keeps the rate it was converted at, and is refused without one', async () => {
+  const s = signIn('usd-rate@example.com');
+  const post = body => fetch(base + '/api/transactions', { method: 'POST', headers: s.headers, body: JSON.stringify(body) });
+  const trade = { ticker: 'UUU', quantity: 2, amount: 200, amountEUR: 176, currency: 'USD', type: 'buy', ts: Date.UTC(2026, 4, 4) };
+  const stored = () => s.pdb.prepare("SELECT currency, exchange_rate FROM transactions WHERE ticker = 'UUU'").all();
+
+  for (const exchangeRate of [undefined, 0, -1, 'abc']) {
+    const res = await post({ ...trade, exchangeRate });
+    assert.strictEqual(res.status, 400, `rate ${exchangeRate} should be refused`);
+    assert.match((await res.json()).error, /exchange rate/);
+  }
+  assert.deepStrictEqual(stored(), [], 'a refused trade stores nothing');
+
+  const ok = await post({ ...trade, exchangeRate: 0.88 });
+  assert.strictEqual(ok.status, 200);
+  const { transaction } = await ok.json();
+  assert.strictEqual(transaction.exchangeRate, 0.88);
+  assert.strictEqual(transaction.amount, 176);
+
+  // An edit without a rate is refused and leaves the row alone.
+  const put = body => fetch(base + '/api/transactions/' + transaction.id, { method: 'PUT', headers: s.headers, body: JSON.stringify(body) });
+  const bad = await put({ ...trade });
+  assert.strictEqual(bad.status, 400);
+  assert.deepStrictEqual(stored(), [{ currency: 'USD', exchange_rate: 0.88 }]);
+  assert.strictEqual((await put({ ...trade, exchangeRate: 0.9 })).status, 200);
+  assert.deepStrictEqual(stored(), [{ currency: 'USD', exchange_rate: 0.9 }]);
+
+  // A euro trade's rate is 1 whatever the body says.
+  const eur = await post({ ticker: 'VVV', quantity: 1, amountEUR: 50, currency: 'EUR', exchangeRate: 0.5, type: 'buy', ts: Date.UTC(2026, 4, 4) });
+  assert.strictEqual((await eur.json()).transaction.exchangeRate, 1);
+  s.idb.close(); s.pdb.close();
+});
+
+/**
  * What the Portfolio tab puts beside the market value.
  *
  * Two defects met here on 2026-09-18, on a portfolio with eleven years of history:

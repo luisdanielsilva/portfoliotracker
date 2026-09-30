@@ -28,6 +28,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const Database = require('better-sqlite3');
 const YahooFinance = require('yahoo-finance2').default;
 const { ensurePriceCurrencyColumns } = require('./db-migrations');
+const { backfillRates, RATE_UPSERT_SQL } = require('./backfill-history');
 
 const dryRun = process.argv.includes('--dry-run');
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'portfolio.db');
@@ -61,16 +62,21 @@ if (require.main !== module) {
   const series = {}; // currency -> { 'YYYY-MM-DD': rateToEur }
 
   for (const currency of currencies) {
-    const chart = await yf.chart(`EUR${currency}=X`, {
-      // a month of lead-in so the earliest price dates have a rate to carry forward
-      period1: new Date(new Date(span.lo).getTime() - 40 * 864e5).toISOString().slice(0, 10),
-      period2: new Date(new Date(span.hi).getTime() + 864e5).toISOString().slice(0, 10),
-      interval: '1d'
+    // The daily job's reading of Yahoo's FX bars, not a second copy of it: each
+    // snapshot filed under the session it is the closing rate for (issue #33).
+    // This loop used to take a UTC slice of each bar's timestamp instead, which
+    // filed every winter (GMT) rate a day late and was right in British summer
+    // time only by accident, Friday's rate landing on Sunday — see
+    // backfill-history.js and README.md → "A rate's date".
+    const { rates } = await backfillRates(db, yf, currency, {
+      // a month of lead-in so the earliest price dates have a rate to carry forward,
+      // and a few days past the end so the last price date's own rate exists
+      from: new Date(new Date(span.lo).getTime() - 40 * 864e5).toISOString().slice(0, 10),
+      to: new Date(new Date(span.hi).getTime() + 5 * 864e5).toISOString().slice(0, 10),
+      dryRun: true // written below, inside the same transaction as the prices
     });
     const byDate = {};
-    for (const q of chart.quotes) {
-      if (q.close) byDate[q.date.toISOString().slice(0, 10)] = 1 / q.close;
-    }
+    for (const r of rates) byDate[r.date] = r.rate;
     series[currency] = { byDate, days: Object.keys(byDate).sort() };
     console.log(`  ${currency}: ${series[currency].days.length} daily rates`);
   }
@@ -93,7 +99,7 @@ if (require.main !== module) {
 
   const updatePrice = db.prepare('UPDATE prices SET price_eur = ? WHERE id = ?');
   // the daily job's statement, not a second copy of it — see RATE_UPSERT_SQL
-  const upsertRate = db.prepare(require('./price-fetch').RATE_UPSERT_SQL);
+  const upsertRate = db.prepare(RATE_UPSERT_SQL);
 
   let changed = 0, unchanged = 0, skipped = 0, biggest = null;
 
@@ -120,7 +126,7 @@ if (require.main !== module) {
     if (!dryRun) {
       for (const currency of currencies) {
         for (const day of series[currency].days) {
-          upsertRate.run(currency, parseFloat(series[currency].byDate[day].toFixed(6)), day);
+          upsertRate.run(currency, series[currency].byDate[day], day);
         }
       }
     }
