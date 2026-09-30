@@ -1632,9 +1632,128 @@ changes. Not something this script, or this repo, does on its own.
 
 **What did not change:** `areMarketsClosedForFetch`'s daily on/off window (redundant now that
 `isBarFinal` does the real work per-bar, but left alone — a cleanup for later); the run-report email
-and the alert digest, both untouched by this issue; and `exchange_rates`, which still stores a rate
+and the alert digest, both untouched by this issue; and `exchange_rates`, which still stored a rate
 under the day it was fetched rather than the day it is a rate *for* — the same class of problem,
-filed separately as a follow-up rather than folded in here.
+filed separately as #33 and fixed in *A rate's date* below.
+
+### 💱 A rate's date — 2026-09-30 (issue #33)
+
+#12 settled that a price is filed under its own trading session and converted at **the rate for
+that date**. That only works if `exchange_rates` row D *is* the rate for D, and it was not. Two
+writers had filed rates by two different rules, neither of them "the date the rate belongs to":
+
+- **The daily job** called `quote('EURUSD=X')` at 09:00 Lisbon and filed the answer under
+  `DATE('now')` — the same clock-dating #12 removed from prices. What it stored was an overnight
+  intraday price, taken some thirteen hours before the US close it would be used to convert.
+- **`recompute-eur.js`** — the source of every row before 2026-09-16 — took Yahoo's daily bars and
+  dated each one with a UTC slice of its timestamp. Yahoo stamps an FX bar at 00:00 **London**, which
+  is 00:00Z in winter and 23:00Z the day before in summer, so the same code filed winter rates under
+  one date and summer rates under the day before.
+
+**What a Yahoo FX bar actually holds.** Measured against Yahoo's own hourly series over 505 days
+(2024-10 → 2026-09): a daily bar's "close" is a snapshot taken at the bar's **start**, not its end.
+It sits 0.035% on average from the day's first hourly open and 0.315% from its last hourly close, and
+is nearer the start on 464 of the 505 days (open and close are usually identical to five decimals).
+So the bar Yahoo labels D+1 is the rate at the turn of D into D+1 — about three hours after the US
+close of D — and it is the rate that belongs with a close on D:
+
+| rate used for a US close on D | mean distance from the hourly rate at 16:00 New York on D |
+|---|---|
+| the bar Yahoo labels D | 0.314% (nearer on 72 of 505 days) |
+| **the bar Yahoo labels D+1** | **0.079%** (nearer on 433) |
+
+**The decision:** a row in `exchange_rates` holds the rate at the **end of the FX session it is dated
+by** — Yahoo's next start-of-day snapshot. The snapshot labelled Tuesday is filed under Monday, the
+one labelled Monday under Friday (FX does not trade at weekends, so Monday's opening price is the
+first after Friday's close), and the one labelled 2 January under 31 December (25 December and 1
+January are the two days the whole market shuts). It is a calendar rule, not "the bar before it":
+Yahoo has the odd weekday with no bar at all although FX traded (2017-07-11, 2019-05-22, Easter
+Monday 2025), and the snapshot after such a gap still ends the missing day, not the one before it.
+Bars stamped anywhere other than 00:00 London — the extra "live" bar Yahoo appends for the current
+day — are intraday quotes and are dropped. See `fxRatesFromChart()` in `backfill-history.js`.
+
+**What the stored rows held**, checked row by row against that rule on a copy of the live database
+(2,977 USD rows, 2015-04-30 → 2026-09-30):
+
+| rows | what they held |
+|---|---|
+| 1,423 | the right rate — almost all of them summer weekdays, where the UTC slice was right by accident |
+| 1,157 | winter weekdays: the **previous** session's rate — a day late |
+| 357 + 3 | Sundays (summer: Friday's rate, which belongs under Friday) and Saturdays |
+| 13 | 25 December / 1 January, when the market is shut |
+| 22 | neither neighbouring session's rate: the job's intraday quotes (2026-09-11 → 09-29) and rows around the Christmas/New Year gaps |
+| 356 | *missing*: 354 summer Fridays, whose rate had been filed under Sunday; 2017-11-16; and 2026-09-15, the day the job died |
+
+Against the same hourly US-close reference, the table as it stood was 0.201% off on average across
+2024-10 → 2026-09; re-dated, it is 0.077%. Against the ECB's reference rate it gets very slightly
+*further* away (0.268% → 0.286% over 2015–2026), as it should: the ECB fixes at 14:15 Frankfurt, the
+middle of the day, and these are now end-of-day rates.
+
+**One writer.** `backfillRates()` in `backfill-history.js` is now the only code that writes
+`exchange_rates`, the same way `backfillTicker()` is for prices, and `RATE_UPSERT_SQL` moved beside
+it (still re-exported from `price-fetch.js`). The daily job no longer calls `quote()`: it rewrites the
+last ~10 days of rates through `backfillRates()` every run (further back if a ticker it is catching up
+needs it), before any price is written, so at 09:00
+yesterday's close finds yesterday's rate already there. The newest rate is always the previous
+session's — today's is not known until the next London day starts — so a manual evening run converts
+today's close at yesterday's rate and the next morning's run rewrites it at its own (both rewrite
+windows cover it). `recompute-eur.js` reads its rates through the same function.
+
+**The migration — `redate-rates.js`.** The sibling of `redate-prices.js`, with the same shape and the
+same safety rails: `DB_PATH` required, a dry run by default, `--apply` refusing while
+`portfolio-price-fetch.service` is active, a gzipped `.backup()` under `backup-db.sh`'s naming
+(`portfolio.db.pre-redate-rates-<stamp>.gz`), a change log written `"pending"` before the one
+transaction and `"applied"` after it, every row re-read and compared before it is written, and
+`--rollback <changes.json>`. It re-derives what every date should hold from Yahoo through
+`fxRatesFromChart()` and diffs it against the table: an **update** (with the reason — "a day late" or
+"neither neighbouring session's rate"), a **delete** (a day the market is shut, bracketed by
+sessions), an **insert** (a session inside the stored range with no row). A weekday Yahoo has no
+snapshot for is left alone and listed as unverifiable (one row: 2017-11-15); rows after the last
+known rate are left for the job. A correction above 5% is flagged IMPLAUSIBLE and refuses
+`--apply` — no day in this history moved that much, so it would mean a broken reference, not a date.
+
+Then `price_eur`, **only where a date's rate changed**: for every non-euro price the tool looks up
+the rate a reader finds for its date before and after (the same carry-forward as
+`makeRateLookup`), and where the two differ sets `price_eur = price_native × new rate` — nothing else
+about the row moves, so every change is the re-dating. A row that did not equal `price_native × old
+rate` to begin with is corrected too but counted apart in the dry run (seven rows, all 2026-09-11,
+converted at a rate that is not the one stored for that day).
+
+The dry run on a copy of the live database, 2026-09-30 22:15 Lisbon (before #12's migration):
+
+```
+Rates: 1179 update(s), 373 delete(s), 356 insert(s)
+   1157 updated: held the previous session's rate (a day late)
+     22 updated: matches neither neighbouring session's end-of-day rate
+    373 deleted: the FX market is shut (weekend, 25 Dec, 1 Jan)
+    356 inserted: an FX session with no stored rate
+Prices: 9806 price_eur value(s) re-converted, on 1481 date(s) whose rate changed; 16 ticker(s)
+  mean |change| 0.349%; largest META 2020-03-19 €139.6974 -> €143.6849 (+2.85%)
+  ⚠ 7 of them did not equal price_native × their old rate to begin with (2026-09-11)
+Portfolio effect today, user lu***@gmail.com (13 held tickers): total +106.62, all of it the rate re-dating
+```
+
+The largest single correction is a day of March 2020, when EUR/USD itself moved 2–3% a day; the
+portfolio's value today moves by +€106.62, because the newest rate (2026-09-29) was the job's
+09:00 quote rather than that evening's rate. Applied to a second throwaway copy, it left
+`verify-portfolio.js` clean, every non-euro `price_eur` equal to `price_native ×` its date's rate, and
+a second dry run at zero changes; `--rollback` then restored both tables row for row.
+
+```bash
+DB_PATH=/path/to/portfolio.db node redate-rates.js              # dry run (default): report only
+DB_PATH=/path/to/portfolio.db node redate-rates.js --verbose    # ...listing every changed row
+DB_PATH=/path/to/portfolio.db node redate-rates.js --apply
+DB_PATH=/path/to/portfolio.db node redate-rates.js --rollback <changes.json>
+```
+
+**Applying it to the real database is a separate decision**, not something this change does — see
+*Re-dating exchange rates* in `DEPLOYMENT.md`. It restates the euro value of most of history by a
+fraction of a percent, so it wants the same deliberate window and human review #12's migration had.
+
+**Not changed:** the source (still Yahoo; the ECB's fixing would be a different, mid-day rate —
+out of scope here), currencies beyond USD (#8), `server.js`'s `rateOnDate` for imports (it reads the
+table, so it inherits the fix), and `landing-figures.js`, which reads `EURUSD=X` for the landing
+page's charts with the same UTC slice but never writes `exchange_rates` — a follow-up if it matters.
 
 ### ⏳ Open Items / Backlog
 
@@ -2474,15 +2593,18 @@ after the fetch's own slot. See Monitoring below. `crontab -l` shows both.
 ### 💱 Exchange Rates
 
 The portfolio total is in euros, so every non-euro price must be converted. The daily job fetches
-the live rate for each currency actually held — Yahoo quotes FX as tickers, so `EUR<CUR>=X` gives
-euros-per-unit and the stored multiplier is its inverse — and writes it to `exchange_rates`
-(`from_currency` → `EUR`, one row per day).
+the recent daily rates for each currency actually held — Yahoo quotes FX as tickers, so
+`EUR<CUR>=X` gives units-per-euro and the stored multiplier is its inverse — and writes them to
+`exchange_rates` (`from_currency` → `EUR`, one row per FX session), each **under the session it is the
+closing rate for** (issue #33 — see *A rate's date* above; `backfillRates()` is the only writer).
 
 - Since issue #12, rates are fetched **before** the day's bars, not after: every price now goes
   through `backfillTicker`, which converts each bar with the rate recorded **for that bar's own
   date**, carrying the most recent earlier rate forward (`makeRateLookup` in
-  `backfill-history.js`) — so a same-day completed session (a manual evening run) needs today's
-  rate already sitting in `exchange_rates` before a single price is written.
+  `backfill-history.js`) — so at 09:00 yesterday's close needs yesterday's rate already sitting in
+  `exchange_rates` before a single price is written. Today's own rate does not exist until the
+  next London day starts; a manual evening run carries yesterday's forward and the next run
+  rewrites it.
 - If a rate cannot be fetched today, `fetchExchangeRates`'s own log line still says so and shows
   the most recent stored rate rather than a constant from months ago — but that value is no
   longer what prices are written with; `makeRateLookup` reads `exchange_rates` directly and
@@ -2522,6 +2644,8 @@ not compound. It would be the tool to use if a rate source were ever found to be
 price's date* above for what it fixes and how, and `--rollback` for undoing it. Like
 `recompute-eur.js`, it takes a backup before writing, is safe to preview with a dry run first
 (the default), and requiring the module never runs it.
+`redate-rates.js` does the same for the dates of the rates themselves (issue #33), and re-converts
+`price_eur` only on the dates whose rate it changes.
 
 ### 🔭 Monitoring
 

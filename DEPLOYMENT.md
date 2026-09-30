@@ -193,6 +193,70 @@ time has passed, ask whoever last ran this rather than trusting the tool's own d
    `portfolio.db-wal`/`portfolio.db-shm`, `cp <backup> portfolio.db`, then `pm2 start portfolio-api` and
    re-enable the timer.
 
+## Re-dating exchange rates (`redate-rates.js`, issue #33)
+
+A one-off, not part of a normal deploy — run only when a human has decided to. See *A rate's date*
+in `README.md` for what it fixes. It restates `price_eur` on most dates in history by a fraction of a
+percent (0.35% on average in the 2026-09-30 dry run; +€106.62 on today's portfolio value), so it
+gets the same care as #12's migration.
+
+1. **#12 first.** Run this after `redate-prices.js` has been applied, not before or alongside it:
+   that migration rewrites `price_eur` from the rates as they stand, and this one then re-converts
+   exactly the dates whose rate it moves. The other order works too, but its dry run would be
+   reviewing numbers #12 is about to replace.
+2. **Deploy the code first**, before the next scheduled price-fetch run, and
+   `pm2 restart portfolio-api` — the old job files a clock-dated intraday quote every morning, which
+   the migration would then have to correct again the next day (a second dry run would show it as
+   one update). The new job writes nothing under today's date at all.
+3. **Pick the window: 22:30–07:30 Lisbon**, never while the 09:00 timer might be running
+   (`systemctl list-timers portfolio-price-fetch.timer`), and look at the unit yourself right before
+   `--apply` — the script's own check is best effort:
+   ```bash
+   systemctl status portfolio-price-fetch.service
+   ```
+   Any night works: the rate for a date is only judged once Yahoo's next start-of-day snapshot
+   exists, and a row newer than that is reported as left for the job, never changed.
+4. **Dry run, and read it**:
+   ```bash
+   cd /var/www/portfoliotracker
+   DB_PATH=/var/www/portfoliotracker/portfolio.db node redate-rates.js             # summary
+   DB_PATH=/var/www/portfoliotracker/portfolio.db node redate-rates.js --verbose   # every row
+   ```
+   Expect, against the 2026-09-30 copy: about 1,179 rate updates (almost all "a day late", winter
+   weekdays), 373 deletes (Sundays, a few Saturdays, 25 Dec / 1 Jan), 356 inserts (summer Fridays),
+   about 9,800 `price_eur` values re-converted, one unverifiable weekday (2017-11-15) and one row
+   left for the job. Stop and ask if:
+   - any line says `IMPLAUSIBLE` (`--apply` refuses anyway — a rate moving more than 5% is a broken
+     reference, not a date);
+   - `Prices:` reports rows that "did not equal price_native × their old rate", on dates other than
+     2026-09-11 — something other than rates has been writing `price_eur`;
+   - the counts are far from the ones above for no reason you can name.
+5. **Apply**:
+   ```bash
+   DB_PATH=/var/www/portfoliotracker/portfolio.db node redate-rates.js --apply
+   ```
+   Backup (`portfolio.db.pre-redate-rates-<stamp>.gz`) and change log
+   (`redate-rates-<stamp>.json`, `"pending"` then `"applied"`) go to `~/backups/portfoliotracker/`;
+   one transaction; bumps `data_version`, so no restart is needed. A `✗✗✗ THE DATABASE WAS MIGRATED`
+   line means the commit happened — do not re-run; go to *Verify*.
+6. **Verify**:
+   ```bash
+   node verify-portfolio.js                                                        # expect exit 0
+   DB_PATH=/var/www/portfoliotracker/portfolio.db node redate-rates.js             # expect 0 / 0 / 0 and 0 prices
+   ```
+   and spot-check one date: `SELECT rate FROM exchange_rates WHERE date = '<a recent Monday>'` should
+   be `1 / close` of Yahoo's `EURUSD=X` bar labelled the Tuesday after.
+7. **Rollback**, if needed:
+   ```bash
+   DB_PATH=/var/www/portfoliotracker/portfolio.db node redate-rates.js --rollback ~/backups/portfoliotracker/redate-rates-<stamp>.json
+   ```
+   Restores both tables row for row (deleted rates come back with their ids and `created_at`), after
+   taking its own backup; refuses if any row no longer holds what the migration wrote. Note that the
+   *code* keeps writing the new dating either way — rolling the data back without the code leaves
+   the last ~10 days re-dated again by the next morning's run. Last resort, as for #12:
+   `./backup-db.sh --restore ~/backups/portfoliotracker/portfolio.db.pre-redate-rates-<stamp>.gz`
+   with the timer stopped and pm2 stopped first.
+
 ---
 
 ## Things that have actually broken here

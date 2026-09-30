@@ -21,6 +21,7 @@ const { ensurePriceCurrencyColumns, ensureAlertCurrency, ensureGainRuleType,
         ensureDropFromHighRuleType, ensureAlgorithmAlertSettings, ensureAlertEventLog,
         ensureDataVersion, ensureWatchlist, recentHigh } = require('./db-migrations');
 const { recordAlertEvent, markDelivery } = require('./alert-log');
+const { RATE_UPSERT_SQL, backfillRates } = require('./backfill-history');
 require('dotenv').config();
 
 // Hardcoded until the database split, which is exactly the kind of thing that
@@ -375,50 +376,40 @@ function renderAlertDigestText(items, standings = []) {
  *
  * Yahoo quotes FX as tickers: EURUSD=X is euros-per-... no — it is how many USD
  * one EUR buys (1.1641). The multiplier this code wants is the inverse.
- */
-
-/**
- * One rate per currency per day, rewritten if the day's rate is fetched again.
  *
- * Exported and shared with recompute-eur.js because there used to be two copies of
- * this statement and they drifted: both set `updated_at`, a column `exchange_rates`
- * has never had — the pre-split database called it that, `schema.sqlite.sql` calls
- * it `created_at`, and the 2026-09-14 split rebuilt the table from the schema.
- * SQLite resolves column names at prepare() time, and this is prepared before the
- * loop that would have fallen back to the last known rate, so the whole job died on
- * 2026-09-16 rather than degrading. The timestamp is simply gone: nothing reads it,
- * and `created_at` on a row that was just rewritten would be a lie.
+ * `RATE_UPSERT_SQL` now lives in backfill-history.js beside the one function that
+ * writes rates, and is re-exported from here for the callers that already import it.
  */
-const RATE_UPSERT_SQL = `
-  INSERT INTO exchange_rates (from_currency, to_currency, rate, date)
-  VALUES (?, 'EUR', ?, ?)
-  ON CONFLICT(from_currency, to_currency, date)
-    DO UPDATE SET rate = excluded.rate
-`;
 
 /**
- * Fetches today's rate for each currency and stores it. The returned `rates`
- * map is no longer consulted to price anything written: since issue #12 every
+ * Stores each currency's recent daily rates, each under the date it is the rate
+ * for. Until issue #33 this called `quote()` and filed whatever it said under
+ * `DATE('now')` — at 09:00 Lisbon an overnight intraday price, filed under a day
+ * whose closes were still hours away. It now goes through `backfillRates`, the same
+ * code recompute-eur.js uses for all of history, over a window of at least ten
+ * days reaching back as far as the oldest close this run will write: the rates for
+ * the days whose closes this run converts, rewritten each run so a rate that
+ * was not known yet on the last run (see backfill-history.js) is filled in on this
+ * one, just as `backfillTicker` rewrites its own window of closes.
+ *
+ * The returned `rates` map (newest rate per currency) is only for the log: every
  * price row goes through `backfillTicker`, which converts each bar with
- * `makeRateLookup` reading straight from `exchange_rates` for the bar's own
- * date (carrying the most recent earlier rate forward, or writing nothing if
- * there is truly no rate at all — "better nothing than a guess"). There used
- * to be a fallback constant here (`FALLBACK_USD_TO_EUR`) for when Yahoo's FX
- * quote failed. It never reached `exchange_rates`, but the old quote path
- * priced rows with `rates[currency]`, so on a day with no rate it did decide
- * `price_eur`. That path is gone and nothing reads `rates` any more, so the
- * constant was removed: a missing rate now means no row rather than a row
- * priced at a guess. The log lines below are the only thing this loop is
- * now for.
+ * `makeRateLookup` reading straight from `exchange_rates` for the bar's own date
+ * (carrying the most recent earlier rate forward, or writing nothing if there is
+ * truly no rate at all — "better nothing than a guess"). There used to be a
+ * fallback constant here (`FALLBACK_USD_TO_EUR`); nothing reads `rates` any more,
+ * so it was removed: a missing rate now means no row rather than a row priced at
+ * a guess.
  */
-async function fetchExchangeRates(yahooFinance, db, currencies) {
+const FX_WINDOW_DAYS = 10;
+
+async function fetchExchangeRates(yahooFinance, db, currencies, now = new Date(), windowDays = FX_WINDOW_DAYS) {
   const rates = { EUR: 1 };
-  const upsert = db.prepare(RATE_UPSERT_SQL);
-  // the same day SQLite itself would have stamped, asked for once rather than per row
-  const today = db.prepare("SELECT DATE('now') AS d").get().d;
+  const from = new Date(now.getTime() - windowDays * 864e5).toISOString().slice(0, 10);
+  const to = new Date(now.getTime() + 864e5).toISOString().slice(0, 10);
   // Falling back to the most recent stored rate beats a constant from months ago.
   const lastKnown = db.prepare(`
-    SELECT rate FROM exchange_rates
+    SELECT rate, date FROM exchange_rates
     WHERE from_currency = ? AND to_currency = 'EUR'
     ORDER BY date DESC LIMIT 1
   `);
@@ -426,19 +417,16 @@ async function fetchExchangeRates(yahooFinance, db, currencies) {
   for (const currency of currencies) {
     if (currency === 'EUR') continue;
     try {
-      const quote = await yahooFinance.quote(`EUR${currency}=X`);
-      const eurPerUnit = quote && quote.regularMarketPrice;
-      if (!eurPerUnit) throw new Error('no rate returned');
-
-      const toEur = parseFloat((1 / eurPerUnit).toFixed(6));
-      rates[currency] = toEur;
-      upsert.run(currency, toEur, today);
-      log(`  💱 1 ${currency} = €${toEur.toFixed(4)}`);
+      const r = await backfillRates(db, yahooFinance, currency, { from, to });
+      if (!r.last) throw new Error('no rate returned');
+      rates[currency] = r.last.rate;
+      log(`  💱 1 ${currency} = €${r.last.rate.toFixed(4)} at the end of ${r.last.date}`
+        + ` (${r.written} day(s) written; ${r.pending}'s is not known until the next day starts)`);
     } catch (err) {
       const prev = lastKnown.get(currency);
       rates[currency] = prev ? prev.rate : null;
       log(`  ⚠ ${currency} rate unavailable (${err.message}); `
-        + (prev ? `last known rate is €${prev.rate.toFixed(4)} (unchanged, not rewritten today)` : 'no rate stored for this currency yet'));
+        + (prev ? `last known rate is €${prev.rate.toFixed(4)} for ${prev.date} (unchanged, not rewritten)` : 'no rate stored for this currency yet'));
     }
     await new Promise(r => setTimeout(r, 150));
   }
@@ -1106,9 +1094,12 @@ async function fetchPrices() {
     ensureDataVersion(db);
 
     // Rates before bars, not after: `backfillTicker` converts each bar at the
-    // rate recorded *for that bar's own date* (see backfill-history.js), so a
-    // same-day completed session (an evening manual run) needs today's rate
-    // already sitting in `exchange_rates` before a single price is written.
+    // rate recorded *for that bar's own date* (see backfill-history.js), so at
+    // 09:00 yesterday's close needs yesterday's rate — the snapshot Yahoo takes
+    // at the start of today — already sitting in `exchange_rates` before a
+    // single price is written. An evening run has no rate for today's own close
+    // yet (it is taken at midnight London, issue #33) and carries yesterday's
+    // forward; the next morning's run rewrites that close at its own rate.
     // The set of currencies to fetch a rate for comes from what these tickers
     // are already stored in — new tickers default to USD, same as before.
     const { backfillTicker } = require('./backfill-history');
@@ -1116,7 +1107,10 @@ async function fetchPrices() {
       'SELECT currency FROM prices WHERE ticker = ? ORDER BY price_date DESC LIMIT 1'
     );
     const neededCurrencies = [...new Set(tickers.map(t => (currencyOfStmt.get(t) || {}).currency || 'USD'))];
-    await fetchExchangeRates(yahooFinance, db, neededCurrencies);
+    // As far back as the furthest price this run will write (a range ticker can be
+    // up to a year behind), so a job that missed days fills their rates too.
+    const fxDays = Math.min(366, Math.max(FX_WINDOW_DAYS, ...plan.range.map(p => p.gap + 3)));
+    await fetchExchangeRates(yahooFinance, db, neededCurrencies, now, fxDays);
 
     // One writer for every ticker: the job and backfill-history.js both go
     // through backfillTicker, so they can never disagree about a price or its

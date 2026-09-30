@@ -92,6 +92,23 @@ function isBarFinal(barDateStr, meta, now, graceMin = DEFAULT_GRACE_MIN) {
   return now.getTime() >= graceEnd;
 }
 
+/**
+ * The rate for `date` from `rows` (`{date, rate}`, sorted by date ascending): the most
+ * recent on or before it, or the earliest one there is for a date before them all.
+ * Pure, so redate-rates.js can ask the same question of a table that does not exist
+ * yet (the one it is about to write) and get the answer `makeRateLookup` will give.
+ */
+function lookupRate(rows, date) {
+  if (!rows.length) return null;
+  let lo = 0, hi = rows.length - 1, best = null;
+  while (lo <= hi) {                         // most recent rate on or before `date`
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].date <= date) { best = rows[mid].rate; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  // before the first recorded rate, fall back to the earliest one we have
+  return best != null ? best : rows[0].rate;
+}
+
 /** USD→EUR (etc.) for a given day, carrying the most recent earlier rate forward. */
 function makeRateLookup(db) {
   const cache = {};
@@ -103,16 +120,135 @@ function makeRateLookup(db) {
         "SELECT date, rate FROM exchange_rates WHERE from_currency = ? AND to_currency = 'EUR' ORDER BY date ASC"
       ).all(currency);
     }
-    const rows = cache[key];
-    if (!rows.length) return null;
-    let lo = 0, hi = rows.length - 1, best = null;
-    while (lo <= hi) {                       // most recent rate on or before `date`
-      const mid = (lo + hi) >> 1;
-      if (rows[mid].date <= date) { best = rows[mid].rate; lo = mid + 1; } else { hi = mid - 1; }
-    }
-    // before the first recorded rate, fall back to the earliest one we have
-    return best != null ? best : rows[0].rate;
+    return lookupRate(cache[key], date);
   };
+}
+
+/* ================= exchange rates: which date a rate belongs to (issue #33) =================
+ * `exchange_rates` row D is the rate a close **on D** is converted at (see `backfillTicker`),
+ * so it has to be the rate at the *end* of D — that is what "the rate for the close's own
+ * date" means.
+ *
+ * Yahoo's daily FX bar is not that, and not what its label suggests either. `EURUSD=X` is
+ * stamped at 00:00 in its own timezone (`meta.exchangeTimezoneName`, Europe/London), and
+ * its "close" is a snapshot taken at that **start**: measured 2026-09-30 against Yahoo's
+ * own hourly series over 505 days, a daily close sits 0.035% on average from the day's
+ * first hourly open and 0.315% from its last hourly close, and is nearer the start on 464
+ * of the 505 days. So the bar Yahoo labels D+1 is the rate at the turn of D into D+1 —
+ * about three hours after the US close of D — and it is the right rate for D: against the
+ * hourly rate at 16:00 New York on D it is off by 0.079% on average, where the bar Yahoo
+ * labels D is off by 0.314%.
+ *
+ * Hence the rule, which every writer of `exchange_rates` now goes through: **each daily
+ * snapshot is filed under the FX session it ends** — the bar labelled Tuesday under Monday,
+ * the bar labelled Monday under Friday. FX sessions are weekdays other than 25 December and
+ * 1 January, the two days the whole market shuts: the snapshot that opens 2 January is the
+ * first price after 31 December's close, and is filed there. It is a calendar rule, not
+ * "the bar before it", on purpose: Yahoo has the odd weekday with no bar at all
+ * (2017-07-11, 2019-05-22, Easter Monday 2025) although FX traded, and the snapshot after
+ * such a gap ends the day that is missing, not the one before it. The newest snapshot has
+ * not been followed by another yet, so the latest date with a rate is always the session
+ * before today's, and a close written before its snapshot exists carries the previous
+ * rate forward until the job's next run rewrites it (the job re-converts its whole ~10-day
+ * window every run).
+ *
+ * Only bars stamped exactly at the start of a day count. Around the current day Yahoo also
+ * returns an extra bar stamped at the time of the request, holding the live price; that
+ * is an intraday quote, the very thing this issue removes, and it is dropped.
+ */
+const FX_TZ = 'Europe/London';
+
+/**
+ * One rate per currency per day, rewritten if the day's rate is fetched again.
+ *
+ * Shared by every writer (the daily job, recompute-eur.js, redate-rates.js), because
+ * there used to be two copies of this statement and they drifted: both set `updated_at`,
+ * a column `exchange_rates` has never had — the pre-split database called it that,
+ * `schema.sqlite.sql` calls it `created_at`, and the 2026-09-14 split rebuilt the table
+ * from the schema. SQLite resolves column names at prepare() time, so the whole job died
+ * on 2026-09-16 rather than degrading. The timestamp is simply gone: nothing reads it,
+ * and `created_at` on a row that was just rewritten would be a lie.
+ */
+const RATE_UPSERT_SQL = `
+  INSERT INTO exchange_rates (from_currency, to_currency, rate, date)
+  VALUES (?, 'EUR', ?, ?)
+  ON CONFLICT(from_currency, to_currency, date)
+    DO UPDATE SET rate = excluded.rate
+`;
+
+/** The Yahoo symbol whose inverse is the multiplier this app wants: `EURUSD=X` is USD per EUR. */
+const fxSymbol = currency => `EUR${currency}=X`;
+
+/** Is `date` exactly 00:00:00 in `tz`? */
+function isDayStart(date, tz) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).format(new Date(date)) === '00:00:00';
+}
+
+/** Is `YYYY-MM-DD` a day the FX market trades: a weekday other than 25 Dec and 1 Jan? */
+function isFxSession(dateStr) {
+  const day = new Date(`${dateStr}T12:00:00Z`).getUTCDay();
+  const md = dateStr.slice(5);
+  return day !== 0 && day !== 6 && md !== '12-25' && md !== '01-01';
+}
+
+/** The FX session before `YYYY-MM-DD`: Monday's is Friday, 2 January's is 31 December. */
+function previousFxSession(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  do d.setUTCDate(d.getUTCDate() - 1); while (!isFxSession(d.toISOString().slice(0, 10)));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * A raw `chart()` response for `EUR<CUR>=X` in, the rows `exchange_rates` should hold out:
+ * `rates` is `[{date, rate}]`, ascending, each rate the multiplier into euros (6 dp, as
+ * it has always been stored) filed under the FX session its snapshot ends — see above.
+ * `pending` is the newest snapshot's own date: the first day whose rate is not known yet.
+ */
+function fxRatesFromChart(chart) {
+  const tz = (chart && chart.meta && chart.meta.exchangeTimezoneName) || FX_TZ;
+  const seen = new Set();
+  const snaps = [];
+  let droppedLive = 0;
+  for (const q of (chart && chart.quotes) || []) {
+    if (!(q.close > 0)) continue;
+    if (!isDayStart(q.date, tz)) { droppedLive++; continue; }
+    const date = tradingDate(q.date, tz);
+    if (seen.has(date)) continue;
+    seen.add(date);
+    snaps.push({ date, close: q.close });
+  }
+  snaps.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  // Ascending, first one wins: should Yahoo carry a bar for a day the market is shut
+  // (a weekend, Christmas), its snapshot is the previous session's close exactly —
+  // better than the one taken after the market reopens.
+  const rates = [];
+  const filed = new Set();
+  for (const s of snaps) {
+    const date = previousFxSession(s.date);
+    if (filed.has(date)) continue;
+    filed.add(date);
+    rates.push({ date, rate: parseFloat((1 / s.close).toFixed(6)) });
+  }
+  return { rates, pending: snaps.length ? snaps[snaps.length - 1].date : null, droppedLive };
+}
+
+/**
+ * Fetch and store the daily rates for one currency between `from` and `to`
+ * (`YYYY-MM-DD`). The one writer of `exchange_rates`: the daily job calls it with a
+ * short window, recompute-eur.js with the whole of history. Returns a summary; throws
+ * if Yahoo does, so the caller decides what a failure means.
+ */
+async function backfillRates(db, yf, currency, { from, to, dryRun = false } = {}) {
+  const chart = await yf.chart(fxSymbol(currency), { period1: from, period2: to, interval: '1d' });
+  const { rates, pending, droppedLive } = fxRatesFromChart(chart);
+  if (!rates.length) return { currency, written: 0, rates, last: null, pending, droppedLive };
+
+  const upsert = db.prepare(RATE_UPSERT_SQL);
+  if (!dryRun) db.transaction(() => { for (const r of rates) upsert.run(currency, r.rate, r.date); })();
+  return { currency, written: rates.length, rates, last: rates[rates.length - 1], pending, droppedLive };
 }
 
 /**
@@ -224,4 +360,5 @@ if (require.main === module) {
   main().catch(err => { console.error('backfill failed:', err.message); process.exit(1); });
 }
 
-module.exports = { backfillTicker, tradingDate, isBarFinal, finalBars, makeRateLookup, DEFAULT_YEARS, DEFAULT_GRACE_MIN };
+module.exports = { backfillTicker, tradingDate, isBarFinal, finalBars, makeRateLookup, lookupRate, DEFAULT_YEARS, DEFAULT_GRACE_MIN,
+  RATE_UPSERT_SQL, FX_TZ, fxSymbol, isDayStart, isFxSession, previousFxSession, fxRatesFromChart, backfillRates };
