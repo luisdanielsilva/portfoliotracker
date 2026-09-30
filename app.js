@@ -1696,10 +1696,21 @@
     // deleted, and it outlived the page — so one stale copy went on overriding the tail
     // of the chart on that browser forever. The server recomputes the whole series from
     // the transactions themselves; refreshPortfolio() below just asks it to.
+    // The rate goes with it (#35). It used to be typed, used for amountEUR and then
+    // dropped, so the server stored 1 and the list showed euros with a dollar sign.
     var txRecord={ts:ts, ticker:ticker, quantity:qty, amount:amount, currency:currency, amountEUR:amountEUR, type:txType};
+    if(currency!=="EUR") txRecord.exchangeRate=rate;
     apiFetch("./api/transactions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(txRecord)}).then(function(r){
-      return r.json();
-    }).then(function(d){
+      return r.json().then(function(d){ return {ok:r.ok, d:d}; });
+    }).then(function(res){
+      var d=res.d;
+      // A refusal (bad input, the ticker limit) used to be read as a success: an
+      // undefined transaction was pushed and the note said it had been saved.
+      if(!res.ok || !d || !d.transaction){
+        nt.className="frm-note err";
+        nt.textContent=(d&&d.error)||"The transaction was not saved.";
+        return;
+      }
       transactions.push(d.transaction);
       renderTransactionList();
       refreshPortfolio();

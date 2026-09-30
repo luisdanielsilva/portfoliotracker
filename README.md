@@ -2498,8 +2498,8 @@ Environment variables in `.env`:
 - `GET /api/auth/me` — Current user info
 - `POST /api/auth/logout` — Destroy session
 - `GET /api/transactions` — List user's transactions
-- `POST /api/transactions` — Add transaction
-- `PUT /api/transactions/:id` — Update transaction
+- `POST /api/transactions` — Add transaction. A non-EUR trade must carry `exchangeRate` (1 unit = ? EUR) and is refused without one; a EUR trade is always stored at 1 (#35)
+- `PUT /api/transactions/:id` — Update transaction (same rate rule)
 - `DELETE /api/transactions/:id` — Remove transaction
 - `GET /api/snapshots` — Computed portfolio value over time (transactions + splits + latest prices)
 - `GET /api/prices` — Latest known price per ticker

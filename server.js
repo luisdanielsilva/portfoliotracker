@@ -836,7 +836,10 @@ app.post('/api/transactions', (req, res) => {
     const amountEUR = positive(tx.amountEUR != null ? tx.amountEUR : tx.amount, 1e12);
     const txType = String(tx.type || 'buy');
     const currency = String(tx.currency || 'EUR').toUpperCase();
-    const rate = positive(tx.exchangeRate != null ? tx.exchangeRate : 1, 1e6);
+    // A euro trade's rate is 1 by definition. Any other currency must say what it was
+    // converted at: defaulting to 1 stored dollars as euros for every trade the form
+    // sent without one (#35).
+    const rate = currency === 'EUR' ? 1 : positive(tx.exchangeRate, 1e6);
     const ts = num(tx.ts);
 
     if (!TICKER_RE.test(ticker)) return res.status(400).json({ error: 'Ticker must be 1-12 characters: letters, digits, dot or dash.' });
@@ -844,7 +847,7 @@ app.post('/api/transactions', (req, res) => {
     if (amountEUR === null) return res.status(400).json({ error: 'Amount must be a positive number.' });
     if (!TX_TYPES.has(txType)) return res.status(400).json({ error: "Type must be 'buy' or 'sell'." });
     if (!/^[A-Z]{3}$/.test(currency)) return res.status(400).json({ error: 'Currency must be a three-letter code.' });
-    if (rate === null) return res.status(400).json({ error: 'Exchange rate must be a positive number.' });
+    if (rate === null) return res.status(400).json({ error: `A trade in ${currency} needs the exchange rate it was made at (1 ${currency} = ? EUR), as a positive number.` });
     // A date far in the past or the future is a typo, not a trade — and it stretches
     // every chart to fit it. Two days of slack covers time zones and the form's 12:00.
     if (ts === null || ts < MIN_TX_TS || ts > Date.now() + 2 * 864e5) {
@@ -918,6 +921,10 @@ app.put('/api/transactions/:id', (req, res) => {
     if (!checkStmt.get(req.params.id, req.userId)) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
+    // Same rule as the POST (#35): no silent rate of 1 for a non-euro trade.
+    const currency = String(tx.currency || 'EUR').toUpperCase();
+    const rate = currency === 'EUR' ? 1 : positive(tx.exchangeRate, 1e6);
+    if (rate === null) return res.status(400).json({ error: `A trade in ${currency} needs the exchange rate it was made at (1 ${currency} = ? EUR), as a positive number.` });
 
     const updateStmt = db.prepare(`
       UPDATE transactions
@@ -929,8 +936,8 @@ app.put('/api/transactions/:id', (req, res) => {
       tx.ticker,
       tx.quantity,
       tx.amountEUR || tx.amount,
-      tx.currency || 'EUR',
-      tx.exchangeRate || 1.0,
+      currency,
+      rate,
       tx.type || 'buy',
       tx.ts,
       req.params.id,
