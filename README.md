@@ -2202,6 +2202,17 @@ Also fixed here: `CURRENT_MARKET_VALUE` and `CURRENT_COST_BASIS` were only ever 
 dead for every account since it was written. They now come from the last snapshot, where the
 numbers actually are.
 
+**The same empty state is reached without a reload when the last holding goes (#10).** Deleting
+the last transaction by hand, or undoing an import that emptied the account, used to end in
+`location.reload()` — `refreshPortfolio()` handed back to `startApp()` rather than trusting
+`rebuild()` with nothing in it. The reload threw away whatever had just been written: *"Import
+undone — 2 transactions removed"* vanished inside 150ms. `rebuild()` with no rows *is* the empty
+state above (every renderer checks `n`), so it is now drawn in place and the message stays. A
+failed `/api/snapshots` fetch returns `null`, not `[]`, so a network error leaves the charts as
+they were instead of blanking them. Removing a transaction by hand also says so in the form's
+note — *"Removed: buy 2 MSFT on 30 Sept 2026, 12:00. That was your last transaction, so the
+portfolio is empty."* — rather than only in a toast that is gone in under three seconds.
+
 ### 🧮 Position Timing Signal tab (once named *Algorithm*)
 
 Built from a written specification (2026-09-12). `algorithm.js` holds the rules, all pure

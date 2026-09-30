@@ -1636,12 +1636,18 @@
         '<button class="ux" title="Delete" aria-label="Delete transaction">×</button></div>'+
         '<div class="us-l2"><span class="um us-tk">'+esc(tx.ticker)+'</span><span class="um">'+tx.quantity+' shares</span><span class="um">'+amtStr+totalStr+'</span></div>';
       row.querySelector(".ux").addEventListener("click",function(){
-        apiFetch("./api/transactions/"+tx.id,{method:"DELETE"}).then(function(){
+        apiFetch("./api/transactions/"+tx.id,{method:"DELETE"}).then(function(r){
+          if(!r.ok) throw new Error("HTTP "+r.status);
           transactions=transactions.filter(function(t){return t.id!==tx.id;});
           renderTransactionList();
-          refreshPortfolio();
+          // Said in the form's own note, where the confirmation of a registration
+          // appears, and before the refresh: a toast is gone in under three seconds.
+          var nt=document.getElementById("tx-note"); nt.className="frm-note ok";
+          nt.textContent="Removed: "+typeLabel.toLowerCase()+" "+tx.quantity+" "+tx.ticker+" on "+stampLabel(tx.ts)+"."
+            +(transactions.length?"":" That was your last transaction, so the portfolio is empty.");
           toast("Transaction removed");
-        });
+          refreshPortfolio();
+        }).catch(function(e){ showError("Could not remove that transaction: "+e.message); });
       });
       list.appendChild(row);
     });
@@ -2451,10 +2457,6 @@
           if(retry) retry.hidden=true;
         }
         showSuccess(res.d.removed+" removed");
-        // Said before the refresh, not after: undoing an import that took the
-        // portfolio back to empty ends in refreshPortfolio() reloading the page
-        // to hand over to the empty state, and a message written after that call
-        // can be wiped before it is read.
         loadTransactions(); refreshPortfolio();
       })
       .catch(function(e){ showError("Undo failed: "+e.message); });
@@ -4195,13 +4197,13 @@
       })
       .then(data => {
         if (!data.snapshots || data.snapshots.length === 0) {
-          // A new account has no transactions yet. That is the normal starting
-          // state, not a failure — showing a red error to someone who has just
-          // signed up is both alarming and unhelpful, so point them at the step
-          // they actually need to take.
+          // No transactions: a new account, or one whose last holding was just
+          // removed. The prompt to add a first transaction is startApp's to show,
+          // not this function's — refreshPortfolio() lands here after a delete,
+          // and a toast from here would talk over the message saying what was
+          // just removed.
           console.info('No snapshots yet — account has no transactions');
           BASE_RAW=[]; CURRENT_MARKET_VALUE=null; CURRENT_COST_BASIS=null;
-          toast('Add your first transaction to start building your portfolio history');
           return [];
         }
 
@@ -4278,22 +4280,25 @@
       .catch(err => {
         console.error('Failed to load snapshots:', err.message);
         showError('Failed to load portfolio data: '+err.message);
-        return [];
+        return null;   // not [] — "could not ask" must not read as "the portfolio is empty"
       });
   }
 
   /* Every series on the page is derived from BASE_RAW, and only /api/snapshots fills
      it. rebuild() on its own therefore redraws the same stale numbers — which is why
      registering or deleting a transaction left the chart a page-reload behind the very
-     list it sits next to. Re-fetch, then rebuild. */
+     list it sits next to. Re-fetch, then rebuild.
+
+     An empty answer is rebuilt in place too (#10). This used to reload the page to
+     reach startApp's empty state, which destroyed whatever message had just been
+     written — "Import undone", "Transaction removed" — before anyone could read it.
+     rebuild() with no rows *is* that empty state: every renderer checks `n` and
+     draws its own zero-axis placeholder, which is exactly what startApp shows a new
+     account. A failed fetch (null) leaves the charts as they were. */
   function refreshPortfolio(){
     JOURNAL=null;   // a trade changed: the journal is stale
     return loadSnapshotsFromAPI().then(function(rows){
-      if(rows && rows.length){ rebuild(); return; }
-      // No snapshots and no transactions means the last holding was just deleted.
-      // rebuild() cannot draw a universe with nothing in it; startApp already handles
-      // that state properly, so hand back to it rather than special-casing every chart.
-      if(!transactions.length) location.reload();
+      if(rows) rebuild();
     });
   }
 
@@ -4620,7 +4625,10 @@
     // Loaded up front rather than when the tab is first opened, because the
     // alert form's stock list is built from holdings *and* the watchlist — open
     // Alerts before Watchlist and the watched stocks would be missing from it.
-    return Promise.all([loadSnapshotsFromAPI(), loadStockSplits(), loadWatchlist()]).then(() => {
+    return Promise.all([loadSnapshotsFromAPI(), loadStockSplits(), loadWatchlist()]).then((res) => {
+      // A new account has no transactions yet. That is the normal starting state,
+      // not a failure — point at the step that is actually needed.
+      if(res[0] && !res[0].length) toast('Add your first transaction to start building your portfolio history');
       rebuild();
       document.getElementById("tx-date").value=todayISO();
       loadTransactions();
