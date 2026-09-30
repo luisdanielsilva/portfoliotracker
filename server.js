@@ -274,7 +274,9 @@ const PUBLIC_FILES = {
   // The CSV reader runs in the browser, which is the point of it: a broker
   // statement is parsed on the reader's own machine and only the rows they
   // confirm are ever sent here.
-  '/csv-import.js': 'csv-import.js'
+  '/csv-import.js': 'csv-import.js',
+  // The picture a chat or social site shows when the link is pasted (#21).
+  '/og-image.png': 'og-image.png'
 };
 app.get(Object.keys(PUBLIC_FILES), (req, res) => {
   res.sendFile(path.join(__dirname, PUBLIC_FILES[req.path]));

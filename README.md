@@ -201,7 +201,7 @@ left is marked at the end of this section.
 
 | # | Severity | Finding |
 |---|---|---|
-| 18 | Low | Signing in is registration: anyone with the URL can create an account. `noindex` keeps it out of search but is not a gate. Deliberate for now; an invite code or email allow-list is the fix if it ever matters. |
+| 18 | Low | Signing in is registration: anyone can create an account. **Decided 2026-09-30: it stays open** (#16), with the per-account limits as the ceiling — see *Who this is for* under settled decisions. |
 
 **Cleared 2026-09-12:** the row `verify-portfolio.js` had been flagging — 1,984 AAPL for
 €0.13, dated 1994, entered by a test sign-in on 2026-09-10 — was deleted at the owner's
@@ -1877,7 +1877,7 @@ landing page's charts; that was #36, below.
 
 ### ⏳ Open Items / Backlog
 
-**Support address is a gmail one — change it when the new domain is in place.** The app already
+**~~Support address is a gmail one~~ — decided 2026-09-30: it stays (#18).** Kept for reference. The app already
 *sends* from `singleuseapps.com` (`ALERT_EMAIL_FROM`, `AUTH_EMAIL_FROM` in `.env`); what is still
 a personal gmail is the address a reader is *given* to write to, and the inbox that receives.
 Six places publish it and two `.env` keys point at it:
@@ -2084,7 +2084,9 @@ the real client rather than on nginx.
    version counter, so an entry is served only while nothing has been written. `/api/algorithm`
    has the same treatment per ticker.
 4. **Open registration** remains open, and remains the multiplier: every authenticated limit
-   above assumes getting an account is meaningful, and right now signing in *is* registering.
+   above assumes getting an account is meaningful, and signing in *is* registering. **Decided
+   2026-09-30 (#16): it stays open on purpose.** The cost of one more account is measured under
+   *Who this is for*, in the settled decisions.
 
 
 **Donations — widget built 2026-09-14, NOT yet able to take money.**
@@ -2292,10 +2294,8 @@ card claimed a placeholder address until 2026-09-11; the copy was simply stale.)
 *(Historical euro values were recomputed from real per-date FX on 2026-09-09 — see
 Exchange Rates below. No longer an open item.)*
 
-**Open registration:**
-- `noindex` keeps the site out of search results, but **signing in is registration** — anyone with
-  the URL can create an account. Gate with an invite code or an email allow-list if that ever
-  matters.
+**Open registration:** decided 2026-09-30 — stays open, and the site is indexed. See *Who this is
+for* under settled decisions.
 
 **Not planned for now:**
 - AI-powered transaction import from screenshots/PDFs — a placeholder UI/endpoint was built then
@@ -2370,14 +2370,48 @@ restore procedure are in DEPLOYMENT.md.
   about someone's holdings to be pointed at an address they have not proved they own.
 - The EUR/USD toggle on the portfolio chart **stays**. Portfolio value defaults to euros; the
   toggle is an explicit user action, not a default display.
-- **The site stays out of search results while in development** (2026-09-09). All three public
-  pages — `index.html`, `privacy.html`, `terms.html` — carry `noindex, nofollow`. A `robots.txt`
-  would not help: it is only honoured at the domain root, which this app does not control, so the
-  per-page meta tag is the mechanism. It does not block access, so Google's OAuth review still
-  fetches the policy pages fine.
-- **Not yet decided:** `noindex` hides the app from search, but anyone with the URL can still
-  create an account, since signing in *is* registration. If unwanted visitors ever become a
-  concern, gate it with an invite code or an allow-list of emails.
+- **Who this is for: other people. Decided 2026-09-30 — a public tool.** That one answer
+  settled five issues that were waiting on it:
+  - **Being found (#21).** `index.html` no longer carries `noindex`. It names its canonical
+    address, `https://www.singleuseapps.com/portfoliotracker/` (the bare domain and the
+    no-slash path both 301 there), and carries Open Graph and Twitter-card tags so a pasted
+    link shows a title, a line and a picture. The picture is `og-image.png`, served from
+    `PUBLIC_FILES`: the hero rendered at 1200×630 with the quote, the buttons and the fourth
+    stat card hidden. It quotes the hero's fixed historical windows, so it does not go stale
+    when `landing-figures.js` regenerates; re-render it if the hero's copy changes. A test
+    holds the page to all of this. `privacy.html` and `terms.html` keep `noindex`: nobody
+    needs to find them by search, and it does not stop anyone following a link to them. There
+    is no `robots.txt` or sitemap: the domain root belongs to nginx, not this app, and a
+    missing `robots.txt` means "crawl everything".
+  - **The address stays `/portfoliotracker/` (#3 closed).** It was settled before indexing on
+    purpose, since moving after being indexed costs the rankings it earned.
+  - **Registration stays fully open (#16).** No cap on accounts, no waiting list, no invite
+    codes: signing in is registering, and the ceiling is what each account may cost. What one
+    more account costs, measured on 2026-09-30 (6 accounts, 21 priced tickers, database 5.7 MB):
+    - **Price fetching is per ticker, not per account.** The 09:00 job fetched 17 tickers in
+      ~10 s, about 0.6 s and one Yahoo request each. An account holding only tickers someone
+      else already holds costs nothing here. At the 50-ticker cap, an account of entirely new
+      tickers adds at most 50 requests and ~30 s a night.
+    - **Storage:** ~253 price rows per ticker per year, ~210 bytes each with indexes (5.7 MB /
+      26,904 rows), so ~53 KB per new ticker per year. A first backfill of up to 5 years is
+      ~1,265 rows, ~270 KB. Worst case for one account, 50 new tickers: ~13 MB up front and
+      ~2.7 MB a year. Backfill is limited to 20 an hour per IP.
+    - **Email:** normally at most one alert digest a day, plus login links. Per recipient,
+      logins are capped at 10 a day and alerts at 5; across everything, the ceiling is 10
+      messages per registered user per day (`mailguard.js`). Actual volume over the last 14
+      days was about one message a day for all six accounts.
+    - **CPU:** `/api/snapshots` costs ~48 ms per rebuild (measured 2026-09-13) and is cached per user per data
+      version, so an idle account costs nothing. Roughly 20 uncached rebuilds a second would
+      stall the site for everyone (*Load and denial of service*); the per-IP and edge limits
+      are what stand in front of that.
+    - **Not measured here:** the mail provider's plan quota. If Resend's daily allowance is
+      lower than 10 × accounts, that is the real ceiling, and it should be checked as the
+      account count grows.
+  - **The support address stays the gmail (#18 closed).** The app sends from
+    `singleuseapps.com`, and readers write to the published gmail. The owner decided that is
+    fine for a public tool, so the Privacy Policy and Terms are unchanged.
+  - **Donations go live when Stripe is activated (#17, open).** The owner activates the account;
+    then the live keys go into both widgets and one real payment is taken and refunded.
 
 
 ### ✅ After importing real data

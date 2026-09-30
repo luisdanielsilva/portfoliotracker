@@ -70,6 +70,25 @@ test('the four public files are served', async () => {
   }
 });
 
+/**
+ * #21: the landing page is public and meant to be found. It must not tell search
+ * engines to go away, must name the one address the others redirect to, and the
+ * preview image it names must be one this server actually serves.
+ */
+test('the landing page can be indexed and shared', async () => {
+  const html = await (await fetch(base + '/')).text();
+  assert.doesNotMatch(html, /<meta name="robots"[^>]*noindex/, 'the landing page must be indexable');
+  assert.match(html, /<link rel="canonical" href="https:\/\/www\.singleuseapps\.com\/portfoliotracker\/">/);
+  const image = html.match(/<meta property="og:image" content="https:\/\/www\.singleuseapps\.com\/portfoliotracker(\/[^"]+)">/);
+  assert.ok(image, 'og:image names an absolute URL under the canonical path');
+  const res = await fetch(base + image[1]);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/png');
+  const png = Buffer.from(await res.arrayBuffer());
+  assert.equal(png.readUInt32BE(16), 1200, 'og:image is 1200 wide');
+  assert.equal(png.readUInt32BE(20), 630, 'og:image is 630 high');
+});
+
 test('the API refuses an unauthenticated request', async () => {
   for (const p of ['/api/snapshots', '/api/transactions', '/api/alerts', '/api/avg-cost',
                    '/api/algorithm?ticker=TSLA', '/api/algorithm/settings']) {
